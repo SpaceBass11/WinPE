@@ -5,6 +5,13 @@
 .DESCRIPTION
     Generic Windows image deployment tool for WinPE environments.
     Automatically discovers WIM files and safely deploys to target disks.
+    To speed up discovery, provide -ImagePath or -WimFile to skip drive scanning.
+.PARAMETER ImagePath
+    Path to search for image files. Limits scanning to the specified directory
+    and avoids enumerating all attached drives.
+.PARAMETER WimFile
+    Path to a specific WIM or ESD image file. When specified, the image is used
+    directly without any drive scanning.
 .VERSION
     4.0 - Generic Universal Version
 #>
@@ -169,15 +176,17 @@ function Find-ImageFiles {
         return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
     }
     
-    # Auto-discovery across all drives
+    # Auto-discovery across all non-system drives (specify -ImagePath or -WimFile to skip scanning)
     Write-Log "Starting auto-discovery of image files..." -Level Info
     $allImages = @()
-    
+
     try {
-        $drives = Get-WmiObject -Class Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 }
-        
+        # Enumerate all filesystem drives except the current system drive
+        $drives = Get-PSDrive -PSProvider FileSystem |
+                  Where-Object { "$($_.Name):" -ne $env:SystemDrive }
+
         foreach ($drive in $drives) {
-            $driveLetter = $drive.DeviceID
+            $driveLetter = "$($drive.Name):"
             Write-Log "Scanning drive $driveLetter..." -Level Info
             
             # Search common image directories
@@ -208,23 +217,27 @@ function Search-DirectoryForImages {
     param(
         [string]$Path,
         [string]$Source,
-        [bool]$Recurse = $true
+        [bool]$Recurse = $true,
+        [int]$Depth = 2
     )
-    
+
+    # Search for image files with limited recursion depth
     $images = @()
     
     try {
         foreach ($extension in $Script:Config.ImageExtensions) {
             $searchParams = @{
-                Path = $Path
-                Filter = $extension
+                Path        = $Path
+                Filter      = $extension
+                File        = $true
                 ErrorAction = 'SilentlyContinue'
             }
-            
+
             if ($Recurse) {
                 $searchParams.Recurse = $true
+                $searchParams.Depth   = $Depth
             }
-            
+
             $files = Get-ChildItem @searchParams
             
             foreach ($file in $files) {
