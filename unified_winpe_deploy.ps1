@@ -13,7 +13,7 @@
     Path to a specific WIM or ESD image file. When specified, the image is used
     directly without any drive scanning.
 .VERSION
-    4.0 - Generic Universal Version
+    4.1 - Generic Universal Version
 #>
 
 [CmdletBinding()]
