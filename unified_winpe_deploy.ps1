@@ -110,15 +110,24 @@ function Show-MessageBox {
     
     if (-not ([System.Management.Automation.PSTypeName]'System.Windows.Forms.MessageBox').Type) {
         Write-Log $Message -Level Warning
+        # Console fallback for YesNo dialogs
+        if ($Buttons -eq 'YesNo') {
+            $answer = Read-Host "Enter Y for Yes or N for No"
+            return $(if ($answer -match '^[Yy]') { 'Yes' } else { 'No' })
+        }
         return 'OK'
     }
-    
+
     try {
         $buttonType = [System.Windows.Forms.MessageBoxButtons]::$Buttons
         $iconType = [System.Windows.Forms.MessageBoxIcon]::$Icon
         return [System.Windows.Forms.MessageBox]::Show($Message, $Title, $buttonType, $iconType)
     } catch {
         Write-Log $Message -Level Warning
+        if ($Buttons -eq 'YesNo') {
+            $answer = Read-Host "Enter Y for Yes or N for No"
+            return $(if ($answer -match '^[Yy]') { 'Yes' } else { 'No' })
+        }
         return 'OK'
     }
 }
@@ -136,7 +145,7 @@ function Initialize-SystemPaths {
     }
     
     # Set temp directory with fallbacks
-    $tempCandidates = @($env:TEMP, 'X:\Windows\Temp', 'C:\Temp', 'X:\Temp')
+    $tempCandidates = @($env:TEMP, 'X:\Windows\Temp', 'X:\Temp', 'C:\Temp')
     foreach ($tempPath in $tempCandidates) {
         if ($tempPath) {
             try {
@@ -497,6 +506,15 @@ function Select-TargetDisk {
         if (-not $selectedDisk) {
             Write-Log "Specified target disk $TargetDisk not found" -Level Error
         } elseif ($Force) {
+            # -Force skips DELETE ALL DATA but NEVER skips system disk protection
+            if ($selectedDisk.IsSystemDisk) {
+                Write-Log "DANGER: -Force cannot bypass system disk protection!" -Level Error
+                $confirm = Read-Host "Type 'DESTROY SYSTEM' to confirm system disk wipe"
+                if ($confirm -ne 'DESTROY SYSTEM') {
+                    Write-Log "System disk wipe cancelled" -Level Warning
+                    return $null
+                }
+            }
             Write-Log "Using specified target disk $TargetDisk with -Force (skipping confirmation)" -Level Warning
             return $selectedDisk
         } else {
@@ -570,7 +588,7 @@ function Get-WimImageInfo {
     Write-Log "Reading image indexes from $(Split-Path -Leaf $WimPath)..." -Level Info
 
     try {
-        $output = & dism.exe /Get-WimInfo /WimFile:"$WimPath" 2>&1
+        $output = & dism.exe /Get-WimInfo /WimFile:"$WimPath" /English 2>&1
         $indexes = @()
         $currentIndex = $null
 
@@ -659,8 +677,12 @@ function New-DiskpartScript {
     $lettersToFree = @('S', 'C')
     foreach ($letter in $lettersToFree) {
         if (Test-Path "$($letter):\" ) {
+            # NEVER unmount the current system drive
+            if ("$($letter):" -eq $env:SystemDrive) {
+                Write-Log "Cannot release $($letter): - it is the current system drive. Diskpart will reassign." -Level Warning
+                continue
+            }
             Write-Log "Drive letter $($letter): is in use - releasing before partitioning" -Level Warning
-            # Use mountvol to remove the drive letter assignment
             try {
                 & mountvol "$($letter):" /d 2>$null
             } catch {
@@ -824,6 +846,18 @@ function Start-Deployment {
     if (-not (New-DiskpartScript -DiskNumber $targetDisk.Number)) { return $false }
     if (-not (Invoke-Diskpart)) { return $false }
 
+    # Verify diskpart created expected drive letters
+    Start-Sleep -Seconds 2  # Brief pause for PnP mount manager
+    if (-not (Test-Path 'S:\')) {
+        Write-Log "Diskpart completed but S: (EFI partition) is not available" -Level Error
+        return $false
+    }
+    if (-not (Test-Path 'C:\')) {
+        Write-Log "Diskpart completed but C: (Windows partition) is not available" -Level Error
+        return $false
+    }
+    Write-Log "Partition verification passed: S: and C: available" -Level Success
+
     # Apply image
     if (-not (Apply-WindowsImage -WimPath $selectedImage.Path -TargetPath 'C:\' -ImageIndex $imageIndex)) {
         Write-Log "" -Level Error
@@ -870,7 +904,7 @@ function Start-Deployment {
         $result = Show-MessageBox -Message "Deployment completed successfully!`n`nShutdown the system now?" -Title "Success" -Buttons "YesNo" -Icon "Information"
         if ($result -eq 'Yes') {
             Write-Log "Shutting down system..." -Level Info
-            Stop-Computer -Force
+            & shutdown.exe /s /t 5 /c "WinPE deployment complete"
         }
     }
     
