@@ -29,7 +29,6 @@ param(
 # Load required assemblies
 try {
     Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
 } catch {
     Write-Warning "Could not load Windows Forms - dialog boxes will not be available"
 }
@@ -542,6 +541,15 @@ function Select-TargetDisk {
         } else {
             Write-Log "Pre-selected target disk: $TargetDisk (use -Force to skip confirmation)" -Level Info
             Show-DiskMenu -Disks @($selectedDisk)
+            # System disk requires DESTROY SYSTEM even with -TargetDisk
+            if ($selectedDisk.IsSystemDisk) {
+                Write-Log "DANGER: Specified disk $TargetDisk is the system disk!" -Level Error
+                $sysConfirm = Read-Host "Type 'DESTROY SYSTEM' to confirm system disk wipe"
+                if ($sysConfirm -ne 'DESTROY SYSTEM') {
+                    Write-Log "System disk wipe cancelled" -Level Warning
+                    return $null
+                }
+            }
             Write-Host ""
             $finalConfirm = Read-Host "Type 'DELETE ALL DATA' to proceed with Disk $TargetDisk"
             if ($finalConfirm -eq 'DELETE ALL DATA') {
@@ -862,27 +870,56 @@ function Start-Deployment {
     Write-Log "Image: $($selectedImage.Name)" -Level Info
     Write-Log "Target: Disk $($targetDisk.Number) - $($targetDisk.Model)" -Level Info
 
-    # Validate disk size (EFI 300MB + MSR 16MB + overhead ~1GB minimum beyond image)
-    $imageSizeGB = [Math]::Round($selectedImage.Size / 1GB, 2)
-    $minRequiredGB = $imageSizeGB + 1.5
+    # Validate disk size using uncompressed image size when available
+    $estimatedSizeGB = [Math]::Round($selectedImage.Size / 1GB, 2)
+    $sizeSource = "compressed WIM"
+    # Use uncompressed size from DISM if available for the selected index
+    $selectedWimInfo = $wimIndexes | Where-Object { $_.Index -eq $imageIndex }
+    if ($selectedWimInfo -and $selectedWimInfo.Size) {
+        try {
+            # Parse DISM size strings like "14,632,927,856 bytes" or "14 632 927 856"
+            $sizeStr = $selectedWimInfo.Size -replace '[^\d]', ''
+            if ($sizeStr) {
+                $uncompressedGB = [Math]::Round([double]$sizeStr / 1GB, 2)
+                if ($uncompressedGB -gt $estimatedSizeGB) {
+                    $estimatedSizeGB = $uncompressedGB
+                    $sizeSource = "uncompressed"
+                }
+            }
+        } catch {
+            Write-Log "Could not parse uncompressed size - using compressed WIM size" -Level Warning
+        }
+    }
+    # EFI 300MB + MSR 16MB + overhead ~1.5GB
+    $minRequiredGB = $estimatedSizeGB + 1.5
     if ($targetDisk.Size -lt $minRequiredGB) {
-        Write-Log "Target disk too small! Disk: $($targetDisk.Size) GB, Image needs ~$minRequiredGB GB minimum" -Level Error
+        Write-Log "Target disk too small! Disk: $($targetDisk.Size) GB, Image needs ~$minRequiredGB GB minimum ($sizeSource)" -Level Error
         return $false
     }
-    Write-Log "Disk size check passed: $($targetDisk.Size) GB available, ~$imageSizeGB GB image" -Level Success
+    Write-Log "Disk size check passed: $($targetDisk.Size) GB available, ~$estimatedSizeGB GB image ($sizeSource)" -Level Success
 
     # Partition disk
     if (-not (New-DiskpartScript -DiskNumber $targetDisk.Number)) { return $false }
     if (-not (Invoke-Diskpart)) { return $false }
 
-    # Verify diskpart created expected drive letters
-    Start-Sleep -Seconds 2  # Brief pause for PnP mount manager
-    if (-not (Test-Path 'S:\')) {
-        Write-Log "Diskpart completed but S: (EFI partition) is not available" -Level Error
-        return $false
+    # Verify diskpart created expected drive letters (retry for slow PnP mount manager)
+    $maxRetries = 3
+    $verified = $false
+    for ($retry = 1; $retry -le $maxRetries; $retry++) {
+        Start-Sleep -Seconds 2
+        if ((Test-Path 'S:\') -and (Test-Path 'C:\')) {
+            $verified = $true
+            break
+        }
+        Write-Log "Waiting for drive letters to appear (attempt $retry/$maxRetries)..." -Level Warning
     }
-    if (-not (Test-Path 'C:\')) {
-        Write-Log "Diskpart completed but C: (Windows partition) is not available" -Level Error
+    if (-not $verified) {
+        if (-not (Test-Path 'S:\')) {
+            Write-Log "Diskpart completed but S: (EFI partition) is not available" -Level Error
+        }
+        if (-not (Test-Path 'C:\')) {
+            Write-Log "Diskpart completed but C: (Windows partition) is not available" -Level Error
+        }
         return $false
     }
     Write-Log "Partition verification passed: S: and C: available" -Level Success
@@ -896,6 +933,7 @@ function Start-Deployment {
         Write-Log "    1. Re-run this script to try again (disk will be re-partitioned)" -Level Info
         Write-Log "    2. Manually run: dism /apply-image /imagefile:`"$($selectedImage.Path)`" /index:$imageIndex /applydir:C:\" -Level Info
         Write-Log "    3. Check the image file is not corrupted" -Level Info
+        Write-Log "    4. Verify system has 8+ GB RAM (DISM can fail with insufficient memory)" -Level Info
         return $false
     }
 
