@@ -70,7 +70,7 @@ Discovers and displays all available images, then exits without deploying.
 
 | Function | Purpose |
 |----------|---------|
-| `Get-SystemDisks` | Enumerates fixed (non-USB) disks via WMI |
+| `Get-SystemDisks` | Enumerates fixed (non-USB) disks via WMI, logs skipped USB drives |
 | `Show-DiskMenu` | Color-coded disk selection display |
 | `Select-TargetDisk` | Interactive disk picker with safety confirmations |
 
@@ -103,7 +103,7 @@ Located at the top of the script in `$Script:Config`:
 ```powershell
 $Script:Config = @{
     MinimumMemoryGB    = 8          # Warn below this
-    ScriptVersion      = '4.2'     # Display version
+    ScriptVersion      = '4.2.2'   # Display version
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths        = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions    = @('*.wim', '*.esd')

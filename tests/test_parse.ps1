@@ -59,12 +59,13 @@ Write-Result -Test "Balanced #region/#endregion" -Pass ($regions -eq $endregions
 
 # Test 5: Required functions exist
 $requiredFunctions = @(
-    'Write-Log', 'Write-Banner', 'Test-Administrator', 'Initialize-SystemPaths',
-    'Find-ImageFiles', 'Search-DirectoryForImages', 'Show-ImageSelection',
-    'Test-WinPEEnvironment', 'Test-SystemMemory', 'Get-SystemDisks',
-    'Show-DiskMenu', 'Select-TargetDisk', 'Get-WimImageInfo', 'Select-ImageIndex',
-    'New-DiskpartScript', 'Invoke-Diskpart', 'Apply-WindowsImage',
-    'Set-BootConfiguration', 'Start-Deployment'
+    'Write-Log', 'Write-Banner', 'Test-Administrator', 'Show-MessageBox',
+    'Initialize-SystemPaths', 'Find-ImageFiles', 'Search-DirectoryForImages',
+    'Show-ImageSelection', 'Test-WinPEEnvironment', 'Test-SystemMemory',
+    'Get-SystemDisks', 'Show-DiskMenu', 'Select-TargetDisk',
+    'Get-WimImageInfo', 'Select-ImageIndex', 'New-DiskpartScript',
+    'Invoke-Diskpart', 'Apply-WindowsImage', 'Set-BootConfiguration',
+    'Start-Deployment'
 )
 foreach ($func in $requiredFunctions) {
     $found = $content -match "function\s+$func\b"

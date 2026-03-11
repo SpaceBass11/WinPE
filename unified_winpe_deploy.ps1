@@ -13,7 +13,7 @@
     Path to a specific WIM or ESD image file. When specified, the image is used
     directly without any drive scanning.
 .VERSION
-    4.2 - Hardened Universal Version
+    4.2.2 - Mastered Universal Version
 #>
 
 [CmdletBinding()]
@@ -37,7 +37,7 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.2'
+    ScriptVersion = '4.2.2'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')
@@ -413,8 +413,14 @@ function Get-SystemDisks {
     
     try {
         $disks = @()
-        $wmiDisks = Get-WmiObject -Class Win32_DiskDrive -ErrorAction Stop | Where-Object { 
-            $_.MediaType -like "*fixed*" -and $_.InterfaceType -ne 'USB' 
+        $allWmiDisks = Get-WmiObject -Class Win32_DiskDrive -ErrorAction Stop
+        # Log skipped USB disks for transparency
+        $usbDisks = $allWmiDisks | Where-Object { $_.InterfaceType -eq 'USB' }
+        foreach ($usbDisk in $usbDisks) {
+            Write-Log "Skipping USB disk $($usbDisk.Index): $($usbDisk.Model) (USB drives excluded for safety)" -Level Info
+        }
+        $wmiDisks = $allWmiDisks | Where-Object {
+            $_.MediaType -like "*fixed*" -and $_.InterfaceType -ne 'USB'
         }
         
         foreach ($wmiDisk in $wmiDisks) {
@@ -441,9 +447,25 @@ function Get-SystemDisks {
                 IsSystemDisk = $false
             }
             
-            # Basic system disk detection
-            if ($diskNumber -eq 0 -and $env:SystemDrive -ne 'X:') {
-                $disk.IsSystemDisk = $true
+            # System disk detection: check if any partition on this disk hosts the system drive
+            if ($env:SystemDrive -ne 'X:') {
+                try {
+                    $diskPartitions = Get-WmiObject -Class Win32_DiskPartition -ErrorAction SilentlyContinue |
+                        Where-Object { $_.DiskIndex -eq $diskNumber }
+                    foreach ($part in $diskPartitions) {
+                        $logicalDisks = Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='$($part.DeviceID)'} WHERE AssocClass=Win32_LogicalDiskToPartition" -ErrorAction SilentlyContinue
+                        foreach ($ld in $logicalDisks) {
+                            if ("$($ld.DeviceID)" -eq $env:SystemDrive) {
+                                $disk.IsSystemDisk = $true
+                            }
+                        }
+                    }
+                } catch {
+                    # Fallback: assume disk 0 is system disk when not in WinPE
+                    if ($diskNumber -eq 0) {
+                        $disk.IsSystemDisk = $true
+                    }
+                }
             }
             
             $disks += $disk
@@ -633,6 +655,13 @@ function Select-ImageIndex {
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
     Write-Host "AVAILABLE WINDOWS EDITIONS".PadLeft(50) -ForegroundColor $Script:Colors.Header
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+
+    # Warn about ESD recovery indexes
+    if ($WimPath -match '\.esd$') {
+        Write-Host ""
+        Write-Host "  NOTE: ESD files may contain recovery indexes (typically 1-3)." -ForegroundColor $Script:Colors.Warning
+        Write-Host "  Choose the Windows edition you want, not a recovery image." -ForegroundColor $Script:Colors.Warning
+    }
 
     foreach ($idx in $Indexes) {
         Write-Host ""
