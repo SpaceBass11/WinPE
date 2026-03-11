@@ -20,16 +20,21 @@ Direct path to a specific image file. Bypasses all discovery logic.
 ```
 
 ### -TargetDisk [int]
-Disk number to deploy to. Bypasses interactive disk selection. Use `diskpart` >
-`list disk` to find disk numbers.
+Disk number to deploy to. Pre-selects the disk but still requires typed "DELETE ALL DATA"
+confirmation unless combined with `-Force`. Use `diskpart` > `list disk` to find disk numbers.
 
 ```powershell
-.\unified_winpe_deploy.ps1 -TargetDisk 0
+.\unified_winpe_deploy.ps1 -TargetDisk 0            # still asks for confirmation
+.\unified_winpe_deploy.ps1 -TargetDisk 0 -Force      # skips confirmation (automation)
 ```
 
+### -Force [switch]
+Skips the "DELETE ALL DATA" confirmation when used with `-TargetDisk`. Without this flag,
+`-TargetDisk` pre-selects the disk but still requires typed confirmation.
+
 ### -Silent [switch]
-Suppresses all interactive prompts. Warnings are logged but don't block execution.
-Useful for fully automated deployments when combined with `-WimFile` and `-TargetDisk`.
+Suppresses non-destructive interactive prompts (memory warnings, shutdown dialog).
+Does NOT bypass disk destruction confirmations (use `-Force` for that).
 
 ### -ListOnly [switch]
 Discovers and displays all available images, then exits without deploying.
@@ -49,7 +54,7 @@ Discovers and displays all available images, then exits without deploying.
 
 | Function | Purpose |
 |----------|---------|
-| `Initialize-SystemPaths` | Sets script directory, temp directory, diskpart script path |
+| `Initialize-SystemPaths` | Sets script directory, temp directory, diskpart script path, log file |
 | `Find-ImageFiles` | Main image discovery orchestrator |
 | `Search-DirectoryForImages` | Scans a directory for .wim/.esd files |
 | `Show-ImageSelection` | Interactive TUI image picker |
@@ -58,7 +63,7 @@ Discovers and displays all available images, then exits without deploying.
 
 | Function | Purpose |
 |----------|---------|
-| `Test-WinPEEnvironment` | Detects if running in WinPE (X: drive, computer name) |
+| `Test-WinPEEnvironment` | Validates WinPE environment, blocks non-WinPE unless confirmed |
 | `Test-SystemMemory` | Validates 8GB+ RAM with warning dialog |
 
 ### Disk Management
@@ -69,11 +74,18 @@ Discovers and displays all available images, then exits without deploying.
 | `Show-DiskMenu` | Color-coded disk selection display |
 | `Select-TargetDisk` | Interactive disk picker with safety confirmations |
 
+### Image Index Selection
+
+| Function | Purpose |
+|----------|---------|
+| `Get-WimImageInfo` | Reads WIM indexes (editions) via DISM /Get-WimInfo |
+| `Select-ImageIndex` | Interactive edition picker for multi-index WIMs |
+
 ### Image Deployment
 
 | Function | Purpose |
 |----------|---------|
-| `New-DiskpartScript` | Generates GPT partition script |
+| `New-DiskpartScript` | Generates GPT partition script, frees C:/S: drive letters |
 | `Invoke-Diskpart` | Executes diskpart with generated script |
 | `Apply-WindowsImage` | Runs DISM /apply-image |
 | `Set-BootConfiguration` | Runs bcdboot.exe for UEFI |
@@ -91,7 +103,7 @@ Located at the top of the script in `$Script:Config`:
 ```powershell
 $Script:Config = @{
     MinimumMemoryGB    = 8          # Warn below this
-    ScriptVersion      = '4.1'     # Display version
+    ScriptVersion      = '4.2'     # Display version
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths        = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions    = @('*.wim', '*.esd')
@@ -129,7 +141,21 @@ Disk (GPT)
 ## Safety Chain
 
 ```
-Admin check → WinPE detection → Memory check → Disk selection
-                                                    ├── System disk? → Type "DESTROY SYSTEM"
-                                                    └── Final confirm → Type "DELETE ALL DATA"
+Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
+           → Image selection → Edition selection
+           → Memory check → Disk selection
+                              ├── System disk? → Type "DESTROY SYSTEM"
+                              ├── -TargetDisk without -Force → Type "DELETE ALL DATA"
+                              └── Final confirm → Type "DELETE ALL DATA"
+           → Disk size validation
+           → Diskpart (frees C:/S: first) → DISM (inline progress)
+           → Post-deploy verification (C:\Windows, C:\Windows\System32)
+           → Boot config → Success
 ```
+
+## Log File
+
+A timestamped log file is created in the temp directory:
+`deploy_YYYYMMDD_HHMMSS.log`
+
+All `Write-Log` messages are appended with `[timestamp] [level] message` format.

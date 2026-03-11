@@ -62,9 +62,9 @@ $requiredFunctions = @(
     'Write-Log', 'Write-Banner', 'Test-Administrator', 'Initialize-SystemPaths',
     'Find-ImageFiles', 'Search-DirectoryForImages', 'Show-ImageSelection',
     'Test-WinPEEnvironment', 'Test-SystemMemory', 'Get-SystemDisks',
-    'Show-DiskMenu', 'Select-TargetDisk', 'New-DiskpartScript',
-    'Invoke-Diskpart', 'Apply-WindowsImage', 'Set-BootConfiguration',
-    'Start-Deployment'
+    'Show-DiskMenu', 'Select-TargetDisk', 'Get-WimImageInfo', 'Select-ImageIndex',
+    'New-DiskpartScript', 'Invoke-Diskpart', 'Apply-WindowsImage',
+    'Set-BootConfiguration', 'Start-Deployment'
 )
 foreach ($func in $requiredFunctions) {
     $found = $content -match "function\s+$func\b"

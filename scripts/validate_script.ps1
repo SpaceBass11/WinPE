@@ -70,9 +70,13 @@ Write-Check -Category "Safety" -Test "DESTROY SYSTEM confirmation" -Result $(if 
 Write-Check -Category "Safety" -Test "USB drives excluded" -Result $(if ($content -match "InterfaceType\s+-ne\s+'USB'") { 'PASS' } else { 'WARN' }) -Detail "Get-SystemDisks should filter USB"
 Write-Check -Category "Safety" -Test "Memory validation" -Result $(if ($content -match 'function\s+Test-SystemMemory') { 'PASS' } else { 'FAIL' })
 Write-Check -Category "Safety" -Test "WinPE environment check" -Result $(if ($content -match 'function\s+Test-WinPEEnvironment') { 'PASS' } else { 'FAIL' })
+Write-Check -Category "Safety" -Test "WinPE check blocks non-WinPE" -Result $(if ($content -match 'Test-WinPEEnvironment' -and $content -match 'CONTINUE ANYWAY') { 'PASS' } else { 'WARN' }) -Detail "Test-WinPEEnvironment should require confirmation outside WinPE"
+Write-Check -Category "Safety" -Test "-Force parameter exists" -Result $(if ($content -match '\[switch\]\$Force') { 'PASS' } else { 'WARN' }) -Detail "-TargetDisk should require -Force to skip confirmation"
+Write-Check -Category "Safety" -Test "Drive letter cleanup before diskpart" -Result $(if ($content -match 'mountvol.*\/d') { 'PASS' } else { 'WARN' }) -Detail "Free C: and S: before diskpart assign"
+Write-Check -Category "Safety" -Test "Post-deployment verification" -Result $(if ($content -match 'Verifying deployment' -and $content -match "C:\\Windows\\System32") { 'PASS' } else { 'WARN' }) -Detail "Verify C:\\Windows exists after DISM"
+Write-Check -Category "Safety" -Test "Disk size validation" -Result $(if ($content -match 'Target disk too small') { 'PASS' } else { 'WARN' }) -Detail "Check disk can fit image"
 
 # Check if -Silent + -TargetDisk bypasses confirmations
-$silentBypass = $content -match 'if\s*\(\$Silent\)' -and $content -notmatch 'Silent.*DELETE ALL DATA'
 Write-Check -Category "Safety" -Test "-Silent cannot bypass disk confirmation" -Result $(if ($content -match "DELETE ALL DATA" -and $content -notmatch 'Silent.*DELETE\s+ALL') { 'PASS' } else { 'WARN' }) -Detail "Verify -Silent + -TargetDisk still requires confirmation"
 
 # ── DEPLOYMENT LOGIC ──
@@ -95,6 +99,8 @@ Write-Check -Category "Errors" -Test "DISM exit code checked" -Result $(if ($con
 Write-Check -Category "Errors" -Test "BCDBoot exit code checked" -Result $(if ($content -match 'Set-BootConfiguration' -and $content -match 'ExitCode') { 'PASS' } else { 'FAIL' })
 Write-Check -Category "Errors" -Test "Main try/catch with exit 1" -Result $(if ($content -match 'try\s*\{[\s\S]*Start-Deployment[\s\S]*catch[\s\S]*exit 1') { 'PASS' } else { 'WARN' })
 Write-Check -Category "Errors" -Test "Temp file cleanup" -Result $(if ($content -match 'Remove-Item.*DiskpartScript') { 'PASS' } else { 'WARN' })
+Write-Check -Category "Errors" -Test "Recovery guidance on DISM failure" -Result $(if ($content -match 'RECOVERY GUIDANCE') { 'PASS' } else { 'WARN' })
+Write-Check -Category "Errors" -Test "Log file support" -Result $(if ($content -match 'LogFile' -and $content -match 'Add-Content.*LogFile') { 'PASS' } else { 'WARN' })
 
 # ── IMAGE DISCOVERY ──
 Write-Host "`n[IMAGE DISCOVERY]" -ForegroundColor Magenta
@@ -104,6 +110,7 @@ Write-Check -Category "Discovery" -Test "Auto-discovery scan" -Result $(if ($con
 Write-Check -Category "Discovery" -Test "System drive excluded from scan" -Result $(if ($content -match 'SystemDrive') { 'PASS' } else { 'WARN' })
 Write-Check -Category "Discovery" -Test "File size filter (>100MB)" -Result $(if ($content -match '100MB') { 'PASS' } else { 'WARN' })
 Write-Check -Category "Discovery" -Test "Recursion depth limited" -Result $(if ($content -match 'Depth') { 'PASS' } else { 'WARN' })
+Write-Check -Category "Discovery" -Test "WIM index selection" -Result $(if ($content -match 'function\s+Select-ImageIndex' -and $content -match 'function\s+Get-WimImageInfo') { 'PASS' } else { 'WARN' }) -Detail "Multi-edition WIM support"
 
 # ── SUMMARY ──
 Write-Host "`n================================================================" -ForegroundColor Cyan
