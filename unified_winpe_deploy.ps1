@@ -170,6 +170,8 @@ function Initialize-SystemPaths {
     $logName = "deploy_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
     $Script:SystemPaths.LogFile = Join-Path $Script:SystemPaths.TempDir $logName
 
+    # Log file is now available - log session header
+    Write-Log "=== WinPE Deploy v$($Script:Config.ScriptVersion) - Session Start ===" -Level Header
     Write-Log "Script directory: $($Script:SystemPaths.ScriptDir)" -Level Success
     Write-Log "Temp directory: $($Script:SystemPaths.TempDir)" -Level Success
     Write-Log "Log file: $($Script:SystemPaths.LogFile)" -Level Info
@@ -651,6 +653,13 @@ function Select-ImageIndex {
 
     if ($Indexes.Count -eq 0) {
         Write-Log "Could not enumerate WIM indexes - defaulting to index 1" -Level Warning
+        Write-Log "If using an ESD file, index 1 may be a recovery image, not Windows" -Level Warning
+        if (-not $Silent) {
+            $confirm = Read-Host "Continue with index 1? (Y/N)"
+            if ($confirm -notmatch '^[Yy]') {
+                return $null
+            }
+        }
         return 1
     }
 
@@ -920,6 +929,7 @@ function Start-Deployment {
         if (-not (Test-Path 'C:\')) {
             Write-Log "Diskpart completed but C: (Windows partition) is not available" -Level Error
         }
+        Write-Log "Try: mountvol S: /d and mountvol C: /d to free letters, then re-run" -Level Info
         return $false
     }
     Write-Log "Partition verification passed: S: and C: available" -Level Success
@@ -991,4 +1001,9 @@ try {
         Read-Host "Press Enter to exit"
     }
     exit 1
+} finally {
+    # Always clean up diskpart script (even on failure)
+    if ($Script:SystemPaths.DiskpartScript -and (Test-Path $Script:SystemPaths.DiskpartScript -ErrorAction SilentlyContinue)) {
+        Remove-Item -Path $Script:SystemPaths.DiskpartScript -Force -ErrorAction SilentlyContinue
+    }
 }
