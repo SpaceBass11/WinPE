@@ -75,6 +75,10 @@ Write-Check -Category "Safety" -Test "-Force parameter exists" -Result $(if ($co
 Write-Check -Category "Safety" -Test "Drive letter cleanup before diskpart" -Result $(if ($content -match 'mountvol.*\/d') { 'PASS' } else { 'WARN' }) -Detail "Free C: and S: before diskpart assign"
 Write-Check -Category "Safety" -Test "Post-deployment verification" -Result $(if ($content -match 'Verifying deployment' -and $content -match "C:\\Windows\\System32") { 'PASS' } else { 'WARN' }) -Detail "Verify C:\\Windows exists after DISM"
 Write-Check -Category "Safety" -Test "Disk size validation" -Result $(if ($content -match 'Target disk too small') { 'PASS' } else { 'WARN' }) -Detail "Check disk can fit image"
+Write-Check -Category "Safety" -Test "-Force never bypasses DESTROY SYSTEM" -Result $(if ($content -match 'Force.*DESTROY SYSTEM|DESTROY SYSTEM.*Force' -or ($content -match '\$Force' -and $content -match 'IsSystemDisk.*DESTROY SYSTEM')) { 'PASS' } else { 'WARN' }) -Detail "-Force + system disk must still require DESTROY SYSTEM"
+Write-Check -Category "Safety" -Test "System drive protected from mountvol" -Result $(if ($content -match 'SystemDrive.*continue|SystemDrive.*mountvol') { 'PASS' } else { 'WARN' }) -Detail "mountvol /d must check \$env:SystemDrive"
+Write-Check -Category "Safety" -Test "Post-diskpart verification" -Result $(if ($content -match "Test-Path\s+'S:\\'.*Test-Path\s+'C:\\\'" -or ($content -match "Test-Path\s+'S:\\\'" -and $content -match "Test-Path\s+'C:\\\'" -and $content -match 'Partition verification')) { 'PASS' } else { 'WARN' }) -Detail "Verify S: and C: exist after diskpart"
+Write-Check -Category "Safety" -Test "USB disk skip logging" -Result $(if ($content -match 'Skipping USB disk') { 'PASS' } else { 'WARN' }) -Detail "Log when USB disks are excluded"
 
 # Check if -Silent + -TargetDisk bypasses confirmations
 Write-Check -Category "Safety" -Test "-Silent cannot bypass disk confirmation" -Result $(if ($content -match "DELETE ALL DATA" -and $content -notmatch 'Silent.*DELETE\s+ALL') { 'PASS' } else { 'WARN' }) -Detail "Verify -Silent + -TargetDisk still requires confirmation"
@@ -90,7 +94,11 @@ Write-Check -Category "Deploy" -Test "Diskpart: Primary letter C:" -Result $(if 
 
 Write-Check -Category "Deploy" -Test "DISM /apply-image used" -Result $(if ($content -match '/apply-image') { 'PASS' } else { 'FAIL' })
 Write-Check -Category "Deploy" -Test "DISM target is C:\" -Result $(if ($content -match "TargetPath.*'C:\\'") { 'PASS' } else { 'WARN' }) -Detail "Verify DISM applies to C:\"
+Write-Check -Category "Deploy" -Test "DISM /English for locale safety" -Result $(if ($content -match '/English') { 'PASS' } else { 'WARN' }) -Detail "DISM /Get-WimInfo should use /English"
+Write-Check -Category "Deploy" -Test "DISM inline progress (-NoNewWindow)" -Result $(if ($content -match 'NoNewWindow') { 'PASS' } else { 'WARN' }) -Detail "DISM should show progress inline"
 Write-Check -Category "Deploy" -Test "bcdboot C:\Windows /s S: /f UEFI" -Result $(if ($content -match "bcdboot" -and $content -match '/s.*S:' -and $content -match '/f.*UEFI') { 'PASS' } else { 'FAIL' })
+Write-Check -Category "Deploy" -Test "shutdown.exe (not Stop-Computer)" -Result $(if ($content -match 'shutdown\.exe' -and $content -notmatch 'Stop-Computer') { 'PASS' } else { 'WARN' }) -Detail "WinPE: use shutdown.exe for reliability"
+Write-Check -Category "Deploy" -Test "ESD recovery index warning" -Result $(if ($content -match '\.esd.*recovery|recovery.*\.esd') { 'PASS' } else { 'WARN' }) -Detail "Warn users about ESD recovery indexes"
 
 # ── ERROR HANDLING ──
 Write-Host "`n[ERROR HANDLING]" -ForegroundColor Magenta
