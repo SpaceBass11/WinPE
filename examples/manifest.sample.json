@@ -1,0 +1,21 @@
+{
+  "tasks": {
+    "Win11-Standard": {
+      "wim": "win11-standard.wim",
+      "index": 1
+    },
+    "Win11-Lab": {
+      "wim": "wim/win11-lab.wim",
+      "index": 2,
+      "drivers": "drivers/win11/ModelName",
+      "unattend": "unattend/win11-lab.xml",
+      "disklayout": "custom-disk-layouts/gpt-lab.txt"
+    }
+  },
+  "models": {
+    "Example Model 123": [
+      "Win11-Standard",
+      "Win11-Lab"
+    ]
+  }
+}

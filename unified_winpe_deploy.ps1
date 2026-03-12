@@ -12,17 +12,26 @@
 .PARAMETER WimFile
     Path to a specific WIM or ESD image file. When specified, the image is used
     directly without any drive scanning.
+.PARAMETER ManifestFile
+    Optional path to a manifest JSON file. Enables task-driven deployment mode.
+.PARAMETER TaskName
+    Optional manifest task name to run directly (used with -ManifestFile).
+.PARAMETER ListTasks
+    Lists tasks discovered in the manifest and exits.
 .VERSION
-    4.1 - Generic Universal Version
+    4.2 - Manifest-Enhanced Universal Version
 #>
 
 [CmdletBinding()]
 param(
     [string]$ImagePath,
     [string]$WimFile,
+    [string]$ManifestFile,
+    [string]$TaskName,
     [int]$TargetDisk = -1,
     [switch]$Silent,
-    [switch]$ListOnly
+    [switch]$ListOnly,
+    [switch]$ListTasks
 )
 
 # Load required assemblies
@@ -36,7 +45,7 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.0'
+    ScriptVersion = '4.2'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')
@@ -56,6 +65,14 @@ $Script:SystemPaths = @{
     TempDir = $null
     DiskpartScript = $null
 }
+
+$Script:ManifestContext = @{
+    Enabled      = $false
+    BaseDir      = $null
+    FilePath     = $null
+    Data         = $null
+    SelectedTask = $null
+}
 #endregion
 
 #region Core Functions
@@ -63,11 +80,11 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        
+
         [ValidateSet('Success','Warning','Error','Info','Prompt','Header')]
         [string]$Level = 'Info'
     )
-    
+
     $timestamp = Get-Date -Format 'HH:mm:ss'
     $color = $Script:Colors[$Level]
     Write-Host "[$timestamp] $Message" -ForegroundColor $color
@@ -75,7 +92,7 @@ function Write-Log {
 
 function Write-Banner {
     param([string]$Title)
-    
+
     $line = "=" * 80
     Write-Host ""
     Write-Host $line -ForegroundColor $Script:Colors.Header
@@ -97,12 +114,12 @@ function Show-MessageBox {
         [string]$Buttons = "OK",
         [string]$Icon = "Information"
     )
-    
+
     if (-not ([System.Management.Automation.PSTypeName]'System.Windows.Forms.MessageBox').Type) {
         Write-Log $Message -Level Warning
         return 'OK'
     }
-    
+
     try {
         $buttonType = [System.Windows.Forms.MessageBoxButtons]::$Buttons
         $iconType = [System.Windows.Forms.MessageBoxIcon]::$Icon
@@ -112,19 +129,226 @@ function Show-MessageBox {
         return 'OK'
     }
 }
+
+function Resolve-AbsolutePath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [string]$BasePath = $null
+    )
+
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return $Path
+    }
+
+    if (-not $BasePath) {
+        $BasePath = (Get-Location).Path
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path $BasePath $Path))
+}
+#endregion
+
+#region Manifest Mode
+function Get-DeviceModel {
+    try {
+        return (Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).Model
+    } catch {
+        return $null
+    }
+}
+
+function Initialize-ManifestContext {
+    if (-not $ManifestFile) {
+        return $true
+    }
+
+    try {
+        $manifestPath = Resolve-AbsolutePath -Path $ManifestFile -BasePath $Script:SystemPaths.ScriptDir
+        if (-not (Test-Path $manifestPath -PathType Leaf)) {
+            Write-Log "Manifest file not found: $manifestPath" -Level Error
+            return $false
+        }
+
+        $manifestData = Get-Content -Path $manifestPath -Raw | ConvertFrom-Json
+        if (-not $manifestData.tasks -or $manifestData.tasks.PSObject.Properties.Count -eq 0) {
+            Write-Log "Manifest must contain at least one task under 'tasks'" -Level Error
+            return $false
+        }
+
+        $Script:ManifestContext.Enabled = $true
+        $Script:ManifestContext.FilePath = $manifestPath
+        $Script:ManifestContext.BaseDir = Split-Path -Parent $manifestPath
+        $Script:ManifestContext.Data = $manifestData
+
+        Write-Log "Manifest mode enabled: $manifestPath" -Level Success
+        return $true
+    } catch {
+        Write-Log "Failed to parse manifest file: $($_.Exception.Message)" -Level Error
+        return $false
+    }
+}
+
+function Get-ManifestTaskNames {
+    if (-not $Script:ManifestContext.Enabled) {
+        return @()
+    }
+
+    return @($Script:ManifestContext.Data.tasks.PSObject.Properties | ForEach-Object { $_.Name })
+}
+
+function Show-ManifestTasks {
+    $taskNames = Get-ManifestTaskNames
+    if ($taskNames.Count -eq 0) {
+        Write-Log "No tasks found in manifest" -Level Warning
+        return
+    }
+
+    $model = Get-DeviceModel
+    $recommendedTasks = @()
+
+    if ($model -and $Script:ManifestContext.Data.models -and $Script:ManifestContext.Data.models.PSObject.Properties.Name -contains $model) {
+        $recommendedTasks = @($Script:ManifestContext.Data.models.$model)
+    }
+
+    Write-Host ""
+    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+    Write-Host "AVAILABLE MANIFEST TASKS".PadLeft(48) -ForegroundColor $Script:Colors.Header
+    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+
+    for ($i = 0; $i -lt $taskNames.Count; $i++) {
+        $task = $taskNames[$i]
+        $prefix = "[$($i + 1)]"
+        $isRecommended = $recommendedTasks -contains $task
+        $color = if ($isRecommended) { $Script:Colors.Success } else { $Script:Colors.Info }
+        $tag = if ($isRecommended) { ' [recommended]' } else { '' }
+        Write-Host "$prefix $task$tag" -ForegroundColor $color
+    }
+
+    if ($model) {
+        Write-Log "Detected model: $model" -Level Info
+    }
+}
+
+function Select-ManifestTask {
+    $taskNames = Get-ManifestTaskNames
+    if ($taskNames.Count -eq 0) {
+        return $null
+    }
+
+    if ($TaskName) {
+        if ($taskNames -contains $TaskName) {
+            Write-Log "Using specified task: $TaskName" -Level Success
+            return $TaskName
+        }
+
+        Write-Log "Task '$TaskName' not found in manifest" -Level Error
+        return $null
+    }
+
+    $model = Get-DeviceModel
+    $recommendedTasks = @()
+    if ($model -and $Script:ManifestContext.Data.models -and $Script:ManifestContext.Data.models.PSObject.Properties.Name -contains $model) {
+        $recommendedTasks = @($Script:ManifestContext.Data.models.$model)
+    }
+
+    if ($recommendedTasks.Count -gt 0 -and $taskNames -contains $recommendedTasks[0]) {
+        $defaultTask = $recommendedTasks[0]
+    } else {
+        $defaultTask = $taskNames[0]
+    }
+
+    Show-ManifestTasks
+    Write-Host ""
+    Write-Host "Default task: $defaultTask" -ForegroundColor $Script:Colors.Warning
+
+    do {
+        $choice = Read-Host "Select task number (1-$($taskNames.Count)), press Enter for default, or 'q' to quit"
+
+        if ([string]::IsNullOrWhiteSpace($choice)) {
+            Write-Log "Selected default task: $defaultTask" -Level Success
+            return $defaultTask
+        }
+
+        if ($choice -eq 'q') {
+            return $null
+        }
+
+        try {
+            $index = [int]$choice - 1
+            if ($index -ge 0 -and $index -lt $taskNames.Count) {
+                $selectedTask = $taskNames[$index]
+                Write-Log "Selected task: $selectedTask" -Level Success
+                return $selectedTask
+            }
+        } catch {}
+
+        Write-Log "Please enter a valid selection" -Level Error
+    } while ($true)
+}
+
+function Resolve-ImageFromManifestTask {
+    param([string]$SelectedTask)
+
+    if (-not $SelectedTask) {
+        return $null
+    }
+
+    $taskConfig = $Script:ManifestContext.Data.tasks.$SelectedTask
+    if (-not $taskConfig) {
+        Write-Log "Task configuration missing for '$SelectedTask'" -Level Error
+        return $null
+    }
+
+    $wimName = $taskConfig.wim
+    if ([string]::IsNullOrWhiteSpace($wimName)) {
+        Write-Log "Task '$SelectedTask' does not include a 'wim' value" -Level Error
+        return $null
+    }
+
+    $candidatePaths = @(
+        Resolve-AbsolutePath -Path $wimName -BasePath $Script:ManifestContext.BaseDir,
+        Resolve-AbsolutePath -Path (Join-Path 'wim' $wimName) -BasePath $Script:ManifestContext.BaseDir
+    ) | Select-Object -Unique
+
+    $resolvedPath = $candidatePaths | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
+    if (-not $resolvedPath) {
+        Write-Log "WIM/ESD not found for task '$SelectedTask': $wimName" -Level Error
+        return $null
+    }
+
+    $imageIndex = 1
+    if ($taskConfig.PSObject.Properties.Name -contains 'index') {
+        try {
+            $imageIndex = [int]$taskConfig.index
+        } catch {
+            Write-Log "Invalid image index in task '$SelectedTask' - defaulting to 1" -Level Warning
+            $imageIndex = 1
+        }
+    }
+
+    return @{
+        Path = $resolvedPath
+        Name = Split-Path -Leaf $resolvedPath
+        Size = (Get-Item $resolvedPath).Length
+        Type = "Manifest task: $SelectedTask"
+        LastModified = (Get-Item $resolvedPath).LastWriteTime
+        ImageIndex = $imageIndex
+    }
+}
 #endregion
 
 #region System Discovery
 function Initialize-SystemPaths {
     Write-Log "Initializing system paths..." -Level Info
-    
+
     # Determine script directory
     if ($PSScriptRoot) {
         $Script:SystemPaths.ScriptDir = $PSScriptRoot
     } else {
         $Script:SystemPaths.ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
     }
-    
+
     # Set temp directory with fallbacks
     $tempCandidates = @($env:TEMP, 'X:\Windows\Temp', 'C:\Temp', 'X:\Temp')
     foreach ($tempPath in $tempCandidates) {
@@ -140,21 +364,21 @@ function Initialize-SystemPaths {
             }
         }
     }
-    
+
     if (-not $Script:SystemPaths.TempDir) {
         $Script:SystemPaths.TempDir = 'C:\Temp'
     }
-    
+
     # Set diskpart script path
     $Script:SystemPaths.DiskpartScript = Join-Path $Script:SystemPaths.TempDir $Script:Config.DiskpartScriptName
-    
+
     Write-Log "Script directory: $($Script:SystemPaths.ScriptDir)" -Level Success
     Write-Log "Temp directory: $($Script:SystemPaths.TempDir)" -Level Success
 }
 
 function Find-ImageFiles {
     Write-Log "Searching for Windows image files..." -Level Info
-    
+
     # If specific WIM file provided, use it
     if ($WimFile) {
         if (Test-Path $WimFile) {
@@ -170,12 +394,12 @@ function Find-ImageFiles {
             return @()
         }
     }
-    
+
     # If specific image path provided, search there
     if ($ImagePath -and (Test-Path $ImagePath)) {
         return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
     }
-    
+
     # Auto-discovery across all non-system drives (specify -ImagePath or -WimFile to skip scanning)
     Write-Log "Starting auto-discovery of image files..." -Level Info
     $allImages = @()
@@ -188,7 +412,7 @@ function Find-ImageFiles {
         foreach ($drive in $drives) {
             $driveLetter = "$($drive.Name):"
             Write-Log "Scanning drive $driveLetter..." -Level Info
-            
+
             # Search common image directories
             foreach ($searchPath in $Script:Config.SearchPaths) {
                 $fullPath = Join-Path $driveLetter $searchPath
@@ -197,7 +421,7 @@ function Find-ImageFiles {
                     $allImages += $images
                 }
             }
-            
+
             # Search root directory (but not recursively to avoid USB drives, etc.)
             $rootImages = Search-DirectoryForImages -Path $driveLetter -Source "Drive $driveLetter (root)" -Recurse:$false
             $allImages += $rootImages
@@ -205,10 +429,10 @@ function Find-ImageFiles {
     } catch {
         Write-Log "Error during drive scanning: $($_.Exception.Message)" -Level Error
     }
-    
+
     # Remove duplicates and sort by size (larger files first, likely more complete)
     $uniqueImages = $allImages | Sort-Object Path -Unique | Sort-Object Size -Descending
-    
+
     Write-Log "Discovery complete. Found $($uniqueImages.Count) image file(s)" -Level Success
     return $uniqueImages
 }
@@ -223,7 +447,7 @@ function Search-DirectoryForImages {
 
     # Search for image files with limited recursion depth
     $images = @()
-    
+
     try {
         foreach ($extension in $Script:Config.ImageExtensions) {
             $searchParams = @{
@@ -239,7 +463,7 @@ function Search-DirectoryForImages {
             }
 
             $files = Get-ChildItem @searchParams
-            
+
             foreach ($file in $files) {
                 # Skip tiny files (likely not real images)
                 if ($file.Length -gt 100MB) {
@@ -257,13 +481,13 @@ function Search-DirectoryForImages {
     } catch {
         Write-Log "Error searching $Path : $($_.Exception.Message)" -Level Warning
     }
-    
+
     return $images
 }
 
 function Show-ImageSelection {
     param([array]$Images)
-    
+
     if ($Images.Count -eq 0) {
         Write-Log "No Windows image files found!" -Level Error
         Write-Log "Searched for: $($Script:Config.ImageExtensions -join ', ')" -Level Info
@@ -271,17 +495,17 @@ function Show-ImageSelection {
         Write-Log "Try using -ImagePath or -WimFile parameters" -Level Info
         return $null
     }
-    
+
     Write-Host ""
     Write-Host ("="*100) -ForegroundColor $Script:Colors.Header
     Write-Host "AVAILABLE WINDOWS IMAGE FILES".PadLeft(60) -ForegroundColor $Script:Colors.Header
     Write-Host ("="*100) -ForegroundColor $Script:Colors.Header
-    
+
     for ($i = 0; $i -lt $Images.Count; $i++) {
         $image = $Images[$i]
         $sizeGB = [Math]::Round($image.Size / 1GB, 2)
         $modified = $image.LastModified.ToString('yyyy-MM-dd HH:mm')
-        
+
         Write-Host ""
         Write-Host "[$($i + 1)] $($image.Name)" -ForegroundColor $Script:Colors.Success
         Write-Host "     Size: $sizeGB GB" -ForegroundColor White
@@ -289,29 +513,29 @@ function Show-ImageSelection {
         Write-Host "     Location: $($image.Type)" -ForegroundColor $Script:Colors.Info
         Write-Host "     Path: $($image.Path)" -ForegroundColor Gray
     }
-    
+
     Write-Host ""
     Write-Host ("="*100) -ForegroundColor $Script:Colors.Header
-    
+
     if ($ListOnly) {
         return $null
     }
-    
+
     # Auto-select if only one image
     if ($Images.Count -eq 1) {
         Write-Log "Only one image found, auto-selecting: $($Images[0].Name)" -Level Success
         return $Images[0]
     }
-    
+
     # Interactive selection
     do {
         Write-Host ""
         $choice = Read-Host "Select image number (1-$($Images.Count)) or 'q' to quit"
-        
+
         if ($choice -eq 'q') {
             return $null
         }
-        
+
         try {
             $index = [int]$choice - 1
             if ($index -ge 0 -and $index -lt $Images.Count) {
@@ -332,13 +556,13 @@ function Show-ImageSelection {
 function Test-WinPEEnvironment {
     $computerName = $env:COMPUTERNAME
     $isWinPE = ($env:SystemDrive -eq 'X:') -or (Test-Path 'X:\Windows') -or ($computerName -match 'PE$')
-    
+
     if ($isWinPE) {
         Write-Log "WinPE environment detected: $computerName" -Level Success
     } else {
         Write-Log "Warning: May not be running in WinPE environment" -Level Warning
     }
-    
+
     return $true
 }
 
@@ -346,24 +570,24 @@ function Test-SystemMemory {
     try {
         $computer = Get-WmiObject -Class Win32_ComputerSystem -ErrorAction Stop
         $totalMemoryGB = [Math]::Round($computer.TotalPhysicalMemory / 1GB, 2)
-        
+
         Write-Log "Total system memory: $totalMemoryGB GB" -Level Info
-        
+
         if ($totalMemoryGB -lt $Script:Config.MinimumMemoryGB) {
             $message = "Low memory detected: $totalMemoryGB GB (Recommended: $($Script:Config.MinimumMemoryGB) GB)`n`nThis may cause DISM operations to fail. Continue anyway?"
-            
+
             if ($Silent) {
                 Write-Log "Continuing with low memory (silent mode)" -Level Warning
                 return $true
             }
-            
+
             $result = Show-MessageBox -Message $message -Title "Memory Warning" -Buttons "YesNo" -Icon "Warning"
             if ($result -eq 'No') {
                 Write-Log "Operation cancelled due to memory warning" -Level Error
                 return $false
             }
         }
-        
+
         return $true
     } catch {
         Write-Log "Could not determine system memory - continuing anyway" -Level Warning
@@ -375,27 +599,27 @@ function Test-SystemMemory {
 #region Disk Management
 function Get-SystemDisks {
     Write-Log "Scanning system disks..." -Level Info
-    
+
     try {
         $disks = @()
-        $wmiDisks = Get-WmiObject -Class Win32_DiskDrive -ErrorAction Stop | Where-Object { 
-            $_.MediaType -like "*fixed*" -and $_.InterfaceType -ne 'USB' 
+        $wmiDisks = Get-WmiObject -Class Win32_DiskDrive -ErrorAction Stop | Where-Object {
+            $_.MediaType -like "*fixed*" -and $_.InterfaceType -ne 'USB'
         }
-        
+
         foreach ($wmiDisk in $wmiDisks) {
             $diskNumber = $wmiDisk.Index
             $sizeGB = if ($wmiDisk.Size) { [Math]::Round([double]$wmiDisk.Size / 1GB, 2) } else { 0 }
-            
+
             # Get partitions
             $partitions = @(Get-WmiObject -Class Win32_DiskPartition -ErrorAction SilentlyContinue | Where-Object { $_.DiskIndex -eq $diskNumber })
             $hasPartitions = $partitions.Count -gt 0
-            
+
             $partitionInfo = if ($hasPartitions) {
                 ($partitions | ForEach-Object { "Part$($_.Index):$([Math]::Round([double]$_.Size/1GB,1))GB" }) -join ", "
             } else {
                 "No partitions"
             }
-            
+
             $disk = [PSCustomObject]@{
                 Number = $diskNumber
                 Size = $sizeGB
@@ -405,15 +629,15 @@ function Get-SystemDisks {
                 PartitionInfo = $partitionInfo
                 IsSystemDisk = $false
             }
-            
+
             # Basic system disk detection
             if ($diskNumber -eq 0 -and $env:SystemDrive -ne 'X:') {
                 $disk.IsSystemDisk = $true
             }
-            
+
             $disks += $disk
         }
-        
+
         Write-Log "Found $($disks.Count) suitable disk(s)" -Level Success
         return $disks
     } catch {
@@ -424,16 +648,16 @@ function Get-SystemDisks {
 
 function Show-DiskMenu {
     param([array]$Disks)
-    
+
     Write-Host ""
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
     Write-Host "AVAILABLE DISKS FOR IMAGING".PadLeft(50) -ForegroundColor $Script:Colors.Header
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
-    
+
     foreach ($disk in $Disks) {
         $warning = ""
         $color = $Script:Colors.Info
-        
+
         if ($disk.IsSystemDisk) {
             $warning = " [SYSTEM DISK - DANGER!]"
             $color = $Script:Colors.Error
@@ -443,14 +667,14 @@ function Show-DiskMenu {
         } else {
             $color = $Script:Colors.Success
         }
-        
+
         Write-Host ""
         Write-Host "Disk $($disk.Number):$warning" -ForegroundColor $color
         Write-Host "  Model: $($disk.Model)" -ForegroundColor White
         Write-Host "  Size: $($disk.Size) GB ($($disk.InterfaceType))" -ForegroundColor White
         Write-Host "  Status: $($disk.PartitionInfo)" -ForegroundColor White
     }
-    
+
     Write-Host ""
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Error
     Write-Host "WARNING: ALL DATA ON SELECTED DISK WILL BE DESTROYED!" -ForegroundColor $Script:Colors.Error
@@ -459,12 +683,12 @@ function Show-DiskMenu {
 
 function Select-TargetDisk {
     param([array]$Disks)
-    
+
     if ($Disks.Count -eq 0) {
         Write-Log "No suitable disks found" -Level Error
         return $null
     }
-    
+
     # Use provided target disk if valid
     if ($TargetDisk -ge 0) {
         $selectedDisk = $Disks | Where-Object { $_.Number -eq $TargetDisk }
@@ -475,28 +699,28 @@ function Select-TargetDisk {
             Write-Log "Specified target disk $TargetDisk not found" -Level Error
         }
     }
-    
+
     # Interactive selection
     do {
         Show-DiskMenu -Disks $Disks
-        
+
         Write-Host ""
         $choice = Read-Host "Select disk number (or 'q' to quit)"
-        
+
         if ($choice -eq 'q') {
             Write-Log "Disk selection cancelled" -Level Warning
             return $null
         }
-        
+
         try {
             $diskNum = [int]$choice
             $selectedDisk = $Disks | Where-Object { $_.Number -eq $diskNum }
-            
+
             if (-not $selectedDisk) {
                 Write-Log "Invalid disk number: $diskNum" -Level Error
                 continue
             }
-            
+
             # System disk warning
             if ($selectedDisk.IsSystemDisk) {
                 Write-Log "DANGER: You selected the system disk!" -Level Error
@@ -505,7 +729,7 @@ function Select-TargetDisk {
                     continue
                 }
             }
-            
+
             # Final confirmation
             Write-Host ""
             Write-Host "FINAL CONFIRMATION" -ForegroundColor $Script:Colors.Error
@@ -513,12 +737,12 @@ function Select-TargetDisk {
             Write-Host "This will PERMANENTLY DELETE all data on this disk!" -ForegroundColor $Script:Colors.Error
             Write-Host ""
             $finalConfirm = Read-Host "Type 'DELETE ALL DATA' to proceed"
-            
+
             if ($finalConfirm -eq 'DELETE ALL DATA') {
                 Write-Log "Target disk confirmed: Disk $diskNum" -Level Success
                 return $selectedDisk
             }
-            
+
         } catch {
             Write-Log "Please enter a valid disk number" -Level Error
         }
@@ -529,7 +753,7 @@ function Select-TargetDisk {
 #region Image Deployment
 function New-DiskpartScript {
     param([int]$DiskNumber)
-    
+
     $commands = @"
 select disk $DiskNumber
 clean
@@ -543,7 +767,7 @@ format quick fs=ntfs label=Windows
 assign letter C
 exit
 "@
-    
+
     try {
         Set-Content -Path $Script:SystemPaths.DiskpartScript -Value $commands -Force
         Write-Log "Diskpart script created" -Level Success
@@ -556,10 +780,10 @@ exit
 
 function Invoke-Diskpart {
     Write-Log "Partitioning disk - this may take a moment..." -Level Warning
-    
+
     try {
         $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -WindowStyle Hidden
-        
+
         if ($process.ExitCode -eq 0) {
             Write-Log "Disk partitioning completed" -Level Success
             return $true
@@ -579,16 +803,16 @@ function Apply-WindowsImage {
         [string]$TargetPath,
         [int]$ImageIndex = 1
     )
-    
+
     Write-Log "Applying Windows image to $TargetPath" -Level Info
     Write-Log "Source: $(Split-Path -Leaf $WimPath)" -Level Info
     Write-Log "Index: $ImageIndex" -Level Info
     Write-Log "This will take several minutes - please wait..." -Level Warning
-    
+
     try {
         $arguments = @('/apply-image', "/imagefile:`"$WimPath`"", "/index:$ImageIndex", "/applydir:`"$TargetPath`"")
         $process = Start-Process -FilePath 'dism.exe' -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
-        
+
         if ($process.ExitCode -eq 0) {
             Write-Log "Windows image applied successfully" -Level Success
             return $true
@@ -604,10 +828,10 @@ function Apply-WindowsImage {
 
 function Set-BootConfiguration {
     Write-Log "Configuring UEFI boot..." -Level Info
-    
+
     try {
         $process = Start-Process -FilePath 'bcdboot.exe' -ArgumentList 'C:\Windows', '/s', 'S:', '/f', 'UEFI' -Wait -PassThru -WindowStyle Hidden
-        
+
         if ($process.ExitCode -eq 0) {
             Write-Log "Boot configuration completed" -Level Success
             return $true
@@ -625,62 +849,85 @@ function Set-BootConfiguration {
 #region Main Process
 function Start-Deployment {
     Write-Banner "UNIVERSAL WINDOWS IMAGE DEPLOYMENT TOOL v$($Script:Config.ScriptVersion)"
-    
+
     # Administrator check
     if (-not (Test-Administrator)) {
         Write-Log "This script must be run as Administrator" -Level Error
         return $false
     }
-    
+
     # Initialize system
     Initialize-SystemPaths
-    
-    # Find and select image
-    $imageFiles = Find-ImageFiles
-    $selectedImage = Show-ImageSelection -Images $imageFiles
-    
-    if (-not $selectedImage) {
-        Write-Log "No image selected" -Level Warning
+
+    # Initialize optional manifest mode
+    if (-not (Initialize-ManifestContext)) {
         return $false
     }
-    
+
+    if ($Script:ManifestContext.Enabled -and $ListTasks) {
+        Show-ManifestTasks
+        return $true
+    }
+
+    # Find and select image (manifest mode or standard discovery mode)
+    $selectedImage = $null
+    if ($Script:ManifestContext.Enabled) {
+        $selectedTask = Select-ManifestTask
+        if (-not $selectedTask) {
+            Write-Log "No manifest task selected" -Level Warning
+            return $false
+        }
+
+        $Script:ManifestContext.SelectedTask = $selectedTask
+        $selectedImage = Resolve-ImageFromManifestTask -SelectedTask $selectedTask
+    } else {
+        $imageFiles = Find-ImageFiles
+        $selectedImage = Show-ImageSelection -Images $imageFiles
+    }
+
     # List only mode
     if ($ListOnly) {
         return $true
     }
-    
+
+    if (-not $selectedImage) {
+        Write-Log "No image selected" -Level Warning
+        return $false
+    }
+
     # Validate environment
     if (-not (Test-WinPEEnvironment)) { return $false }
     if (-not (Test-SystemMemory)) { return $false }
-    
+
     # Get target disk
     $disks = Get-SystemDisks
     $targetDisk = Select-TargetDisk -Disks $disks
     if (-not $targetDisk) { return $false }
-    
+
     Write-Banner "STARTING IMAGE DEPLOYMENT"
     Write-Log "Image: $($selectedImage.Name)" -Level Info
     Write-Log "Target: Disk $($targetDisk.Number) - $($targetDisk.Model)" -Level Info
-    
+
     # Partition disk
     if (-not (New-DiskpartScript -DiskNumber $targetDisk.Number)) { return $false }
     if (-not (Invoke-Diskpart)) { return $false }
-    
+
     # Apply image
-    if (-not (Apply-WindowsImage -WimPath $selectedImage.Path -TargetPath 'C:\')) { return $false }
-    
+    $imageIndex = if ($selectedImage.ImageIndex) { [int]$selectedImage.ImageIndex } else { 1 }
+    if (-not (Apply-WindowsImage -WimPath $selectedImage.Path -TargetPath 'C:\' -ImageIndex $imageIndex)) { return $false }
+
     # Configure boot
     if (-not (Set-BootConfiguration)) { return $false }
-    
+
     # Cleanup
     try {
         Remove-Item -Path $Script:SystemPaths.DiskpartScript -Force -ErrorAction SilentlyContinue
     } catch {}
-    
+
     # Success
     Write-Banner "DEPLOYMENT COMPLETED SUCCESSFULLY"
     Write-Log "Windows image has been deployed and is ready for first boot" -Level Success
-    
+
     if (-not $Silent) {
         $result = Show-MessageBox -Message "Deployment completed successfully!`n`nShutdown the system now?" -Title "Success" -Buttons "YesNo" -Icon "Information"
         if ($result -eq 'Yes') {
@@ -688,7 +935,7 @@ function Start-Deployment {
             Stop-Computer -Force
         }
     }
-    
+
     return $true
 }
 #endregion
