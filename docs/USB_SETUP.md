@@ -54,7 +54,27 @@ Dism /Add-Package /Image:C:\WinPE_amd64\mount /PackagePath:"C:\Program Files (x8
 copy unified_winpe_deploy.ps1 C:\WinPE_amd64\mount\Windows\System32\
 ```
 
-### Configure Auto-Start
+### Configure Auto-Start (Option A: Smart Launcher - Recommended)
+
+Copy both `smart_launcher.cmd` and `unified_winpe_deploy.ps1` into the WinPE image:
+
+```cmd
+copy smart_launcher.cmd C:\WinPE_amd64\mount\Windows\System32\
+copy unified_winpe_deploy.ps1 C:\WinPE_amd64\mount\Windows\System32\
+```
+
+Edit `C:\WinPE_amd64\mount\Windows\System32\startnet.cmd`:
+
+```cmd
+X:\Windows\System32\smart_launcher.cmd
+```
+
+The smart launcher handles `wpeinit`, discovers PowerShell, finds the script,
+and locates the image drive automatically. Edit the `DEPLOY_LABEL` variable at
+the top of `smart_launcher.cmd` to match your USB data partition label (default:
+`DEPLOY_IMAGES`).
+
+### Configure Auto-Start (Option B: Direct Launch)
 
 Edit `C:\WinPE_amd64\mount\Windows\System32\startnet.cmd`:
 

@@ -19,6 +19,16 @@ Direct path to a specific image file. Bypasses all discovery logic.
 .\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11_Pro.wim"
 ```
 
+### -EfiWimFile [string]
+Path to a pre-built EFI WIM file. When provided and the file exists, it is
+applied to S:\ (EFI partition) after diskpart, and bcdboot is skipped.
+If not provided, standard bcdboot is used (no behavior change).
+If the EFI WIM apply fails, the script falls back to bcdboot automatically.
+
+```powershell
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11_Pro.wim" -EfiWimFile "D:\efi\boot.wim"
+```
+
 ### -TargetDisk [int]
 Disk number to deploy to. Pre-selects the disk but still requires typed "DELETE ALL DATA"
 confirmation unless combined with `-Force`. Use `diskpart` > `list disk` to find disk numbers.
@@ -103,7 +113,7 @@ Located at the top of the script in `$Script:Config`:
 ```powershell
 $Script:Config = @{
     MinimumMemoryGB    = 8          # Warn below this
-    ScriptVersion      = '4.2.2'   # Display version
+    ScriptVersion      = '4.3.0'   # Display version
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths        = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions    = @('*.wim', '*.esd')
@@ -132,7 +142,8 @@ Disk (GPT)
 
 1. `-WimFile` parameter (direct path, no scanning)
 2. `-ImagePath` parameter (searches specified directory)
-3. Auto-discovery (scans all non-system drives)
+3. `$env:DEPLOY_IMAGE_DRIVE` (set by `smart_launcher.cmd`)
+4. Auto-discovery (scans all non-system drives)
    - Checks `images/`, `wim/`, `deploy/`, `windows/`, `os/` directories
    - Checks drive root (non-recursive)
    - Filters files > 100MB
@@ -150,7 +161,7 @@ Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
            → Disk size validation
            → Diskpart (frees C:/S: first) → DISM (inline progress)
            → Post-deploy verification (C:\Windows, C:\Windows\System32)
-           → Boot config → Success
+           → Boot config (EFI WIM or bcdboot) → Success
 ```
 
 ## Log File
