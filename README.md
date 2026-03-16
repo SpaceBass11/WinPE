@@ -97,4 +97,4 @@ The script creates a standard UEFI/GPT partition layout:
 
 ## Version
 
-**v4.1** - Generic Universal Version
+**v4.3.0** - Env var image discovery, smart launcher support, bug fixes

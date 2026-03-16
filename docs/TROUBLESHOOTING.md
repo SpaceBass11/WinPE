@@ -11,9 +11,9 @@
 2. Verify `startnet.cmd` contains:
    ```cmd
    wpeinit
-   powershell.exe -ExecutionPolicy Bypass -File X:\Windows\System32\unified_winpe_deploy.ps1
+   powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
    ```
-3. Verify the script exists at `X:\Windows\System32\unified_winpe_deploy.ps1`
+3. Verify the script exists at `X:\scripts\unified_winpe_deploy.ps1`
 4. Ensure WinPE-PowerShell package is included in the image
 
 ### "No Windows image files found!"
@@ -54,7 +54,7 @@ seen as USB or removable, it won't appear.
 | Error | Meaning | Fix |
 |-------|---------|-----|
 | 2 | File not found | Verify WIM path exists and is accessible |
-| 11 | Invalid image index | Check available indexes with `Dism /Get-ImageInfo /ImageFile:path.wim` |
+| 11 | Invalid image index | Check available indexes with `Dism /Get-WimInfo /WimFile:path.wim` |
 | 87 | Invalid parameter | Check WIM file integrity |
 | 1392 | Corrupted WIM | Re-download or re-capture the image |
 | 112 | Disk full | Target disk too small for the image |
@@ -142,7 +142,7 @@ If no label match is found, the script falls back to scanning all drives.
 
 Run the script manually to see full output:
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File X:\Windows\System32\unified_winpe_deploy.ps1
+powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
 ```
 
 Check available images:
@@ -152,7 +152,7 @@ Check available images:
 
 Check DISM image info:
 ```cmd
-Dism /Get-ImageInfo /ImageFile:D:\images\install.wim
+Dism /Get-WimInfo /WimFile:D:\images\install.wim
 ```
 
 Check disk state:
