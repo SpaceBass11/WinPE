@@ -114,3 +114,8 @@ Additional deep-dive review identified and fixed these behavior bugs:
 - `Write-Log` previously used `Add-Content -ErrorAction SilentlyContinue`, which could suppress append errors and bypass the warning path. It now uses `-ErrorAction Stop` so failures are surfaced once.
 - `-ListOnly` previously called interactive selection UI (`Show-ImageSelection`), causing an unexpected prompt when multiple images existed. It now uses non-interactive `Show-ImageList`.
 - `Invoke-Diskpart` now captures both stdout and stderr logs so error-only output is not missed during failure diagnosis.
+
+
+## Phase 3 deep-dive findings and fixes
+- `Get-SystemDisks` previously relied on `MediaType` matching `*fixed*`, which can omit valid internal drives in some WinPE/WMI variants (for example `Unspecified` media labels). Filtering now excludes USB/removable media and keeps non-USB disks with non-zero size.
+- GPT failure guidance now explicitly mentions clearing read-only disk attributes before `clean/convert gpt`, improving recovery for error `-2147024809` scenarios.
