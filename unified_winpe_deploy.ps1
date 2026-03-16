@@ -140,7 +140,7 @@ function Initialize-SystemPaths {
     if ($PSScriptRoot) {
         $Script:SystemPaths.ScriptDir = $PSScriptRoot
     } else {
-        $Script:SystemPaths.ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+        $Script:SystemPaths.ScriptDir = Split-Path -Parent $script:MyInvocation.MyCommand.Path
     }
     
     # Set temp directory with fallbacks
@@ -437,21 +437,24 @@ function Get-SystemDisks {
         $wmiDisks = $allWmiDisks | Where-Object {
             $_.MediaType -like "*fixed*" -and $_.InterfaceType -ne 'USB'
         }
-        
+
+        # Query all partitions once instead of per-disk
+        $allPartitions = @(Get-WmiObject -Class Win32_DiskPartition -ErrorAction SilentlyContinue)
+
         foreach ($wmiDisk in $wmiDisks) {
             $diskNumber = $wmiDisk.Index
             $sizeGB = if ($wmiDisk.Size) { [Math]::Round([double]$wmiDisk.Size / 1GB, 2) } else { 0 }
-            
-            # Get partitions
-            $partitions = @(Get-WmiObject -Class Win32_DiskPartition -ErrorAction SilentlyContinue | Where-Object { $_.DiskIndex -eq $diskNumber })
+
+            # Filter partitions for this disk from the single query
+            $partitions = @($allPartitions | Where-Object { $_.DiskIndex -eq $diskNumber })
             $hasPartitions = $partitions.Count -gt 0
-            
+
             $partitionInfo = if ($hasPartitions) {
                 ($partitions | ForEach-Object { "Part$($_.Index):$([Math]::Round([double]$_.Size/1GB,1))GB" }) -join ", "
             } else {
                 "No partitions"
             }
-            
+
             $disk = [PSCustomObject]@{
                 Number = $diskNumber
                 Size = $sizeGB
@@ -461,13 +464,11 @@ function Get-SystemDisks {
                 PartitionInfo = $partitionInfo
                 IsSystemDisk = $false
             }
-            
+
             # System disk detection: check if any partition on this disk hosts the system drive
             if ($env:SystemDrive -ne 'X:') {
                 try {
-                    $diskPartitions = Get-WmiObject -Class Win32_DiskPartition -ErrorAction SilentlyContinue |
-                        Where-Object { $_.DiskIndex -eq $diskNumber }
-                    foreach ($part in $diskPartitions) {
+                    foreach ($part in $partitions) {
                         $logicalDisks = Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='$($part.DeviceID)'} WHERE AssocClass=Win32_LogicalDiskToPartition" -ErrorAction SilentlyContinue
                         foreach ($ld in $logicalDisks) {
                             if ("$($ld.DeviceID)" -eq $env:SystemDrive) {
@@ -482,7 +483,7 @@ function Get-SystemDisks {
                     }
                 }
             }
-            
+
             $disks += $disk
         }
         
@@ -774,7 +775,11 @@ exit
     
     try {
         Set-Content -Path $Script:SystemPaths.DiskpartScript -Value $commands -Force
-        Write-Log "Diskpart script created" -Level Success
+        Write-Log "Diskpart script created at $($Script:SystemPaths.DiskpartScript):" -Level Success
+        foreach ($line in ($commands -split "`n")) {
+            $trimmed = $line.Trim()
+            if ($trimmed) { Write-Log "  > $trimmed" -Level Info }
+        }
         return $true
     } catch {
         Write-Log "Failed to create diskpart script: $($_.Exception.Message)" -Level Error
@@ -784,10 +789,24 @@ exit
 
 function Invoke-Diskpart {
     Write-Log "Partitioning disk - this may take a moment..." -Level Warning
-    
+
     try {
-        $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -WindowStyle Hidden
-        
+        $diskpartLog = Join-Path $Script:SystemPaths.TempDir 'diskpart_output.log'
+        $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $diskpartLog
+
+        # Log diskpart output for diagnostics
+        if (Test-Path $diskpartLog) {
+            $dpOutput = Get-Content $diskpartLog -Raw -ErrorAction SilentlyContinue
+            if ($dpOutput) {
+                Write-Log "Diskpart output:" -Level Info
+                foreach ($line in ($dpOutput -split "`n")) {
+                    $trimmed = $line.Trim()
+                    if ($trimmed) { Write-Log "  $trimmed" -Level Info }
+                }
+            }
+            Remove-Item $diskpartLog -Force -ErrorAction SilentlyContinue
+        }
+
         if ($process.ExitCode -eq 0) {
             Write-Log "Disk partitioning completed" -Level Success
             return $true
@@ -903,9 +922,10 @@ function Start-Deployment {
 
     # Validate disk size using uncompressed image size when available
     $estimatedSizeGB = [Math]::Round($selectedImage.Size / 1GB, 2)
-    $sizeSource = "compressed WIM"
+    $sizeSource = "compressed WIM ~3x"
     # Use uncompressed size from DISM if available for the selected index
     $selectedWimInfo = $wimIndexes | Where-Object { $_.Index -eq $imageIndex }
+    $usedUncompressed = $false
     if ($selectedWimInfo -and $selectedWimInfo.Size) {
         try {
             # Parse DISM size strings like "14,632,927,856 bytes" or "14 632 927 856"
@@ -915,11 +935,16 @@ function Start-Deployment {
                 if ($uncompressedGB -gt $estimatedSizeGB) {
                     $estimatedSizeGB = $uncompressedGB
                     $sizeSource = "uncompressed"
+                    $usedUncompressed = $true
                 }
             }
         } catch {
-            Write-Log "Could not parse uncompressed size - using compressed WIM size" -Level Warning
+            Write-Log "Could not parse uncompressed size - using compressed WIM size with safety multiplier" -Level Warning
         }
+    }
+    # Apply 3x safety multiplier when using compressed size (WIM compression ratio is typically 2.5-4x)
+    if (-not $usedUncompressed) {
+        $estimatedSizeGB = [Math]::Round($estimatedSizeGB * 3, 2)
     }
     # EFI 300MB + MSR 16MB + overhead ~1.5GB
     $minRequiredGB = $estimatedSizeGB + 1.5
@@ -959,7 +984,6 @@ function Start-Deployment {
 
     # Apply image
     if (-not (Apply-WindowsImage -WimPath $selectedImage.Path -TargetPath 'C:\' -ImageIndex $imageIndex)) {
-        Write-Log "" -Level Error
         Write-Log "IMAGE APPLICATION FAILED - RECOVERY GUIDANCE:" -Level Error
         Write-Log "  The target disk has been partitioned but no image was applied." -Level Warning
         Write-Log "  Options:" -Level Info
@@ -984,10 +1008,9 @@ function Start-Deployment {
 
     # Configure boot
     if (-not (Set-BootConfiguration)) {
-        Write-Log "" -Level Error
         Write-Log "BOOT CONFIGURATION FAILED - RECOVERY GUIDANCE:" -Level Error
-        Write-Log "  Windows files are on C:\\ but boot is not configured." -Level Warning
-        Write-Log "  Manually run: bcdboot C:\\Windows /s S: /f UEFI" -Level Info
+        Write-Log "  Windows files are on C:\ but boot is not configured." -Level Warning
+        Write-Log '  Manually run: bcdboot C:\Windows /s S: /f UEFI' -Level Info
         return $false
     }
     
