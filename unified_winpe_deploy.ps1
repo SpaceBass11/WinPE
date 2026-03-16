@@ -161,6 +161,8 @@ function Initialize-SystemPaths {
     
     if (-not $Script:SystemPaths.TempDir) {
         $Script:SystemPaths.TempDir = 'C:\Temp'
+        try { New-Item -Path 'C:\Temp' -ItemType Directory -Force -ErrorAction Stop | Out-Null }
+        catch { Write-Warning "Could not create fallback temp directory C:\Temp - logging may not work" }
     }
     
     # Set diskpart script path
@@ -543,6 +545,7 @@ function Select-TargetDisk {
         $selectedDisk = $Disks | Where-Object { $_.Number -eq $TargetDisk }
         if (-not $selectedDisk) {
             Write-Log "Specified target disk $TargetDisk not found" -Level Error
+            return $null
         } elseif ($Force) {
             # -Force skips DELETE ALL DATA but NEVER skips system disk protection
             if ($selectedDisk.IsSystemDisk) {
@@ -792,7 +795,7 @@ function Invoke-Diskpart {
 
     try {
         $diskpartLog = Join-Path $Script:SystemPaths.TempDir 'diskpart_output.log'
-        $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $diskpartLog
+        $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $diskpartLog
 
         # Log diskpart output for diagnostics
         if (Test-Path $diskpartLog) {
