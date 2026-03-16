@@ -778,9 +778,10 @@ function New-DiskpartScript {
         }
     }
 
-    $commands = @"
+$commands = @"
 select disk $DiskNumber
 clean
+convert gpt
 create partition efi size=300
 format quick fs=fat32 label=System
 assign letter S
@@ -810,6 +811,7 @@ function Invoke-Diskpart {
 
     try {
         $diskpartLog = Join-Path $Script:SystemPaths.TempDir 'diskpart_output.log'
+        $dpOutput = ''
         $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $diskpartLog
 
         # Log diskpart output for diagnostics
@@ -830,6 +832,21 @@ function Invoke-Diskpart {
             return $true
         } else {
             Write-Log "Diskpart failed with exit code $($process.ExitCode)" -Level Error
+
+            # Common failure mode: EFI/MSR commands run on non-GPT disk context
+            $gptHint = $false
+            if ($dpOutput -match 'MSR and EFI partitions are only supported on GPT disks') {
+                $gptHint = $true
+            }
+            if ($process.ExitCode -eq -2147024809) {
+                $gptHint = $true
+            }
+            if ($gptHint) {
+                Write-Log 'MSR and EFI partitions are only supported on GPT disks.' -Level Error
+                Write-Log 'Convert the selected disk to GPT and try again.' -Level Info
+                Write-Log 'If needed, manually run: diskpart -> select disk N -> clean -> convert gpt' -Level Info
+            }
+
             return $false
         }
     } catch {
