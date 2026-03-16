@@ -37,7 +37,7 @@ Suppresses non-destructive interactive prompts (memory warnings, shutdown dialog
 Does NOT bypass disk destruction confirmations (use `-Force` for that).
 
 ### -ListOnly [switch]
-Discovers and displays all available images, then exits without deploying.
+Discovers and displays all available images non-interactively, then exits without deploying.
 
 ## Functions
 
@@ -57,6 +57,7 @@ Discovers and displays all available images, then exits without deploying.
 | `Initialize-SystemPaths` | Sets script directory, temp directory, diskpart script path, log file |
 | `Find-ImageFiles` | Main image discovery orchestrator |
 | `Search-DirectoryForImages` | Scans a directory for .wim/.esd files |
+| `Show-ImageList` | Non-interactive image listing used by `-ListOnly` |
 | `Show-ImageSelection` | Interactive TUI image picker |
 
 ### System Validation
