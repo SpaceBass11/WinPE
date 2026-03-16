@@ -12,7 +12,7 @@ partition and a larger data partition holding Windows images.
 ```
 USB Drive Layout:
 ├── Partition 1: WinPE Boot (FAT32, ~2GB)
-│   └── WinPE with startnet.cmd → smart_launcher.cmd → unified_winpe_deploy.ps1
+│   └── WinPE with startnet.cmd → unified_winpe_deploy.ps1
 └── Partition 2: Data (NTFS, remaining space)
     └── images/
         ├── Win11_Pro.wim
@@ -42,7 +42,6 @@ USB Drive Layout:
 | File | Purpose |
 |------|---------|
 | `unified_winpe_deploy.ps1` | Main deployment script - the core deliverable |
-| `smart_launcher.cmd` | Batch launcher - finds image drive by volume label, launches script |
 | `scripts/validate_script.ps1` | Static analysis checks for the deploy script |
 | `tests/test_parse.ps1` | PowerShell syntax validation |
 | `docs/USB_SETUP.md` | USB drive preparation guide |

@@ -130,13 +130,13 @@ Boot back into WinPE and run:
 bcdboot C:\Windows /s S: /f UEFI
 ```
 
-### Smart launcher can't find images
+### startnet.cmd can't find image drive
 
-**Cause:** USB data partition volume label doesn't match `DEPLOY_LABEL`.
+**Cause:** USB data partition volume label doesn't match the label in `startnet.cmd`.
 
-**Fix:** Either label the data partition `IMAGES` (default) or edit the
-`DEPLOY_LABEL` variable at the top of `smart_launcher.cmd` to match your label.
-The script will fall back to scanning all drives if no label match is found.
+**Fix:** Either label the data partition `IMAGES` (matches USB_SETUP.md Step 4)
+or edit the `find /i "IMAGES"` string in `startnet.cmd` to match your label.
+If no label match is found, the script falls back to scanning all drives.
 
 ## Getting Debug Info
 

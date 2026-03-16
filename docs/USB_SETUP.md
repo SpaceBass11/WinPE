@@ -51,37 +51,43 @@ Dism /Add-Package /Image:C:\WinPE_amd64\mount /PackagePath:"C:\Program Files (x8
 ### Copy the Deploy Script
 
 ```cmd
-copy unified_winpe_deploy.ps1 C:\WinPE_amd64\mount\Windows\System32\
+mkdir C:\WinPE_amd64\mount\Windows\System32\scripts
+copy unified_winpe_deploy.ps1 C:\WinPE_amd64\mount\Windows\System32\scripts\
 ```
 
-### Configure Auto-Start (Option A: Smart Launcher - Recommended)
+### Configure Auto-Start
 
-Copy both `smart_launcher.cmd` and `unified_winpe_deploy.ps1` into the WinPE image:
-
-```cmd
-copy smart_launcher.cmd C:\WinPE_amd64\mount\Windows\System32\
-copy unified_winpe_deploy.ps1 C:\WinPE_amd64\mount\Windows\System32\
-```
-
-Edit `C:\WinPE_amd64\mount\Windows\System32\startnet.cmd`:
-
-```cmd
-X:\Windows\System32\smart_launcher.cmd
-```
-
-The launcher runs `wpeinit`, finds the USB data partition by volume label,
-and launches the deploy script with `-ImagePath` pointing to the images folder.
-Edit the `DEPLOY_LABEL` variable at the top of `smart_launcher.cmd` to match
-your USB data partition label (default: `IMAGES`).
-
-### Configure Auto-Start (Option B: Direct Launch)
-
-Edit `C:\WinPE_amd64\mount\Windows\System32\startnet.cmd`:
+Edit `C:\WinPE_amd64\mount\Windows\System32\startnet.cmd` to find the image
+drive by volume label and launch the deploy script:
 
 ```cmd
 wpeinit
-powershell.exe -ExecutionPolicy Bypass -File X:\Windows\System32\unified_winpe_deploy.ps1
+@echo off
+setlocal enabledelayedexpansion
+timeout /t 3 /nobreak >nul
+set DEPLOY_IMAGE_DRIVE=
+for %%d in (D E F G H I J K L M N O P Q R S T U V W Y Z) do (
+    vol %%d: 2>nul | find /i "IMAGES" >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        set "DEPLOY_IMAGE_DRIVE=%%d:"
+        goto :found
+    )
+)
+echo No drive with label "IMAGES" found - script will scan all drives.
+goto :launch
+:found
+echo Found image drive: %DEPLOY_IMAGE_DRIVE%
+:launch
+if defined DEPLOY_IMAGE_DRIVE (
+    powershell.exe -ExecutionPolicy Bypass -NoProfile -File X:\Windows\System32\scripts\unified_winpe_deploy.ps1 -ImagePath "%DEPLOY_IMAGE_DRIVE%\images"
+) else (
+    powershell.exe -ExecutionPolicy Bypass -NoProfile -File X:\Windows\System32\scripts\unified_winpe_deploy.ps1
+)
+pause
 ```
+
+The label `IMAGES` matches the NTFS data partition created in Step 4. If you
+use a different label, change the `find /i "IMAGES"` string to match.
 
 ### Unmount
 
