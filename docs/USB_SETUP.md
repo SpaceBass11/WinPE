@@ -51,8 +51,8 @@ Dism /Add-Package /Image:C:\WinPE_amd64\mount /PackagePath:"C:\Program Files (x8
 ### Copy the Deploy Script
 
 ```cmd
-mkdir C:\WinPE_amd64\mount\Windows\System32\scripts
-copy unified_winpe_deploy.ps1 C:\WinPE_amd64\mount\Windows\System32\scripts\
+mkdir C:\WinPE_amd64\mount\scripts
+copy unified_winpe_deploy.ps1 C:\WinPE_amd64\mount\scripts\
 ```
 
 ### Configure Auto-Start
@@ -79,9 +79,9 @@ goto :launch
 echo Found image drive: %DEPLOY_IMAGE_DRIVE%
 :launch
 if defined DEPLOY_IMAGE_DRIVE (
-    powershell.exe -ExecutionPolicy Bypass -File X:\Windows\System32\scripts\unified_winpe_deploy.ps1 -ImagePath "%DEPLOY_IMAGE_DRIVE%\images"
+    powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 -ImagePath "%DEPLOY_IMAGE_DRIVE%\images"
 ) else (
-    powershell.exe -ExecutionPolicy Bypass -File X:\Windows\System32\scripts\unified_winpe_deploy.ps1
+    powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
 )
 pause
 ```
