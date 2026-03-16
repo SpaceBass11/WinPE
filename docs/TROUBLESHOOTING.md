@@ -130,19 +130,13 @@ Boot back into WinPE and run:
 bcdboot C:\Windows /s S: /f UEFI
 ```
 
-### Smart launcher can't find PowerShell
-
-**Cause:** PowerShell packages not included in WinPE build.
-
-**Fix:** Add WinPE-PowerShell package per Step 3 in USB_SETUP.md.
-The smart launcher will show `[FAIL] PowerShell not found` at Step 1.
-
 ### Smart launcher can't find images
 
-**Cause:** USB data partition volume label doesn't match.
+**Cause:** USB data partition volume label doesn't match `DEPLOY_LABEL`.
 
-**Fix:** Either label the partition `DEPLOY_IMAGES` or edit the
-`DEPLOY_LABEL` variable at the top of `smart_launcher.cmd`.
+**Fix:** Either label the data partition `IMAGES` (default) or edit the
+`DEPLOY_LABEL` variable at the top of `smart_launcher.cmd` to match your label.
+The script will fall back to scanning all drives if no label match is found.
 
 ## Getting Debug Info
 

@@ -19,16 +19,6 @@ Direct path to a specific image file. Bypasses all discovery logic.
 .\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11_Pro.wim"
 ```
 
-### -EfiWimFile [string]
-Path to a pre-built EFI WIM file. When provided and the file exists, it is
-applied to S:\ (EFI partition) after diskpart, and bcdboot is skipped.
-If not provided, standard bcdboot is used (no behavior change).
-If the EFI WIM apply fails, the script falls back to bcdboot automatically.
-
-```powershell
-.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11_Pro.wim" -EfiWimFile "D:\efi\boot.wim"
-```
-
 ### -TargetDisk [int]
 Disk number to deploy to. Pre-selects the disk but still requires typed "DELETE ALL DATA"
 confirmation unless combined with `-Force`. Use `diskpart` > `list disk` to find disk numbers.
@@ -161,7 +151,7 @@ Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
            → Disk size validation
            → Diskpart (frees C:/S: first) → DISM (inline progress)
            → Post-deploy verification (C:\Windows, C:\Windows\System32)
-           → Boot config (EFI WIM or bcdboot) → Success
+           → Boot config → Success
 ```
 
 ## Log File

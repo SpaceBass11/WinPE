@@ -42,7 +42,7 @@ USB Drive Layout:
 | File | Purpose |
 |------|---------|
 | `unified_winpe_deploy.ps1` | Main deployment script - the core deliverable |
-| `smart_launcher.cmd` | Smart batch launcher - discovers PowerShell, script, and images |
+| `smart_launcher.cmd` | Batch launcher - finds image drive by volume label, launches script |
 | `scripts/validate_script.ps1` | Static analysis checks for the deploy script |
 | `tests/test_parse.ps1` | PowerShell syntax validation |
 | `docs/USB_SETUP.md` | USB drive preparation guide |

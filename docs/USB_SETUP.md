@@ -69,10 +69,10 @@ Edit `C:\WinPE_amd64\mount\Windows\System32\startnet.cmd`:
 X:\Windows\System32\smart_launcher.cmd
 ```
 
-The smart launcher handles `wpeinit`, discovers PowerShell, finds the script,
-and locates the image drive automatically. Edit the `DEPLOY_LABEL` variable at
-the top of `smart_launcher.cmd` to match your USB data partition label (default:
-`DEPLOY_IMAGES`).
+The launcher runs `wpeinit`, finds the USB data partition by volume label,
+and launches the deploy script with `-ImagePath` pointing to the images folder.
+Edit the `DEPLOY_LABEL` variable at the top of `smart_launcher.cmd` to match
+your USB data partition label (default: `IMAGES`).
 
 ### Configure Auto-Start (Option B: Direct Launch)
 
