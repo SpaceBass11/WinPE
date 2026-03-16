@@ -478,10 +478,9 @@ function Get-SystemDisks {
             Write-Log "Skipping USB disk $($usbDisk.Index): $($usbDisk.Model) (USB drives excluded for safety)" -Level Info
         }
         $wmiDisks = $allWmiDisks | Where-Object {
-            $_.InterfaceType -ne 'USB' -and (
-                $_.MediaType -like "*fixed*" -or
-                [string]::IsNullOrWhiteSpace($_.MediaType)
-            )
+            $_.InterfaceType -ne 'USB' -and
+            $_.MediaType -notlike "*removable*" -and
+            ([double]$_.Size -gt 0)
         }
 
         # Query all partitions once instead of per-disk
@@ -889,8 +888,8 @@ function Invoke-Diskpart {
             }
             if ($gptHint) {
                 Write-Log 'MSR and EFI partitions are only supported on GPT disks.' -Level Error
-                Write-Log 'Convert the selected disk to GPT and try again.' -Level Info
-                Write-Log 'If needed, manually run: diskpart -> select disk N -> clean -> convert gpt' -Level Info
+                Write-Log 'Ensure the selected disk can be converted to GPT, then try again.' -Level Info
+                Write-Log 'If needed, manually run: diskpart -> select disk N -> attributes disk clear readonly -> clean -> convert gpt' -Level Info
             }
 
             return $false
