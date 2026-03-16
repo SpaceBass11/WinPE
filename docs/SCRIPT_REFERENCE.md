@@ -20,7 +20,7 @@ Direct path to a specific image file. Bypasses all discovery logic.
 ```
 
 ### -TargetDisk [int]
-Disk number to deploy to. Pre-selects the disk but still requires typed "DELETE ALL DATA"
+Disk number to deploy to. Pre-selects the disk but still requires typed "ERASE"
 confirmation unless combined with `-Force`. Use `diskpart` > `list disk` to find disk numbers.
 
 ```powershell
@@ -29,7 +29,7 @@ confirmation unless combined with `-Force`. Use `diskpart` > `list disk` to find
 ```
 
 ### -Force [switch]
-Skips the "DELETE ALL DATA" confirmation when used with `-TargetDisk`. Without this flag,
+Skips the "ERASE" confirmation when used with `-TargetDisk`. Without this flag,
 `-TargetDisk` pre-selects the disk but still requires typed confirmation.
 
 ### -Silent [switch]
@@ -146,8 +146,8 @@ Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
            → Image selection → Edition selection
            → Memory check → Disk selection
                               ├── System disk? → Type "DESTROY SYSTEM"
-                              ├── -TargetDisk without -Force → Type "DELETE ALL DATA"
-                              └── Final confirm → Type "DELETE ALL DATA"
+                              ├── -TargetDisk without -Force → Type "ERASE"
+                              └── Final confirm → Type "ERASE"
            → Disk size validation
            → Diskpart (frees C:/S: first) → DISM (inline progress)
            → Post-deploy verification (C:\Windows, C:\Windows\System32)

@@ -57,6 +57,9 @@ $Script:SystemPaths = @{
     DiskpartScript = $null
     LogFile = $null
 }
+
+# Prevent repeated warning spam if file logging fails
+$Script:LogWriteFailureNotified = $false
 #endregion
 
 #region Core Functions
@@ -78,7 +81,12 @@ function Write-Log {
         try {
             $logTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
             Add-Content -Path $Script:SystemPaths.LogFile -Value "[$logTimestamp] [$Level] $Message" -ErrorAction SilentlyContinue
-        } catch { }
+        } catch {
+            if (-not $Script:LogWriteFailureNotified) {
+                Write-Host "[$timestamp] WARNING: Could not write to log file ($($Script:SystemPaths.LogFile)): $($_.Exception.Message)" -ForegroundColor Yellow
+                $Script:LogWriteFailureNotified = $true
+            }
+        }
     }
 }
 
@@ -438,7 +446,10 @@ function Get-SystemDisks {
             Write-Log "Skipping USB disk $($usbDisk.Index): $($usbDisk.Model) (USB drives excluded for safety)" -Level Info
         }
         $wmiDisks = $allWmiDisks | Where-Object {
-            $_.MediaType -like "*fixed*" -and $_.InterfaceType -ne 'USB'
+            $_.InterfaceType -ne 'USB' -and (
+                $_.MediaType -like "*fixed*" -or
+                [string]::IsNullOrWhiteSpace($_.MediaType)
+            )
         }
 
         # Query all partitions once instead of per-disk
@@ -533,6 +544,14 @@ function Show-DiskMenu {
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Error
 }
 
+
+function Test-FinalWipeConfirmation {
+    param([string]$InputText)
+
+    $normalized = if ($null -eq $InputText) { '' } else { $InputText.Trim().ToUpperInvariant() }
+    return $normalized -in @('ERASE', 'DELETE ALL DATA')
+}
+
 function Select-TargetDisk {
     param([array]$Disks)
     
@@ -548,7 +567,7 @@ function Select-TargetDisk {
             Write-Log "Specified target disk $TargetDisk not found" -Level Error
             return $null
         } elseif ($Force) {
-            # -Force skips DELETE ALL DATA but NEVER skips system disk protection
+            # -Force skips final confirmation but NEVER skips system disk protection
             if ($selectedDisk.IsSystemDisk) {
                 Write-Log "DANGER: -Force cannot bypass system disk protection!" -Level Error
                 $confirm = Read-Host "Type 'DESTROY SYSTEM' to confirm system disk wipe"
@@ -572,8 +591,8 @@ function Select-TargetDisk {
                 }
             }
             Write-Host ""
-            $finalConfirm = Read-Host "Type 'DELETE ALL DATA' to proceed with Disk $TargetDisk"
-            if ($finalConfirm -eq 'DELETE ALL DATA') {
+            $finalConfirm = Read-Host "Type 'ERASE' to proceed with Disk $TargetDisk"
+            if (Test-FinalWipeConfirmation -InputText $finalConfirm) {
                 Write-Log "Target disk confirmed: Disk $TargetDisk" -Level Success
                 return $selectedDisk
             }
@@ -618,9 +637,9 @@ function Select-TargetDisk {
             Write-Host "Disk $($selectedDisk.Number): $($selectedDisk.Model) ($($selectedDisk.Size) GB)" -ForegroundColor Yellow
             Write-Host "This will PERMANENTLY DELETE all data on this disk!" -ForegroundColor $Script:Colors.Error
             Write-Host ""
-            $finalConfirm = Read-Host "Type 'DELETE ALL DATA' to proceed"
+            $finalConfirm = Read-Host "Type 'ERASE' to proceed"
             
-            if ($finalConfirm -eq 'DELETE ALL DATA') {
+            if (Test-FinalWipeConfirmation -InputText $finalConfirm) {
                 Write-Log "Target disk confirmed: Disk $diskNum" -Level Success
                 return $selectedDisk
             }
@@ -675,15 +694,10 @@ function Select-ImageIndex {
     )
 
     if ($Indexes.Count -eq 0) {
-        Write-Log "Could not enumerate WIM indexes - defaulting to index 1" -Level Warning
-        Write-Log "If using an ESD file, index 1 may be a recovery image, not Windows" -Level Warning
-        if (-not $Silent) {
-            $confirm = Read-Host "Continue with index 1? (Y/N)"
-            if ($confirm -notmatch '^[Yy]') {
-                return $null
-            }
-        }
-        return 1
+        Write-Log "Could not enumerate WIM indexes from DISM" -Level Error
+        Write-Log "Automatic fallback to index 1 is disabled to avoid deploying the wrong edition" -Level Error
+        Write-Log "Run: dism /Get-WimInfo /WimFile:`"$WimPath`" /English, then re-run with a healthy image" -Level Info
+        return $null
     }
 
     if ($Indexes.Count -eq 1) {
@@ -893,6 +907,10 @@ function Start-Deployment {
     # List only mode - show images and exit
     if ($ListOnly) {
         Show-ImageSelection -Images $imageFiles | Out-Null
+        if ($imageFiles.Count -eq 0) {
+            Write-Log "ListOnly mode found no deployable images" -Level Error
+            return $false
+        }
         return $true
     }
 

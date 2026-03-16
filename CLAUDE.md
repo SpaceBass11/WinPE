@@ -77,7 +77,7 @@ pwsh -NoProfile -Command "& ./scripts/validate_script.ps1"
 - Uses `#region`/`#endregion` blocks for organization
 - Color-coded TUI output via `Write-Log` function (also writes to log file)
 - All destructive operations require explicit typed confirmation
-- `-Force` skips "DELETE ALL DATA" but NEVER skips system disk "DESTROY SYSTEM" prompt
+- `-Force` skips "ERASE" but NEVER skips system disk "DESTROY SYSTEM" prompt
 - Script uses `$Script:` scope for shared configuration
 - DISM `/Get-WimInfo` uses `/English` flag for locale-safe parsing
 

@@ -13,7 +13,7 @@ Script audit of `unified_winpe_deploy.ps1` v4.1 - findings from code review.
 
 ### 2. -Silent + -TargetDisk bypasses disk confirmation
 - **Location:** `Select-TargetDisk` (line ~469)
-- **Impact:** When `-TargetDisk` is specified, the function returns immediately without requiring "DELETE ALL DATA" confirmation. Combined with `-Silent`, this enables fully unattended disk wipe.
+- **Impact:** When `-TargetDisk` is specified, the function returns immediately without requiring "ERASE" confirmation. Combined with `-Silent`, this enables fully unattended disk wipe.
 - **Assessment:** This is **by design** for automated/scripted deployments. The `-TargetDisk` parameter implies the caller has already made the decision. However, operators should be aware.
 - **Recommendation:** Document this clearly. Consider adding a `-Force` switch for explicit unattended confirmation.
 
