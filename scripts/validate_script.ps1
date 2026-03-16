@@ -105,6 +105,7 @@ Write-Host "`n[ERROR HANDLING]" -ForegroundColor Magenta
 Write-Check -Category "Errors" -Test "Diskpart exit code checked" -Result $(if ($content -match 'Invoke-Diskpart' -and $content -match '\$process\.ExitCode') { 'PASS' } else { 'FAIL' })
 Write-Check -Category "Errors" -Test "DISM exit code checked" -Result $(if ($content -match 'Apply-WindowsImage' -and $content -match 'ExitCode') { 'PASS' } else { 'FAIL' })
 Write-Check -Category "Errors" -Test "BCDBoot exit code checked" -Result $(if ($content -match 'Set-BootConfiguration' -and $content -match 'ExitCode') { 'PASS' } else { 'FAIL' })
+Write-Check -Category "Errors" -Test "DISM /Get-WimInfo exit code checked" -Result $(if ($content -match 'Get-WimInfo[\s\S]*?LASTEXITCODE') { 'PASS' } else { 'WARN' }) -Detail "Catch corrupted/inaccessible WIM files early"
 Write-Check -Category "Errors" -Test "Main try/catch with exit 1" -Result $(if ($content -match 'try\s*\{[\s\S]*Start-Deployment[\s\S]*catch[\s\S]*exit 1') { 'PASS' } else { 'WARN' })
 Write-Check -Category "Errors" -Test "Temp file cleanup" -Result $(if ($content -match 'Remove-Item.*DiskpartScript') { 'PASS' } else { 'WARN' })
 Write-Check -Category "Errors" -Test "Recovery guidance on DISM failure" -Result $(if ($content -match 'RECOVERY GUIDANCE') { 'PASS' } else { 'WARN' })
@@ -119,7 +120,7 @@ Write-Check -Category "Discovery" -Test "System drive excluded from scan" -Resul
 Write-Check -Category "Discovery" -Test "File size filter (>100MB)" -Result $(if ($content -match '100MB') { 'PASS' } else { 'WARN' })
 Write-Check -Category "Discovery" -Test "Recursion depth limited" -Result $(if ($content -match 'Depth') { 'PASS' } else { 'WARN' })
 Write-Check -Category "Discovery" -Test "WIM index selection" -Result $(if ($content -match 'function\s+Select-ImageIndex' -and $content -match 'function\s+Get-WimImageInfo') { 'PASS' } else { 'WARN' }) -Detail "Multi-edition WIM support"
-Write-Check -Category "Discovery" -Test "Env var image drive support" -Result $(if ($content -match 'DEPLOY_IMAGE_DRIVE') { 'PASS' } else { 'WARN' }) -Detail "Smart launcher integration"
+Write-Check -Category "Discovery" -Test "Env var image drive support" -Result $(if ($content -match 'DEPLOY_IMAGE_DRIVE') { 'PASS' } else { 'WARN' }) -Detail "startnet.cmd label lookup integration"
 
 # ── SUMMARY ──
 Write-Host "`n================================================================" -ForegroundColor Cyan
