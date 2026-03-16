@@ -807,7 +807,8 @@ function Apply-WindowsImage {
     Write-Log "This will take several minutes - please wait..." -Level Warning
     
     try {
-        $arguments = @('/apply-image', "/imagefile:`"$WimPath`"", "/index:$ImageIndex", "/applydir:`"$TargetPath`"")
+        # Note: applydir is not quoted because C:\" causes DISM error 123 (backslash escapes the quote)
+        $arguments = "/apply-image /imagefile:""$WimPath"" /index:$ImageIndex /applydir:$TargetPath"
         $process = Start-Process -FilePath 'dism.exe' -ArgumentList $arguments -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0) {
