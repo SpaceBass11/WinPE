@@ -61,8 +61,8 @@ Edit `C:\WinPE_amd64\mount\Windows\System32\startnet.cmd` to find the image
 drive by volume label and launch the deploy script:
 
 ```cmd
-wpeinit
 @echo off
+wpeinit
 setlocal enabledelayedexpansion
 timeout /t 3 /nobreak >nul
 set DEPLOY_IMAGE_DRIVE=
@@ -78,11 +78,7 @@ goto :launch
 :found
 echo Found image drive: %DEPLOY_IMAGE_DRIVE%
 :launch
-if defined DEPLOY_IMAGE_DRIVE (
-    powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 -ImagePath "%DEPLOY_IMAGE_DRIVE%\images"
-) else (
-    powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
-)
+powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
 pause
 ```
 
@@ -117,13 +113,14 @@ exit
 
 ## Step 5: Make USB Bootable with WinPE
 
-```cmd
-:: Copy WinPE files to the boot partition
-xcopy /s /e C:\WinPE_amd64\media\*.* P:\
+Copy WinPE files to the boot partition:
 
-:: Or use MakeWinPEMedia
-MakeWinPEMedia /UFD C:\WinPE_amd64 P:
+```cmd
+xcopy /s /e C:\WinPE_amd64\media\*.* P:\
 ```
+
+> **Note:** Do NOT use `MakeWinPEMedia /UFD` here — it reformats the entire USB
+> and destroys the dual-partition layout created in Step 4.
 
 ## Step 6: Add Windows Images to Data Partition
 

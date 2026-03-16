@@ -177,11 +177,6 @@ function Initialize-SystemPaths {
     Write-Log "Script directory: $($Script:SystemPaths.ScriptDir)" -Level Success
     Write-Log "Temp directory: $($Script:SystemPaths.TempDir)" -Level Success
     Write-Log "Log file: $($Script:SystemPaths.LogFile)" -Level Info
-
-    # Log launcher environment (set by startnet.cmd label lookup)
-    if ($env:DEPLOY_LAUNCHER_DIR) {
-        Write-Log "Launcher directory: $env:DEPLOY_LAUNCHER_DIR" -Level Info
-    }
 }
 
 function Find-ImageFiles {
@@ -207,7 +202,9 @@ function Find-ImageFiles {
     
     # Environment variable fallback: startnet.cmd may pre-discover the image drive
     if (-not $ImagePath -and $env:DEPLOY_IMAGE_DRIVE) {
-        $envDrive = $env:DEPLOY_IMAGE_DRIVE.TrimEnd('\')
+        # Normalize: ensure drive root has trailing backslash (D: → D:\)
+        $envDrive = $env:DEPLOY_IMAGE_DRIVE
+        if ($envDrive -match '^[A-Za-z]:$') { $envDrive = "$envDrive\" }
         if (Test-Path $envDrive) {
             Write-Log "Using image drive from launcher: $envDrive" -Level Info
             $ImagePath = $envDrive
@@ -374,11 +371,10 @@ function Show-ImageSelection {
 
 #region System Validation
 function Test-WinPEEnvironment {
-    $computerName = $env:COMPUTERNAME
-    $isWinPE = ($env:SystemDrive -eq 'X:') -or (Test-Path 'X:\Windows') -or ($computerName -match 'PE$')
+    $isWinPE = ($env:SystemDrive -eq 'X:') -or (Test-Path 'X:\Windows')
 
     if ($isWinPE) {
-        Write-Log "WinPE environment detected: $computerName" -Level Success
+        Write-Log "WinPE environment detected" -Level Success
         return $true
     }
 
