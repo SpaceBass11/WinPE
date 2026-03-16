@@ -215,8 +215,12 @@ function Find-ImageFiles {
     }
 
     # If specific image path provided, search there
-    if ($ImagePath -and (Test-Path $ImagePath)) {
-        return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
+    if ($ImagePath) {
+        if (Test-Path $ImagePath) {
+            return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
+        }
+        Write-Log "Specified image path not found: $ImagePath" -Level Error
+        return @()
     }
     
     # Auto-discovery across all non-system drives (specify -ImagePath or -WimFile to skip scanning)
@@ -242,7 +246,8 @@ function Find-ImageFiles {
             }
             
             # Search root directory (but not recursively to avoid USB drives, etc.)
-            $rootImages = Search-DirectoryForImages -Path $driveLetter -Source "Drive $driveLetter (root)" -Recurse:$false
+            # Use "D:\" not "D:" — bare drive letter means current directory on that drive, not root
+            $rootImages = Search-DirectoryForImages -Path "$driveLetter\" -Source "Drive $driveLetter (root)" -Recurse:$false
             $allImages += $rootImages
         }
     } catch {
