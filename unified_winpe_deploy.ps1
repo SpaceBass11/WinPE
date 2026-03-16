@@ -13,7 +13,7 @@
     Path to a specific WIM or ESD image file. When specified, the image is used
     directly without any drive scanning.
 .VERSION
-    4.3.0 - Smart launcher integration and env var image discovery
+    4.3.0 - Env var image discovery, DISM argument fix, bug fixes
 #>
 
 [CmdletBinding()]
@@ -176,7 +176,7 @@ function Initialize-SystemPaths {
     Write-Log "Temp directory: $($Script:SystemPaths.TempDir)" -Level Success
     Write-Log "Log file: $($Script:SystemPaths.LogFile)" -Level Info
 
-    # Log launcher environment (set by smart_launcher.cmd)
+    # Log launcher environment (set by startnet.cmd label lookup)
     if ($env:DEPLOY_LAUNCHER_DIR) {
         Write-Log "Launcher directory: $env:DEPLOY_LAUNCHER_DIR" -Level Info
     }
@@ -203,7 +203,7 @@ function Find-ImageFiles {
         }
     }
     
-    # Environment variable fallback: smart_launcher.cmd may pre-discover the image drive
+    # Environment variable fallback: startnet.cmd may pre-discover the image drive
     if (-not $ImagePath -and $env:DEPLOY_IMAGE_DRIVE) {
         $envDrive = $env:DEPLOY_IMAGE_DRIVE.TrimEnd('\')
         if (Test-Path $envDrive) {
@@ -635,6 +635,10 @@ function Get-WimImageInfo {
 
     try {
         $output = & dism.exe /Get-WimInfo /WimFile:"$WimPath" /English 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "DISM /Get-WimInfo failed (exit code $LASTEXITCODE) - WIM file may be corrupted or inaccessible" -Level Warning
+            return @()
+        }
         $indexes = @()
         $currentIndex = $null
 
@@ -710,7 +714,8 @@ function Select-ImageIndex {
 
     do {
         Write-Host ""
-        $choice = Read-Host "Select edition (1-$($Indexes.Count)) or 'q' to quit"
+        $validIndexes = ($Indexes | ForEach-Object { $_.Index }) -join ', '
+        $choice = Read-Host "Select edition index ($validIndexes) or 'q' to quit"
 
         if ($choice -eq 'q') { return $null }
 
@@ -745,6 +750,9 @@ function New-DiskpartScript {
             Write-Log "Drive letter $($letter): is in use - releasing before partitioning" -Level Warning
             try {
                 & mountvol "$($letter):" /d 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Log "mountvol returned exit code $LASTEXITCODE for $($letter): - diskpart will attempt to reassign" -Level Warning
+                }
             } catch {
                 Write-Log "Could not release $($letter): - diskpart will attempt to reassign" -Level Warning
             }
@@ -927,6 +935,7 @@ function Start-Deployment {
     if (-not (Invoke-Diskpart)) { return $false }
 
     # Verify diskpart created expected drive letters (retry for slow PnP mount manager)
+    # In WinPE, C:\ is not the system drive (X: is), so stale C:\ from a prior run is unlikely
     $maxRetries = 3
     $verified = $false
     for ($retry = 1; $retry -le $maxRetries; $retry++) {
