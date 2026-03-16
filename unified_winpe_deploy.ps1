@@ -762,7 +762,6 @@ function New-DiskpartScript {
     $commands = @"
 select disk $DiskNumber
 clean
-convert gpt
 create partition efi size=300
 format quick fs=fat32 label=System
 assign letter S
