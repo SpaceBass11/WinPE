@@ -78,11 +78,9 @@ diskpart
 list disk
 select disk <USB_DISK_NUMBER>
 clean
-convert gpt
 create partition primary size=2048
 format quick fs=fat32 label="WinPE"
 assign letter=P
-active
 create partition primary
 format quick fs=ntfs label="Images"
 assign letter=I
@@ -115,7 +113,7 @@ copy D:\sources\install.wim I:\images\Win11_Pro.wim
 **From a Windows ISO:**
 ```cmd
 :: Mount the ISO, then copy install.wim from sources/
-copy E:\sources\install.wim I:\images\
+copy E:\sources\install.esd I:\images\
 ```
 
 **From a running Windows installation (capture):**
@@ -126,7 +124,8 @@ Dism /Capture-Image /ImageFile:I:\images\MyCapture.wim /CaptureDir:C:\ /Name:"My
 
 **Export a specific edition from a multi-index WIM:**
 ```cmd
-Dism /Export-Image /SourceImageFile:E:\sources\install.wim /SourceIndex:6 /DestinationImageFile:I:\images\Win11_Pro.wim /Compress:max
+Dism /Get-WimInfo /WimFile:E:\sources\install.esd
+Dism /Export-Image /SourceImageFile:E:\sources\install.esd /SourceIndex:7 /DestinationImageFile:I:\images\Win11_Pro.wim /Compress:max
 ```
 
 ## Step 7: Test
