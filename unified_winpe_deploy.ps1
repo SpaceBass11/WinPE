@@ -13,13 +13,14 @@
     Path to a specific WIM or ESD image file. When specified, the image is used
     directly without any drive scanning.
 .VERSION
-    4.2.2 - Mastered Universal Version
+    4.3.0 - Smart launcher integration and EFI WIM support
 #>
 
 [CmdletBinding()]
 param(
     [string]$ImagePath,
     [string]$WimFile,
+    [string]$EfiWimFile,
     [int]$TargetDisk = -1,
     [switch]$Force,
     [switch]$Silent,
@@ -36,7 +37,7 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.2.2'
+    ScriptVersion = '4.3.0'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')
@@ -175,6 +176,11 @@ function Initialize-SystemPaths {
     Write-Log "Script directory: $($Script:SystemPaths.ScriptDir)" -Level Success
     Write-Log "Temp directory: $($Script:SystemPaths.TempDir)" -Level Success
     Write-Log "Log file: $($Script:SystemPaths.LogFile)" -Level Info
+
+    # Log launcher environment (set by smart_launcher.cmd)
+    if ($env:DEPLOY_LAUNCHER_DIR) {
+        Write-Log "Launcher directory: $env:DEPLOY_LAUNCHER_DIR" -Level Info
+    }
 }
 
 function Find-ImageFiles {
@@ -198,6 +204,15 @@ function Find-ImageFiles {
         }
     }
     
+    # Environment variable fallback: smart_launcher.cmd may pre-discover the image drive
+    if (-not $ImagePath -and $env:DEPLOY_IMAGE_DRIVE) {
+        $envDrive = $env:DEPLOY_IMAGE_DRIVE.TrimEnd('\')
+        if (Test-Path $envDrive) {
+            Write-Log "Using image drive from launcher: $envDrive" -Level Info
+            $ImagePath = $envDrive
+        }
+    }
+
     # If specific image path provided, search there
     if ($ImagePath -and (Test-Path $ImagePath)) {
         return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
@@ -959,14 +974,45 @@ function Start-Deployment {
     }
     Write-Log "Deployment verification passed" -Level Success
 
-    # Configure boot
-    if (-not (Set-BootConfiguration)) {
-        Write-Log "" -Level Error
-        Write-Log "BOOT CONFIGURATION FAILED - RECOVERY GUIDANCE:" -Level Error
-        Write-Log "  Windows files are on C:\\ but boot is not configured." -Level Warning
-        Write-Log "  Manually run: bcdboot C:\\Windows /s S: /f UEFI" -Level Info
-        return $false
+    # Configure boot (EFI WIM or standard bcdboot)
+    $bootMethod = 'bcdboot'
+    if ($EfiWimFile) {
+        if (Test-Path $EfiWimFile) {
+            Write-Log "Applying EFI WIM to S:\ (pre-built EFI configuration)..." -Level Info
+            if (Apply-WindowsImage -WimPath $EfiWimFile -TargetPath 'S:\' -ImageIndex 1) {
+                Write-Log "EFI WIM applied successfully - skipping bcdboot" -Level Success
+                $bootMethod = 'efi-wim'
+            } else {
+                Write-Log "EFI WIM application failed - falling back to bcdboot" -Level Warning
+                if (-not (Set-BootConfiguration)) {
+                    Write-Log "" -Level Error
+                    Write-Log "BOOT CONFIGURATION FAILED - RECOVERY GUIDANCE:" -Level Error
+                    Write-Log "  Windows files are on C:\\ but boot is not configured." -Level Warning
+                    Write-Log "  Manually run: bcdboot C:\\Windows /s S: /f UEFI" -Level Info
+                    return $false
+                }
+                $bootMethod = 'bcdboot (EFI WIM fallback)'
+            }
+        } else {
+            Write-Log "EFI WIM file not found: $EfiWimFile - using standard bcdboot" -Level Warning
+            if (-not (Set-BootConfiguration)) {
+                Write-Log "" -Level Error
+                Write-Log "BOOT CONFIGURATION FAILED - RECOVERY GUIDANCE:" -Level Error
+                Write-Log "  Windows files are on C:\\ but boot is not configured." -Level Warning
+                Write-Log "  Manually run: bcdboot C:\\Windows /s S: /f UEFI" -Level Info
+                return $false
+            }
+        }
+    } else {
+        if (-not (Set-BootConfiguration)) {
+            Write-Log "" -Level Error
+            Write-Log "BOOT CONFIGURATION FAILED - RECOVERY GUIDANCE:" -Level Error
+            Write-Log "  Windows files are on C:\\ but boot is not configured." -Level Warning
+            Write-Log "  Manually run: bcdboot C:\\Windows /s S: /f UEFI" -Level Info
+            return $false
+        }
     }
+    Write-Log "Boot method: $bootMethod" -Level Info
     
     # Cleanup
     try {

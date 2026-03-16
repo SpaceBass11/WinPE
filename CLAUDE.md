@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a **PowerShell-based WinPE image deployment tool** (v4.2.2) that automates
+This is a **PowerShell-based WinPE image deployment tool** (v4.3.0) that automates
 Windows installation from `.wim`/`.esd` files in a WinPE boot environment. The tool
 is designed to run from a USB drive with a dual-partition layout: a small WinPE boot
 partition and a larger data partition holding Windows images.
@@ -12,7 +12,7 @@ partition and a larger data partition holding Windows images.
 ```
 USB Drive Layout:
 ├── Partition 1: WinPE Boot (FAT32, ~2GB)
-│   └── WinPE with startnet.cmd → launches unified_winpe_deploy.ps1
+│   └── WinPE with startnet.cmd → smart_launcher.cmd → unified_winpe_deploy.ps1
 └── Partition 2: Data (NTFS, remaining space)
     └── images/
         ├── Win11_Pro.wim
@@ -42,6 +42,7 @@ USB Drive Layout:
 | File | Purpose |
 |------|---------|
 | `unified_winpe_deploy.ps1` | Main deployment script - the core deliverable |
+| `smart_launcher.cmd` | Smart batch launcher - discovers PowerShell, script, and images |
 | `scripts/validate_script.ps1` | Static analysis checks for the deploy script |
 | `tests/test_parse.ps1` | PowerShell syntax validation |
 | `docs/USB_SETUP.md` | USB drive preparation guide |
