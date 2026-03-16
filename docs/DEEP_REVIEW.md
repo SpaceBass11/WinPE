@@ -107,3 +107,10 @@ The following issues from this review have now been fixed in `unified_winpe_depl
 - Empty WIM index enumeration no longer defaults to index `1`; deployment now stops to avoid wrong-edition installs.
 - Disk enumeration now accepts non-USB disks with blank/unknown `MediaType` metadata, reducing false omissions.
 - `Write-Log` now emits a visible warning if file append fails, avoiding silent log-loss.
+
+
+## Phase 2 deep-dive findings and fixes
+Additional deep-dive review identified and fixed these behavior bugs:
+- `Write-Log` previously used `Add-Content -ErrorAction SilentlyContinue`, which could suppress append errors and bypass the warning path. It now uses `-ErrorAction Stop` so failures are surfaced once.
+- `-ListOnly` previously called interactive selection UI (`Show-ImageSelection`), causing an unexpected prompt when multiple images existed. It now uses non-interactive `Show-ImageList`.
+- `Invoke-Diskpart` now captures both stdout and stderr logs so error-only output is not missed during failure diagnosis.

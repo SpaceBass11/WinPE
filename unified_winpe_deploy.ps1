@@ -80,7 +80,7 @@ function Write-Log {
     if ($Script:SystemPaths.LogFile) {
         try {
             $logTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-            Add-Content -Path $Script:SystemPaths.LogFile -Value "[$logTimestamp] [$Level] $Message" -ErrorAction SilentlyContinue
+            Add-Content -Path $Script:SystemPaths.LogFile -Value "[$logTimestamp] [$Level] $Message" -ErrorAction Stop
         } catch {
             if (-not $Script:LogWriteFailureNotified) {
                 Write-Host "[$timestamp] WARNING: Could not write to log file ($($Script:SystemPaths.LogFile)): $($_.Exception.Message)" -ForegroundColor Yellow
@@ -312,6 +312,38 @@ function Search-DirectoryForImages {
     }
     
     return $images
+}
+
+function Show-ImageList {
+    param([array]$Images)
+
+    if ($Images.Count -eq 0) {
+        Write-Log "No Windows image files found!" -Level Error
+        Write-Log "Searched for: $($Script:Config.ImageExtensions -join ', ')" -Level Info
+        Write-Log "In directories: $($Script:Config.SearchPaths -join ', ')" -Level Info
+        return
+    }
+
+    Write-Host ""
+    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+    Write-Host "AVAILABLE WINDOWS IMAGE FILES".PadLeft(50) -ForegroundColor $Script:Colors.Header
+    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+
+    for ($i = 0; $i -lt $Images.Count; $i++) {
+        $image = $Images[$i]
+        $sizeGB = [Math]::Round($image.Size / 1GB, 2)
+        $modified = $image.LastModified.ToString('yyyy-MM-dd HH:mm')
+
+        Write-Host ""
+        Write-Host "[$($i + 1)] $($image.Name)" -ForegroundColor $Script:Colors.Success
+        Write-Host "     Size: $sizeGB GB" -ForegroundColor White
+        Write-Host "     Modified: $modified" -ForegroundColor White
+        Write-Host "     Location: $($image.Type)" -ForegroundColor $Script:Colors.Info
+        Write-Host "     Path: $($image.Path)" -ForegroundColor Gray
+    }
+
+    Write-Host ""
+    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
 }
 
 function Show-ImageSelection {
@@ -812,7 +844,8 @@ function Invoke-Diskpart {
     try {
         $diskpartLog = Join-Path $Script:SystemPaths.TempDir 'diskpart_output.log'
         $dpOutput = ''
-        $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $diskpartLog
+        $diskpartErrLog = Join-Path $Script:SystemPaths.TempDir 'diskpart_error.log'
+        $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $diskpartLog -RedirectStandardError $diskpartErrLog
 
         # Log diskpart output for diagnostics
         if (Test-Path $diskpartLog) {
@@ -825,6 +858,19 @@ function Invoke-Diskpart {
                 }
             }
             Remove-Item $diskpartLog -Force -ErrorAction SilentlyContinue
+        }
+
+        if (Test-Path $diskpartErrLog) {
+            $dpErrOutput = Get-Content $diskpartErrLog -Raw -ErrorAction SilentlyContinue
+            if ($dpErrOutput) {
+                if ($dpOutput) { $dpOutput = "$dpOutput`n$dpErrOutput" } else { $dpOutput = $dpErrOutput }
+                Write-Log "Diskpart error output:" -Level Warning
+                foreach ($line in ($dpErrOutput -split "`n")) {
+                    $trimmed = $line.Trim()
+                    if ($trimmed) { Write-Log "  $trimmed" -Level Warning }
+                }
+            }
+            Remove-Item $diskpartErrLog -Force -ErrorAction SilentlyContinue
         }
 
         if ($process.ExitCode -eq 0) {
@@ -923,7 +969,7 @@ function Start-Deployment {
 
     # List only mode - show images and exit
     if ($ListOnly) {
-        Show-ImageSelection -Images $imageFiles | Out-Null
+        Show-ImageList -Images $imageFiles
         if ($imageFiles.Count -eq 0) {
             Write-Log "ListOnly mode found no deployable images" -Level Error
             return $false
