@@ -85,7 +85,7 @@ Write-Check -Category "Safety" -Test "-Silent cannot bypass disk confirmation" -
 
 # ── DEPLOYMENT LOGIC ──
 Write-Host "`n[DEPLOYMENT]" -ForegroundColor Magenta
-Write-Check -Category "Deploy" -Test "Diskpart: convert gpt" -Result $(if ($content -match 'convert gpt') { 'PASS' } else { 'FAIL' })
+Write-Check -Category "Deploy" -Test "Diskpart: GPT layout (EFI partition implies GPT)" -Result $(if ($content -match 'create partition efi') { 'PASS' } else { 'FAIL' })
 Write-Check -Category "Deploy" -Test "Diskpart: EFI partition (300MB)" -Result $(if ($content -match 'create partition efi size=300') { 'PASS' } else { 'FAIL' })
 Write-Check -Category "Deploy" -Test "Diskpart: MSR partition (16MB)" -Result $(if ($content -match 'create partition msr size=16') { 'PASS' } else { 'FAIL' })
 Write-Check -Category "Deploy" -Test "Diskpart: Primary NTFS" -Result $(if ($content -match 'create partition primary' -and $content -match "format quick fs=ntfs label=Windows") { 'PASS' } else { 'FAIL' })

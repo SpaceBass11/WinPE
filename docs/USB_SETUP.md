@@ -79,9 +79,9 @@ goto :launch
 echo Found image drive: %DEPLOY_IMAGE_DRIVE%
 :launch
 if defined DEPLOY_IMAGE_DRIVE (
-    powershell.exe -ExecutionPolicy Bypass -NoProfile -File X:\Windows\System32\scripts\unified_winpe_deploy.ps1 -ImagePath "%DEPLOY_IMAGE_DRIVE%\images"
+    powershell.exe -ExecutionPolicy Bypass -File X:\Windows\System32\scripts\unified_winpe_deploy.ps1 -ImagePath "%DEPLOY_IMAGE_DRIVE%\images"
 ) else (
-    powershell.exe -ExecutionPolicy Bypass -NoProfile -File X:\Windows\System32\scripts\unified_winpe_deploy.ps1
+    powershell.exe -ExecutionPolicy Bypass -File X:\Windows\System32\scripts\unified_winpe_deploy.ps1
 )
 pause
 ```
