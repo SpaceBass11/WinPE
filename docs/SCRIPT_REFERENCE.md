@@ -132,7 +132,7 @@ Disk (GPT)
 
 1. `-WimFile` parameter (direct path, no scanning)
 2. `-ImagePath` parameter (searches specified directory)
-3. `$env:DEPLOY_IMAGE_DRIVE` (set by `smart_launcher.cmd`)
+3. `$env:DEPLOY_IMAGE_DRIVE` (set by `startnet.cmd`)
 4. Auto-discovery (scans all non-system drives)
    - Checks `images/`, `wim/`, `deploy/`, `windows/`, `os/` directories
    - Checks drive root (non-recursive)
