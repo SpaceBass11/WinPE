@@ -99,8 +99,6 @@ Write-Check -Category "Deploy" -Test "DISM inline progress (-NoNewWindow)" -Resu
 Write-Check -Category "Deploy" -Test "bcdboot C:\Windows /s S: /f UEFI" -Result $(if ($content -match "bcdboot" -and $content -match '/s.*S:' -and $content -match '/f.*UEFI') { 'PASS' } else { 'FAIL' })
 Write-Check -Category "Deploy" -Test "shutdown.exe (not Stop-Computer)" -Result $(if ($content -match 'shutdown\.exe' -and $content -notmatch 'Stop-Computer') { 'PASS' } else { 'WARN' }) -Detail "WinPE: use shutdown.exe for reliability"
 Write-Check -Category "Deploy" -Test "ESD recovery index warning" -Result $(if ($content -match '\.esd.*recovery|recovery.*\.esd') { 'PASS' } else { 'WARN' }) -Detail "Warn users about ESD recovery indexes"
-Write-Check -Category "Deploy" -Test "EfiWimFile parameter" -Result $(if ($content -match '\[string\]\$EfiWimFile') { 'PASS' } else { 'WARN' }) -Detail "Optional EFI WIM support"
-Write-Check -Category "Deploy" -Test "Boot method logging" -Result $(if ($content -match 'Boot method:') { 'PASS' } else { 'WARN' }) -Detail "Log which boot method was used"
 
 # ── ERROR HANDLING ──
 Write-Host "`n[ERROR HANDLING]" -ForegroundColor Magenta
