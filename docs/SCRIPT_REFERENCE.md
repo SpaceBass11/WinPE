@@ -39,7 +39,7 @@ Unattended mode for automation. For deployment runs, it requires:
 - `-TargetDisk` (to avoid interactive disk selection)
 - `-Force` (to avoid interactive final confirmation)
 
-`-Silent` still does **not** bypass system-disk `DESTROY SYSTEM` confirmation.
+`-Silent` still does **not** bypass system-disk `DESTROY SYSTEM` confirmation, and it will fail fast when the selected image has multiple indexes (because unattended runs cannot answer the edition prompt).
 
 ### -ListOnly [switch]
 Discovers and displays all available images non-interactively, then exits without deploying.

@@ -616,6 +616,10 @@ function Select-TargetDisk {
             # -Force skips final confirmation but NEVER skips system disk protection
             if ($selectedDisk.IsSystemDisk) {
                 Write-Log "DANGER: -Force cannot bypass system disk protection!" -Level Error
+                if ($Silent) {
+                    Write-Log "Silent mode cannot continue because system disk confirmation requires typed input" -Level Error
+                    return $null
+                }
                 $confirm = Read-Host "Type 'DESTROY SYSTEM' to confirm system disk wipe"
                 if ($confirm -ne 'DESTROY SYSTEM') {
                     Write-Log "System disk wipe cancelled" -Level Warning
@@ -749,6 +753,12 @@ function Select-ImageIndex {
     if ($Indexes.Count -eq 1) {
         Write-Log "Single image index: $($Indexes[0].Name)" -Level Success
         return $Indexes[0].Index
+    }
+
+    if ($Silent) {
+        Write-Log "Silent mode cannot prompt for edition selection when multiple indexes exist" -Level Error
+        Write-Log "Provide a single-index image or run without -Silent to choose an index interactively" -Level Error
+        return $null
     }
 
     Write-Host ""
