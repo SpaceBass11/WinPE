@@ -57,6 +57,9 @@ $Script:SystemPaths = @{
     DiskpartScript = $null
     LogFile = $null
 }
+
+# Prevent repeated warning spam if file logging fails
+$Script:LogWriteFailureNotified = $false
 #endregion
 
 #region Core Functions
@@ -77,8 +80,13 @@ function Write-Log {
     if ($Script:SystemPaths.LogFile) {
         try {
             $logTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-            Add-Content -Path $Script:SystemPaths.LogFile -Value "[$logTimestamp] [$Level] $Message" -ErrorAction SilentlyContinue
-        } catch { }
+            Add-Content -Path $Script:SystemPaths.LogFile -Value "[$logTimestamp] [$Level] $Message" -ErrorAction Stop
+        } catch {
+            if (-not $Script:LogWriteFailureNotified) {
+                Write-Host "[$timestamp] WARNING: Could not write to log file ($($Script:SystemPaths.LogFile)): $($_.Exception.Message)" -ForegroundColor Yellow
+                $Script:LogWriteFailureNotified = $true
+            }
+        }
     }
 }
 
@@ -306,6 +314,38 @@ function Search-DirectoryForImages {
     return $images
 }
 
+function Show-ImageList {
+    param([array]$Images)
+
+    if ($Images.Count -eq 0) {
+        Write-Log "No Windows image files found!" -Level Error
+        Write-Log "Searched for: $($Script:Config.ImageExtensions -join ', ')" -Level Info
+        Write-Log "In directories: $($Script:Config.SearchPaths -join ', ')" -Level Info
+        return
+    }
+
+    Write-Host ""
+    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+    Write-Host "AVAILABLE WINDOWS IMAGE FILES".PadLeft(50) -ForegroundColor $Script:Colors.Header
+    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+
+    for ($i = 0; $i -lt $Images.Count; $i++) {
+        $image = $Images[$i]
+        $sizeGB = [Math]::Round($image.Size / 1GB, 2)
+        $modified = $image.LastModified.ToString('yyyy-MM-dd HH:mm')
+
+        Write-Host ""
+        Write-Host "[$($i + 1)] $($image.Name)" -ForegroundColor $Script:Colors.Success
+        Write-Host "     Size: $sizeGB GB" -ForegroundColor White
+        Write-Host "     Modified: $modified" -ForegroundColor White
+        Write-Host "     Location: $($image.Type)" -ForegroundColor $Script:Colors.Info
+        Write-Host "     Path: $($image.Path)" -ForegroundColor Gray
+    }
+
+    Write-Host ""
+    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+}
+
 function Show-ImageSelection {
     param([array]$Images)
     
@@ -437,8 +477,22 @@ function Get-SystemDisks {
         foreach ($usbDisk in $usbDisks) {
             Write-Log "Skipping USB disk $($usbDisk.Index): $($usbDisk.Model) (USB drives excluded for safety)" -Level Info
         }
+        $nonTargetableMedia = $allWmiDisks | Where-Object {
+            $_.InterfaceType -ne 'USB' -and (
+                $_.MediaType -like "*removable*" -or
+                $_.MediaType -like "*cd*" -or
+                $_.Model -like "*cd*"
+            )
+        }
+        foreach ($skippedDisk in $nonTargetableMedia) {
+            Write-Log "Skipping non-targetable media disk $($skippedDisk.Index): $($skippedDisk.Model) ($($skippedDisk.MediaType))" -Level Info
+        }
         $wmiDisks = $allWmiDisks | Where-Object {
-            $_.MediaType -like "*fixed*" -and $_.InterfaceType -ne 'USB'
+            $_.InterfaceType -ne 'USB' -and
+            $_.MediaType -notlike "*removable*" -and
+            $_.MediaType -notlike "*cd*" -and
+            $_.Model -notlike "*cd*" -and
+            ([double]$_.Size -gt 0)
         }
 
         # Query all partitions once instead of per-disk
@@ -533,6 +587,14 @@ function Show-DiskMenu {
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Error
 }
 
+
+function Test-FinalWipeConfirmation {
+    param([string]$InputText)
+
+    $normalized = if ($null -eq $InputText) { '' } else { $InputText.Trim().ToUpperInvariant() }
+    return $normalized -in @('ERASE', 'DELETE ALL DATA')
+}
+
 function Select-TargetDisk {
     param([array]$Disks)
     
@@ -548,7 +610,7 @@ function Select-TargetDisk {
             Write-Log "Specified target disk $TargetDisk not found" -Level Error
             return $null
         } elseif ($Force) {
-            # -Force skips DELETE ALL DATA but NEVER skips system disk protection
+            # -Force skips final confirmation but NEVER skips system disk protection
             if ($selectedDisk.IsSystemDisk) {
                 Write-Log "DANGER: -Force cannot bypass system disk protection!" -Level Error
                 $confirm = Read-Host "Type 'DESTROY SYSTEM' to confirm system disk wipe"
@@ -572,8 +634,8 @@ function Select-TargetDisk {
                 }
             }
             Write-Host ""
-            $finalConfirm = Read-Host "Type 'DELETE ALL DATA' to proceed with Disk $TargetDisk"
-            if ($finalConfirm -eq 'DELETE ALL DATA') {
+            $finalConfirm = Read-Host "Type 'ERASE' to proceed with Disk $TargetDisk"
+            if (Test-FinalWipeConfirmation -InputText $finalConfirm) {
                 Write-Log "Target disk confirmed: Disk $TargetDisk" -Level Success
                 return $selectedDisk
             }
@@ -618,9 +680,9 @@ function Select-TargetDisk {
             Write-Host "Disk $($selectedDisk.Number): $($selectedDisk.Model) ($($selectedDisk.Size) GB)" -ForegroundColor Yellow
             Write-Host "This will PERMANENTLY DELETE all data on this disk!" -ForegroundColor $Script:Colors.Error
             Write-Host ""
-            $finalConfirm = Read-Host "Type 'DELETE ALL DATA' to proceed"
+            $finalConfirm = Read-Host "Type 'ERASE' to proceed"
             
-            if ($finalConfirm -eq 'DELETE ALL DATA') {
+            if (Test-FinalWipeConfirmation -InputText $finalConfirm) {
                 Write-Log "Target disk confirmed: Disk $diskNum" -Level Success
                 return $selectedDisk
             }
@@ -675,15 +737,10 @@ function Select-ImageIndex {
     )
 
     if ($Indexes.Count -eq 0) {
-        Write-Log "Could not enumerate WIM indexes - defaulting to index 1" -Level Warning
-        Write-Log "If using an ESD file, index 1 may be a recovery image, not Windows" -Level Warning
-        if (-not $Silent) {
-            $confirm = Read-Host "Continue with index 1? (Y/N)"
-            if ($confirm -notmatch '^[Yy]') {
-                return $null
-            }
-        }
-        return 1
+        Write-Log "Could not enumerate WIM indexes from DISM" -Level Error
+        Write-Log "Automatic fallback to index 1 is disabled to avoid deploying the wrong edition" -Level Error
+        Write-Log "Run: dism /Get-WimInfo /WimFile:`"$WimPath`" /English, then re-run with a healthy image" -Level Info
+        return $null
     }
 
     if ($Indexes.Count -eq 1) {
@@ -764,9 +821,11 @@ function New-DiskpartScript {
         }
     }
 
-    $commands = @"
+$commands = @"
 select disk $DiskNumber
+attributes disk clear readonly
 clean
+convert gpt
 create partition efi size=300
 format quick fs=fat32 label=System
 assign letter S
@@ -796,7 +855,9 @@ function Invoke-Diskpart {
 
     try {
         $diskpartLog = Join-Path $Script:SystemPaths.TempDir 'diskpart_output.log'
-        $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $diskpartLog
+        $dpOutput = ''
+        $diskpartErrLog = Join-Path $Script:SystemPaths.TempDir 'diskpart_error.log'
+        $process = Start-Process -FilePath 'diskpart.exe' -ArgumentList "/s `"$($Script:SystemPaths.DiskpartScript)`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $diskpartLog -RedirectStandardError $diskpartErrLog
 
         # Log diskpart output for diagnostics
         if (Test-Path $diskpartLog) {
@@ -811,11 +872,51 @@ function Invoke-Diskpart {
             Remove-Item $diskpartLog -Force -ErrorAction SilentlyContinue
         }
 
+        if (Test-Path $diskpartErrLog) {
+            $dpErrOutput = Get-Content $diskpartErrLog -Raw -ErrorAction SilentlyContinue
+            if ($dpErrOutput) {
+                if ($dpOutput) { $dpOutput = "$dpOutput`n$dpErrOutput" } else { $dpOutput = $dpErrOutput }
+                Write-Log "Diskpart error output:" -Level Warning
+                foreach ($line in ($dpErrOutput -split "`n")) {
+                    $trimmed = $line.Trim()
+                    if ($trimmed) { Write-Log "  $trimmed" -Level Warning }
+                }
+            }
+            Remove-Item $diskpartErrLog -Force -ErrorAction SilentlyContinue
+        }
+
         if ($process.ExitCode -eq 0) {
             Write-Log "Disk partitioning completed" -Level Success
             return $true
         } else {
             Write-Log "Diskpart failed with exit code $($process.ExitCode)" -Level Error
+
+            # Common failure mode: EFI/MSR commands run on non-GPT disk context
+            $gptHint = $false
+            if ($dpOutput -match 'MSR and EFI partitions are only supported on GPT disks') {
+                $gptHint = $true
+            }
+            if ($process.ExitCode -eq -2147024809) {
+                $gptHint = $true
+            }
+            if ($gptHint) {
+                Write-Log 'MSR and EFI partitions are only supported on GPT disks.' -Level Error
+                Write-Log 'Ensure the selected disk can be converted to GPT, then try again.' -Level Info
+                Write-Log 'If needed, manually run: diskpart -> select disk N -> attributes disk clear readonly -> clean -> convert gpt' -Level Info
+                Write-Log 'If clean fails, check firmware/HBA write-protect settings and vendor security locks.' -Level Info
+            }
+
+            # Common failure mode: disk is readonly/write-protected
+            $readonlyHint = $false
+            if ($dpOutput -match 'write protected' -or $dpOutput -match 'read-only' -or $dpOutput -match 'readonly') {
+                $readonlyHint = $true
+            }
+            if ($readonlyHint) {
+                Write-Log 'Disk appears write-protected/read-only.' -Level Error
+                Write-Log 'Run: diskpart -> select disk N -> attributes disk clear readonly -> clean' -Level Info
+                Write-Log 'If it persists, disable disk lock in BIOS/RAID/HBA tools and retry.' -Level Info
+            }
+
             return $false
         }
     } catch {
@@ -892,7 +993,11 @@ function Start-Deployment {
 
     # List only mode - show images and exit
     if ($ListOnly) {
-        Show-ImageSelection -Images $imageFiles | Out-Null
+        Show-ImageList -Images $imageFiles
+        if ($imageFiles.Count -eq 0) {
+            Write-Log "ListOnly mode found no deployable images" -Level Error
+            return $false
+        }
         return $true
     }
 

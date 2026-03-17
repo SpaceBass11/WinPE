@@ -79,7 +79,7 @@ The script creates a standard UEFI/GPT partition layout:
 - System disk detection with red warning
 - **Two-step confirmation** for disk destruction:
   - Type `DESTROY SYSTEM` for system disk
-  - Type `DELETE ALL DATA` for final confirmation
+  - Type `ERASE` for final confirmation
 
 ## Documentation
 
