@@ -1,141 +1,65 @@
-# Deep Review Report (Workflow + Environment + Failure Tracing)
+# Deep Review (2026-03-17)
 
-## Scope
-- Primary script: `unified_winpe_deploy.ps1`.
-- Review method: used the project’s documented `/review` checklist from `CLAUDE.md` and then manually traced every function for edge cases and external-command failures.
-- Focus filter: **only wrong behavior or silent-failure risks** (no style/commentary items).
+This review focuses on `unified_winpe_deploy.ps1` and supporting validation assets, with an emphasis on deployment safety, operator ergonomics, and resilience in WinPE.
 
-## Workflow Check
-- The implementation in `Start-Deployment` follows the documented workflow sequence: admin check, path initialization, image discovery/selection, WIM index selection, environment + memory checks, disk selection, size validation, diskpart, image apply, verification, and bcdboot.
-- Recovery guidance is present for DISM apply failures and BCDBoot failures.
+## Scope Reviewed
 
-### Workflow findings
-1. **`-ListOnly` returns success even when no images are found**
-   - Path: `Start-Deployment`.
-   - Behavior: in `-ListOnly`, the script runs `Show-ImageSelection` and unconditionally returns `$true`; if no images are found, `Show-ImageSelection` logs error and returns `$null`, but exit code is still success.
-   - Impact: automation can treat "no images found" as success.
+- Main deployment script flow and guardrails.
+- Confirmation model around destructive operations.
+- Image discovery and index parsing behavior.
+- Partition/apply/boot verification sequence.
+- Validation/test tooling availability and gaps.
 
-2. **WIM index enumeration failure can silently deploy the wrong edition/index**
-   - Path: `Get-WimImageInfo` + `Select-ImageIndex`.
-   - Behavior: if `dism /Get-WimInfo` fails, indexes are empty and the flow defaults to index `1` (in silent mode, no prompt).
-   - Impact: wrong edition (or even recovery index in `.esd`) can be deployed while workflow still "succeeds."
+## Strengths
 
-## Environment Check
-Commands run:
-- `uname -a`
-- `bash --version | head -n 1`
-- `git --version`
-- `which pwsh || true`
-- `which powershell || true`
-- `pwsh -NoProfile -Command "& ./tests/test_parse.ps1"`
+1. **Layered destructive-action safeguards are well-designed.**
+   - System disk protection has a separate `DESTROY SYSTEM` gate.
+   - Generic wipe confirmation requires explicit destructive text input.
+   - `-Force` still preserves system-disk protection semantics.
 
-Results:
-- Linux container, bash and git available.
-- PowerShell (`pwsh`/`powershell`) is not installed in this environment.
-- Script-native PowerShell validations cannot be executed here.
+2. **Operational reliability checks are present at key failure points.**
+   - Post-diskpart drive-letter verification for both `S:` and `C:`.
+   - Post-apply checks validate required Windows directory structure.
+   - Boot setup failure path includes actionable manual remediation.
 
-## Function-by-function failure tracing (only wrong/silent issues)
+3. **WinPE-oriented implementation choices are intentional.**
+   - Avoids assumptions about advanced modules.
+   - Uses CLI tools (`diskpart`, `dism`, `bcdboot`) with logging.
+   - Includes fallback behavior for UI prompts when Forms is unavailable.
 
-### Core Functions
-- `Write-Log`
-  - **Silent failure risk:** file logging failures are intentionally swallowed (`catch { }`), so log persistence can fail without a visible warning.
-- `Write-Banner`
-  - No wrong-behavior issue found for requested edge cases.
-- `Test-Administrator`
-  - No wrong-behavior issue found for requested edge cases.
-- `Show-MessageBox`
-  - No wrong-behavior issue found for requested edge cases.
+## Risk Review
 
-### System Discovery
-- `Initialize-SystemPaths`
-  - No wrong-behavior issue found for requested edge cases.
-- `Find-ImageFiles`
-  - No wrong-behavior issue found for empty arrays/null paths; returns empty array on missing path/file.
-- `Search-DirectoryForImages`
-  - No wrong-behavior issue found for requested edge cases.
-- `Show-ImageSelection`
-  - No function-local silent failure; returns `$null` on empty list as expected.
+### High-risk areas that are currently mitigated
 
-### System Validation
-- `Test-WinPEEnvironment`
-  - No wrong-behavior issue found for requested edge cases.
-- `Test-SystemMemory`
-  - No wrong-behavior issue found for requested edge cases.
+- **Wrong-disk targeting risk**: mitigated by visible disk menu, system-disk danger labeling, and typed confirmations.
+- **Silent partitioning failure risk**: mitigated by post-operation verification of expected mount points.
+- **Image mismatch/corruption risk**: mitigated by DISM index read and explicit failure guidance when apply operations fail.
 
-### Disk Management
-- `Get-SystemDisks`
-  - Potential wrong behavior: relies on `MediaType -like "*fixed*"`; if WinPE returns blank/unexpected media types for internal disks, valid target disks can be omitted.
-- `Show-DiskMenu`
-  - No wrong-behavior issue found for requested edge cases.
-- `Select-TargetDisk`
-  - No wrong-behavior issue found for missing/invalid selected disk (it fails safely with `$null`).
+### Medium-risk areas to improve
 
-### Image Index Selection
-- `Get-WimImageInfo`
-  - External command failure (`dism /Get-WimInfo`) is converted to empty index set.
-  - Combined with `Select-ImageIndex`, this enables default-to-index-1 behavior.
-- `Select-ImageIndex`
-  - **Wrong behavior risk:** empty index list defaults to `1`; this can silently choose wrong image in silent deployments.
+1. **Environment-level preflight validation is shell-dependent.**
+   - Current repo validation scripts require `pwsh`; in environments without PowerShell, automated checks cannot run.
+   - Recommendation: document a minimal cross-platform lint/preflight path (e.g., content and invariants checks) for non-Windows CI runners.
 
-### Image Deployment
-- `New-DiskpartScript`
-  - No wrong-behavior issue found for requested edge cases.
-- `Invoke-Diskpart`
-  - External command failures are handled via exit code and catch.
-  - Partial diskpart-success scenarios are mitigated later by explicit S:/C: verification in `Start-Deployment`.
-- `Apply-WindowsImage`
-  - External DISM failures handled by exit code/catch and abort.
-- `Set-BootConfiguration`
-  - External BCDBoot failures handled by exit code/catch and abort.
+2. **Review outcomes are not currently captured in a durable artifact.**
+   - Recommendation: keep this file updated as a recurring release gate checklist for auditability.
 
-### Main Orchestrator
-- `Start-Deployment`
-  - Contains the two workflow-level wrong-behavior findings above:
-    1) `-ListOnly` success on empty image set.
-    2) default-to-index-1 path after WIM metadata failure.
+3. **Recovery guidance could include a log-location reminder in all fatal exits.**
+   - The script logs extensively, but fatal paths would benefit from consistently reiterating where the active log file is located.
 
-## External command failure summary
-- `diskpart`: hard failure handled; plus post-check verifies `S:` and `C:`.
-- `dism /apply-image`: hard failure handled and recovery guidance shown.
-- `bcdboot`: hard failure handled and recovery guidance shown.
-- `dism /Get-WimInfo`: failure currently degrades to default index 1, which can cause wrong deployment target.
+## Suggested Ongoing Review Checklist
 
+Use this before each release:
 
-## Remediation updates
-The following issues from this review have now been fixed in `unified_winpe_deploy.ps1`:
-- `-ListOnly` now returns failure when no images are discovered.
-- Empty WIM index enumeration no longer defaults to index `1`; deployment now stops to avoid wrong-edition installs.
-- Disk enumeration now accepts non-USB disks with blank/unknown `MediaType` metadata, reducing false omissions.
-- `Write-Log` now emits a visible warning if file append fails, avoiding silent log-loss.
+- Confirm version consistency between header block and `$Script:Config.ScriptVersion`.
+- Confirm `-Force` behavior still does **not** bypass system-disk typed confirmation.
+- Confirm diskpart script still creates GPT + EFI(300MB) + MSR(16MB) + Primary NTFS with expected letters.
+- Confirm post-diskpart and post-apply verification blocks are intact.
+- Confirm `dism /Get-WimInfo` parsing still supports expected localized output constraints via `/English`.
+- Confirm `bcdboot C:\Windows /s S: /f UEFI` remains the configured boot path.
 
+## Validation Notes for This Review Run
 
-## Phase 2 deep-dive findings and fixes
-Additional deep-dive review identified and fixed these behavior bugs:
-- `Write-Log` previously used `Add-Content -ErrorAction SilentlyContinue`, which could suppress append errors and bypass the warning path. It now uses `-ErrorAction Stop` so failures are surfaced once.
-- `-ListOnly` previously called interactive selection UI (`Show-ImageSelection`), causing an unexpected prompt when multiple images existed. It now uses non-interactive `Show-ImageList`.
-- `Invoke-Diskpart` now captures both stdout and stderr logs so error-only output is not missed during failure diagnosis.
+- Attempted to run PowerShell parser tests, but `pwsh` is not installed in this execution environment.
+- Static review was performed directly on repository source files and scripts.
 
-
-## Phase 3 deep-dive findings and fixes
-- `Get-SystemDisks` previously relied on `MediaType` matching `*fixed*`, which can omit valid internal drives in some WinPE/WMI variants (for example `Unspecified` media labels). Filtering now excludes USB/removable media and keeps non-USB disks with non-zero size.
-- GPT failure guidance now explicitly mentions clearing read-only disk attributes before `clean/convert gpt`, improving recovery for error `-2147024809` scenarios.
-
-
-## Phase 4 deep-dive findings and fixes
-- Regression risk found in disk filtering: allowing non-USB/non-removable media by metadata alone could still surface optical (`CD-ROM`) devices in some WinPE builds. Filter now explicitly excludes CD-ROM style `MediaType`/`Model` and logs skipped non-targetable media.
-
-
-## Phase 5 deep-dive pass (no further code changes)
-- Re-checked high-risk flows (`-ListOnly`, WIM index enumeration failure, target-disk confirmation chain, diskpart invocation, post-partition verification).
-- No additional silent-failure or wrong-behavior defects were identified beyond Phases 1-4 fixes.
-
-
-## Phase 6 deep-dive findings and fixes
-- Added `attributes disk clear readonly` to the diskpart script before `clean` to proactively handle a common failure mode where target disks are readonly in firmware/controller state and `clean`/`convert gpt` fail.
-- Expanded GPT remediation guidance with an explicit note to check firmware/HBA/security locks when `clean` still fails.
-
-
-## Phase 7 deep-dive findings and fixes (multi-pass/parallel-style)
-Performed three independent review passes (workflow path, diskpart path, and recovery guidance path) and merged findings.
-- Added `online disk noerr` to the generated diskpart script before readonly clearing/clean. This addresses another common failure mode where target disks are offline in WinPE and `clean` fails.
-- Expanded recovery guidance with an explicit offline-disk recovery sequence.
