@@ -119,3 +119,12 @@ Additional deep-dive review identified and fixed these behavior bugs:
 ## Phase 3 deep-dive findings and fixes
 - `Get-SystemDisks` previously relied on `MediaType` matching `*fixed*`, which can omit valid internal drives in some WinPE/WMI variants (for example `Unspecified` media labels). Filtering now excludes USB/removable media and keeps non-USB disks with non-zero size.
 - GPT failure guidance now explicitly mentions clearing read-only disk attributes before `clean/convert gpt`, improving recovery for error `-2147024809` scenarios.
+
+
+## Phase 4 deep-dive findings and fixes
+- Regression risk found in disk filtering: allowing non-USB/non-removable media by metadata alone could still surface optical (`CD-ROM`) devices in some WinPE builds. Filter now explicitly excludes CD-ROM style `MediaType`/`Model` and logs skipped non-targetable media.
+
+
+## Phase 5 deep-dive pass (no further code changes)
+- Re-checked high-risk flows (`-ListOnly`, WIM index enumeration failure, target-disk confirmation chain, diskpart invocation, post-partition verification).
+- No additional silent-failure or wrong-behavior defects were identified beyond Phases 1-4 fixes.
