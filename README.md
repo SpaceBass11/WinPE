@@ -47,7 +47,7 @@ The script launches automatically via `startnet.cmd` when WinPE boots. No manual
 .\unified_winpe_deploy.ps1 -ListOnly
 
 # Fully automated (for scripted deployments)
-.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" -TargetDisk 0 -Silent
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" -TargetDisk 0 -Force -Silent
 ```
 
 ## Parameters
@@ -57,7 +57,7 @@ The script launches automatically via `startnet.cmd` when WinPE boots. No manual
 | `-ImagePath` | String | Directory to search for images (skips drive scanning) |
 | `-WimFile` | String | Direct path to a `.wim`/`.esd` file |
 | `-TargetDisk` | Int | Disk number to deploy to (skips disk selection) |
-| `-Silent` | Switch | No interactive prompts - continues through warnings |
+| `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`). |
 | `-ListOnly` | Switch | Show available images and exit |
 
 ## Disk Partition Layout Created

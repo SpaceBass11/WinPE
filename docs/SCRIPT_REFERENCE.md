@@ -14,6 +14,7 @@ only this directory (up to 2 levels deep) instead of scanning all drives.
 
 ### -WimFile [string]
 Direct path to a specific image file. Bypasses all discovery logic.
+The file must exist and use a supported extension (`.wim` or `.esd`).
 
 ```powershell
 .\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11_Pro.wim"
@@ -33,8 +34,12 @@ Skips the "ERASE" confirmation when used with `-TargetDisk`. Without this flag,
 `-TargetDisk` pre-selects the disk but still requires typed confirmation.
 
 ### -Silent [switch]
-Suppresses non-destructive interactive prompts (memory warnings, shutdown dialog).
-Does NOT bypass disk destruction confirmations (use `-Force` for that).
+Unattended mode for automation. For deployment runs, it requires:
+- `-WimFile` (to avoid interactive image selection)
+- `-TargetDisk` (to avoid interactive disk selection)
+- `-Force` (to avoid interactive final confirmation)
+
+`-Silent` still does **not** bypass system-disk `DESTROY SYSTEM` confirmation.
 
 ### -ListOnly [switch]
 Discovers and displays all available images non-interactively, then exits without deploying.
