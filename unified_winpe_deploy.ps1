@@ -823,6 +823,7 @@ function New-DiskpartScript {
 
 $commands = @"
 select disk $DiskNumber
+attributes disk clear readonly
 clean
 convert gpt
 create partition efi size=300
@@ -902,6 +903,7 @@ function Invoke-Diskpart {
                 Write-Log 'MSR and EFI partitions are only supported on GPT disks.' -Level Error
                 Write-Log 'Ensure the selected disk can be converted to GPT, then try again.' -Level Info
                 Write-Log 'If needed, manually run: diskpart -> select disk N -> attributes disk clear readonly -> clean -> convert gpt' -Level Info
+                Write-Log 'If clean fails, check firmware/HBA write-protect settings and vendor security locks.' -Level Info
             }
 
             return $false

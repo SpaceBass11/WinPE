@@ -128,3 +128,8 @@ Additional deep-dive review identified and fixed these behavior bugs:
 ## Phase 5 deep-dive pass (no further code changes)
 - Re-checked high-risk flows (`-ListOnly`, WIM index enumeration failure, target-disk confirmation chain, diskpart invocation, post-partition verification).
 - No additional silent-failure or wrong-behavior defects were identified beyond Phases 1-4 fixes.
+
+
+## Phase 6 deep-dive findings and fixes
+- Added `attributes disk clear readonly` to the diskpart script before `clean` to proactively handle a common failure mode where target disks are readonly in firmware/controller state and `clean`/`convert gpt` fail.
+- Expanded GPT remediation guidance with an explicit note to check firmware/HBA/security locks when `clean` still fails.
