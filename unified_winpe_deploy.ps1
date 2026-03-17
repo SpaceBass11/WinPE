@@ -823,6 +823,7 @@ function New-DiskpartScript {
 
 $commands = @"
 select disk $DiskNumber
+online disk noerr
 attributes disk clear readonly
 clean
 convert gpt
@@ -904,6 +905,7 @@ function Invoke-Diskpart {
                 Write-Log 'Ensure the selected disk can be converted to GPT, then try again.' -Level Info
                 Write-Log 'If needed, manually run: diskpart -> select disk N -> attributes disk clear readonly -> clean -> convert gpt' -Level Info
                 Write-Log 'If clean fails, check firmware/HBA write-protect settings and vendor security locks.' -Level Info
+                Write-Log 'If disk is offline, manually run: diskpart -> select disk N -> online disk -> attributes disk clear readonly -> clean -> convert gpt' -Level Info
             }
 
             return $false
