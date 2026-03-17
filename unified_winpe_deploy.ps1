@@ -192,7 +192,7 @@ function Find-ImageFiles {
     
     # If specific WIM file provided, use it
     if ($WimFile) {
-        if (Test-Path $WimFile) {
+        if ((Test-Path $WimFile -PathType Leaf) -and ([IO.Path]::GetExtension($WimFile).ToLowerInvariant() -in @('.wim', '.esd'))) {
             Write-Log "Using specified WIM file: $WimFile" -Level Success
             $item = Get-Item $WimFile
             return @(@{
@@ -202,6 +202,9 @@ function Find-ImageFiles {
                 Type = 'Specified'
                 LastModified = $item.LastWriteTime
             })
+        } elseif (Test-Path $WimFile -PathType Leaf) {
+            Write-Log "Specified file is not a supported image type (.wim/.esd): $WimFile" -Level Error
+            return @()
         } else {
             Write-Log "Specified WIM file not found: $WimFile" -Level Error
             return @()
@@ -978,6 +981,22 @@ function Start-Deployment {
     
     # Initialize system
     Initialize-SystemPaths
+
+    # Silent mode is intended for unattended runs and must not trigger prompts
+    if ($Silent -and -not $ListOnly) {
+        if (-not $WimFile) {
+            Write-Log "Silent mode requires -WimFile to avoid interactive image selection" -Level Error
+            return $false
+        }
+        if ($TargetDisk -lt 0) {
+            Write-Log "Silent mode requires -TargetDisk to avoid interactive disk selection" -Level Error
+            return $false
+        }
+        if (-not $Force) {
+            Write-Log "Silent mode requires -Force to avoid interactive final confirmation" -Level Error
+            return $false
+        }
+    }
     
     # Find and select image
     $imageFiles = Find-ImageFiles
