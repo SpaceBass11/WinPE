@@ -95,8 +95,9 @@ on low-memory systems.
 **Fix:**
 - 4GB RAM is the practical minimum; 8GB+ recommended
 - Use compressed WIMs (smaller memory footprint)
-- If DISM fails with out-of-memory, try adding `/ScratchDir:` pointing to a
-  directory on a drive with free space
+- If DISM fails with out-of-memory, try running it manually with `/ScratchDir:`
+  pointing to a directory on a drive with free space:
+  `dism /apply-image /imagefile:D:\images\install.wim /index:1 /applydir:C:\ /ScratchDir:D:\scratch`
 
 ### Script errors: "Cannot load System.Windows.Forms"
 

@@ -24,18 +24,22 @@ USB Drive Layout:
 
 ### Deployment Flow
 1. Boot from USB → WinPE loads → script auto-starts
-2. Script scans for `.wim`/`.esd` files on non-system drives
-3. User selects image via TUI menu
-4. User selects Windows edition (WIM index) via DISM enumeration
-5. User selects target disk (with safety confirmations)
-6. Disk size validated against image size
-7. Drive letters C:/S: freed if in use (never the system drive)
-8. Diskpart wipes + partitions target (GPT: EFI 300MB + MSR 16MB + NTFS primary)
-9. Post-diskpart verification (S: and C: available)
-10. DISM applies the WIM to C:\ (progress shown inline)
-11. Post-deploy verification (C:\Windows\System32 exists)
-12. BCDBoot configures UEFI boot on S: (EFI partition)
-13. Optional shutdown prompt (uses shutdown.exe for WinPE reliability)
+2. Administrator check (script requires elevation)
+3. Silent-mode validation (if `-Silent`: requires `-WimFile`, `-TargetDisk`, `-Force`)
+4. Script scans for `.wim`/`.esd` files on non-system drives
+5. User selects image via TUI menu
+6. User selects Windows edition (WIM index) via DISM enumeration
+7. WinPE environment check (warns and prompts if not in WinPE)
+8. Memory check (warns if < 8 GB RAM)
+9. User selects target disk (with safety confirmations)
+10. Disk size validated against image size
+11. Drive letters C:/S: freed if in use (never the system drive)
+12. Diskpart wipes + partitions target (GPT: EFI 300MB + MSR 16MB + NTFS primary)
+13. Post-diskpart verification (S: and C: available)
+14. DISM applies the WIM to C:\ (progress shown inline)
+15. Post-deploy verification (C:\Windows\System32 exists)
+16. BCDBoot configures UEFI boot on S: (EFI partition)
+17. Optional shutdown prompt (uses shutdown.exe for WinPE reliability)
 
 ## Key Files
 

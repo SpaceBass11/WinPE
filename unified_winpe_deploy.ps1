@@ -506,7 +506,7 @@ function Get-SystemDisks {
             $sizeGB = if ($wmiDisk.Size) { [Math]::Round([double]$wmiDisk.Size / 1GB, 2) } else { 0 }
 
             # Filter partitions for this disk from the single query
-            $partitions = @($allPartitions | Where-Object { $_.DiskIndex -eq $diskNumber })
+            $partitions = @($allPartitions | Where-Object { $null -ne $_ -and $_.DiskIndex -eq $diskNumber })
             $hasPartitions = $partitions.Count -gt 0
 
             $partitionInfo = if ($hasPartitions) {
@@ -1053,7 +1053,7 @@ function Start-Deployment {
     $estimatedSizeGB = [Math]::Round($selectedImage.Size / 1GB, 2)
     $sizeSource = "compressed WIM ~3x"
     # Use uncompressed size from DISM if available for the selected index
-    $selectedWimInfo = $wimIndexes | Where-Object { $_.Index -eq $imageIndex }
+    $selectedWimInfo = $wimIndexes | Where-Object { $_.Index -eq $imageIndex } | Select-Object -First 1
     $usedUncompressed = $false
     if ($selectedWimInfo -and $selectedWimInfo.Size) {
         try {
