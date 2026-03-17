@@ -63,3 +63,32 @@ Use this before each release:
 - Attempted to run PowerShell parser tests, but `pwsh` is not installed in this execution environment.
 - Static review was performed directly on repository source files and scripts.
 
+---
+
+## Follow-up Review Addendum (2026-03-17)
+
+This follow-up review expanded scope to include legacy deployment assets (`smart_winpe_image_deploy.ps1`) and repo-level documentation consistency.
+
+### New Findings
+
+1. **Potential BusType mismatch in legacy disk filtering (`smart_winpe_image_deploy.ps1`)**
+   - The script excludes `BusType -ne 7` while the local mapping block labels `7` as `RAID` and `6` as `USB`.
+   - This inconsistency increases the chance of either:
+     - excluding a non-USB disk unexpectedly, or
+     - not excluding actual USB media depending on environment/provider enum behavior.
+   - Risk impact: wrong target disk set presented to operator in legacy flow.
+
+2. **Legacy environment gate is brittle (`smart_winpe_image_deploy.ps1`)**
+   - WinPE validation depends on a strict computer-name match (`Win10XPE`), which can fail in customized images.
+   - The unified script uses a more robust runtime check (`X:` system drive / WinPE path presence).
+   - Risk impact: false negative environment detection and unnecessary operator blocking.
+
+3. **Documentation drift between “primary” and “legacy” scripts**
+   - The unified script is clearly the safer and newer path, but legacy script remains present and callable.
+   - Recommendation: explicitly mark `smart_winpe_image_deploy.ps1` as legacy/deprecated in top-level docs and direct operators to `unified_winpe_deploy.ps1` unless they have a validated compatibility reason.
+
+### Recommended Next Actions
+
+- Fix/validate BusType filtering semantics in `smart_winpe_image_deploy.ps1` against the exact CIM provider used in your target WinPE build.
+- Align legacy WinPE detection with the unified script’s runtime approach.
+- Add a short “script selection” section to `README.md` to reduce accidental use of legacy paths.
