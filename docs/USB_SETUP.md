@@ -64,7 +64,8 @@ drive by volume label and launch the deploy script:
 @echo off
 wpeinit
 setlocal enabledelayedexpansion
-timeout /t 3 /nobreak >nul
+:: WinPE builds may not include timeout.exe; use ping for a short delay
+ping -n 4 127.0.0.1 >nul
 set DEPLOY_IMAGE_DRIVE=
 for %%d in (D E F G H I J K L M N O P Q R S T U V W Y Z) do (
     vol %%d: 2>nul | find /i "IMAGES" >nul 2>&1
@@ -79,7 +80,6 @@ goto :launch
 echo Found image drive: %DEPLOY_IMAGE_DRIVE%
 :launch
 powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
-pause
 ```
 
 The label `IMAGES` matches the NTFS data partition created in Step 4. If you
