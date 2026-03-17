@@ -133,3 +133,9 @@ Additional deep-dive review identified and fixed these behavior bugs:
 ## Phase 6 deep-dive findings and fixes
 - Added `attributes disk clear readonly` to the diskpart script before `clean` to proactively handle a common failure mode where target disks are readonly in firmware/controller state and `clean`/`convert gpt` fail.
 - Expanded GPT remediation guidance with an explicit note to check firmware/HBA/security locks when `clean` still fails.
+
+
+## Phase 7 deep-dive findings and fixes (multi-pass/parallel-style)
+Performed three independent review passes (workflow path, diskpart path, and recovery guidance path) and merged findings.
+- Added `online disk noerr` to the generated diskpart script before readonly clearing/clean. This addresses another common failure mode where target disks are offline in WinPE and `clean` fails.
+- Expanded recovery guidance with an explicit offline-disk recovery sequence.
