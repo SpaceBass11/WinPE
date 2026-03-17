@@ -477,9 +477,21 @@ function Get-SystemDisks {
         foreach ($usbDisk in $usbDisks) {
             Write-Log "Skipping USB disk $($usbDisk.Index): $($usbDisk.Model) (USB drives excluded for safety)" -Level Info
         }
+        $nonTargetableMedia = $allWmiDisks | Where-Object {
+            $_.InterfaceType -ne 'USB' -and (
+                $_.MediaType -like "*removable*" -or
+                $_.MediaType -like "*cd*" -or
+                $_.Model -like "*cd*"
+            )
+        }
+        foreach ($skippedDisk in $nonTargetableMedia) {
+            Write-Log "Skipping non-targetable media disk $($skippedDisk.Index): $($skippedDisk.Model) ($($skippedDisk.MediaType))" -Level Info
+        }
         $wmiDisks = $allWmiDisks | Where-Object {
             $_.InterfaceType -ne 'USB' -and
             $_.MediaType -notlike "*removable*" -and
+            $_.MediaType -notlike "*cd*" -and
+            $_.Model -notlike "*cd*" -and
             ([double]$_.Size -gt 0)
         }
 
