@@ -57,7 +57,7 @@ The script launches automatically via `startnet.cmd` when WinPE boots. No manual
 | `-ImagePath` | String | Directory to search for images (skips drive scanning) |
 | `-WimFile` | String | Direct path to a `.wim`/`.esd` file |
 | `-TargetDisk` | Int | Disk number to deploy to (skips disk selection) |
-| `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`). |
+| `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`), and a single-index image. |
 | `-ListOnly` | Switch | Show available images and exit |
 
 ## Disk Partition Layout Created
