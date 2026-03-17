@@ -16,6 +16,19 @@
 3. Verify the script exists at `X:\scripts\unified_winpe_deploy.ps1`
 4. Ensure WinPE-PowerShell package is included in the image
 
+
+### "'timeout' is not recognized" at boot
+
+**Cause:** Some WinPE images do not include `timeout.exe`, but `startnet.cmd`
+contains `timeout /t ...`.
+
+**Fix:** Replace the timeout call with a ping-based delay:
+```cmd
+ping -n 4 127.0.0.1 >nul
+```
+
+Also remove any trailing `pause` in `startnet.cmd` for fully unattended boots.
+
 ### "No Windows image files found!"
 
 **Cause:** Script can't find any `.wim`/`.esd` files on attached drives.
