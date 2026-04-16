@@ -505,14 +505,27 @@ function Get-SystemDisks {
             $diskNumber = $wmiDisk.Index
             $sizeGB = if ($wmiDisk.Size) { [Math]::Round([double]$wmiDisk.Size / 1GB, 2) } else { 0 }
 
-            # Filter partitions for this disk from the single query
+            # Filter Windows-recognized partitions for this disk from the single query
             $partitions = @($allPartitions | Where-Object { $null -ne $_ -and $_.DiskIndex -eq $diskNumber })
-            $hasPartitions = $partitions.Count -gt 0
 
-            $partitionInfo = if ($hasPartitions) {
-                ($partitions | ForEach-Object { "Part$($_.Index):$([Math]::Round([double]$_.Size/1GB,1))GB" }) -join ", "
-            } else {
+            # Use Win32_DiskDrive.Partitions as the source of truth - it reads the partition
+            # table directly and counts non-Windows partitions (Linux ext/xfs/LVM, etc.) that
+            # Win32_DiskPartition silently omits. Critical for safety - prevents Linux disks
+            # from being reported as empty.
+            $partitionCount = if ($null -ne $wmiDisk.Partitions) { [int]$wmiDisk.Partitions } else { $partitions.Count }
+            $hasPartitions = $partitionCount -gt 0
+
+            $partitionInfo = if (-not $hasPartitions) {
                 "No partitions"
+            } elseif ($partitions.Count -gt 0) {
+                $detail = ($partitions | ForEach-Object { "Part$($_.Index):$([Math]::Round([double]$_.Size/1GB,1))GB" }) -join ", "
+                if ($partitionCount -gt $partitions.Count) {
+                    "$detail (+$($partitionCount - $partitions.Count) non-Windows)"
+                } else {
+                    $detail
+                }
+            } else {
+                "$partitionCount partition(s) (non-Windows - e.g. Linux/LVM)"
             }
 
             $disk = [PSCustomObject]@{
