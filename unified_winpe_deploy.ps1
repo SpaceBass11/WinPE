@@ -837,7 +837,7 @@ function New-DiskpartScript {
 $commands = @"
 select disk $DiskNumber
 online disk noerr
-attributes disk clear readonly
+attributes disk clear readonly noerr
 clean
 convert gpt
 create partition efi size=300
@@ -919,6 +919,26 @@ function Invoke-Diskpart {
                 Write-Log 'If needed, manually run: diskpart -> select disk N -> attributes disk clear readonly -> clean -> convert gpt' -Level Info
                 Write-Log 'If clean fails, check firmware/HBA write-protect settings and vendor security locks.' -Level Info
                 Write-Log 'If disk is offline, manually run: diskpart -> select disk N -> online disk -> attributes disk clear readonly -> clean -> convert gpt' -Level Info
+            }
+
+            # Read-only / write-protected disk: clean cannot wipe the partition table
+            $readOnlyHint = $false
+            if ($dpOutput -match 'failed to clear disk attributes' -or
+                $dpOutput -match 'media is write protected' -or
+                $dpOutput -match 'current read-only state' -or
+                $dpOutput -match 'disk is read.only') {
+                $readOnlyHint = $true
+            }
+            if ($readOnlyHint) {
+                Write-Log 'Target disk appears to be read-only or write-protected.' -Level Error
+                Write-Log 'Possible causes:' -Level Info
+                Write-Log '  - Physical write-protect switch on the drive (SD cards, some USB sticks)' -Level Info
+                Write-Log '  - BIOS/UEFI firmware write protection or vendor security lock' -Level Info
+                Write-Log '  - Self-encrypting drive (SED) in a locked state - unlock or PSID-revert in vendor tool' -Level Info
+                Write-Log '  - HBA/RAID controller exposing the disk read-only' -Level Info
+                Write-Log '  - Disk still held by another process (close File Explorer, retry)' -Level Info
+                Write-Log 'Manually try: diskpart -> select disk N -> attributes disk clear readonly -> clean' -Level Info
+                Write-Log 'If attributes clear fails, the protection is below the OS - resolve in firmware/hardware.' -Level Info
             }
 
             return $false
