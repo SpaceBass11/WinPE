@@ -9,7 +9,7 @@ color 0B
 
 echo.
 echo ====================================================================
-echo                    SAMS IMAGE DEPLOYMENT TOOL
+echo                    IMAGE DEPLOYMENT TOOL
 echo                         Auto-Discovery Mode
 echo ====================================================================
 echo.
