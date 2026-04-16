@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-title SAMS Image Deployment Tool - Auto Discovery
+title Image Deployment Tool - Auto Discovery
 color 0B
 
 :: ====================================================================
