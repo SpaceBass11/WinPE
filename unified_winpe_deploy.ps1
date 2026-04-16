@@ -976,16 +976,35 @@ function Apply-WindowsImage {
     
     try {
         # Note: applydir is not quoted because C:\" causes DISM error 123 (backslash escapes the quote)
-        $arguments = "/apply-image /imagefile:""$WimPath"" /index:$ImageIndex /applydir:$TargetPath"
+        # /CheckIntegrity: surfaces WIM corruption up front with a clear error instead of
+        # letting apply fail mid-stream with cryptic "Incorrect function" messages on files
+        # with dense hard-link/reparse metadata (e.g. Windows Containers layers).
+        $arguments = "/apply-image /imagefile:""$WimPath"" /index:$ImageIndex /applydir:$TargetPath /CheckIntegrity"
         $process = Start-Process -FilePath 'dism.exe' -ArgumentList $arguments -Wait -PassThru -NoNewWindow
-        
+
         if ($process.ExitCode -eq 0) {
             Write-Log "Windows image applied successfully" -Level Success
             return $true
-        } else {
-            Write-Log "DISM failed with exit code $($process.ExitCode)" -Level Error
-            return $false
         }
+
+        Write-Log "DISM failed with exit code $($process.ExitCode)" -Level Error
+
+        # Exit code 1 = ERROR_INVALID_FUNCTION. Almost always means the WIM has damaged
+        # metadata (often surfacing on Windows Containers layer files, which use huge
+        # hard-link storms) or the source drive is returning bad reads mid-apply.
+        if ($process.ExitCode -eq 1) {
+            $dismLog = 'X:\Windows\Logs\DISM\dism.log'
+            Write-Log "Exit code 1 ('Incorrect function') usually means WIM corruption or a flaky source-drive read." -Level Warning
+            Write-Log "Check $dismLog for the exact failing file/operation." -Level Info
+            Write-Log "Recovery steps to try:" -Level Info
+            Write-Log "  1. Verify WIM integrity:  dism /Get-WimInfo /WimFile:""$WimPath"" /Index:$ImageIndex /CheckIntegrity" -Level Info
+            Write-Log "  2. Re-copy the WIM to the USB drive - the on-disk copy may have bit-rot" -Level Info
+            Write-Log "  3. Try a different USB port or a USB 2.0 port (some USB 3.x controllers drop reads)" -Level Info
+            Write-Log "  4. If the image includes Windows Containers/Hyper-V layers, try a different edition" -Level Info
+            Write-Log "  5. Last resort: retry with /NoRpFix manually: dism /apply-image /imagefile:""$WimPath"" /index:$ImageIndex /applydir:C:\ /NoRpFix" -Level Info
+        }
+
+        return $false
     } catch {
         Write-Log "Image application error: $($_.Exception.Message)" -Level Error
         return $false
