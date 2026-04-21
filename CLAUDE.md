@@ -46,6 +46,7 @@ USB Drive Layout:
 | File | Purpose |
 |------|---------|
 | `unified_winpe_deploy.ps1` | Main deployment script - the core deliverable |
+| `scripts/build_boot_wim.ps1` | Reproducible WinPE boot.wim builder (components + reg tweaks + embed deploy script) |
 | `scripts/validate_script.ps1` | Static analysis checks for the deploy script |
 | `tests/test_parse.ps1` | PowerShell syntax validation |
 | `docs/USB_SETUP.md` | USB drive preparation guide |
@@ -105,3 +106,24 @@ pwsh -NoProfile -Command "& ./scripts/validate_script.ps1"
 - DISM runs with `-NoNewWindow` so progress is shown inline in the console
 - Diskpart exit code 0 does not guarantee all commands succeeded - script verifies S: and C: exist after partitioning
 - Log file lives in temp dir (typically X:\Windows\Temp in WinPE) - survives diskpart since X: is RAM disk
+
+## Building boot.wim
+
+The deploy script assumes a WinPE build with the right components and a
+specific registry tweak. Use `scripts/build_boot_wim.ps1` (run from the
+ADK "Deployment and Imaging Tools Environment" as admin) to produce a
+compatible `boot.wim`.
+
+The builder adds these optional components:
+`WinPE-WMI`, `WinPE-NetFx`, `WinPE-Scripting`, `WinPE-PowerShell`,
+`WinPE-DismCmdlets`, `WinPE-SecureStartup`, `WinPE-StorageWMI`,
+`WinPE-EnhancedStorage`, `WinPE-FMAPI`.
+
+And this registry tweak in the offline SYSTEM hive:
+`HKLM\SYSTEM\ControlSet001\Control\FileSystem\NtfsEnableDirCaseSensitivity = 1`
+
+**Why the reg key matters:** Windows Containers/Hyper-V layer files in a
+captured WIM set the `CASE_SENSITIVE_DIR` flag. Without this key, DISM
+apply fails with "Incorrect function" (exit 1) mid-apply on
+`C:\ProgramData\Microsoft\Windows\Containers\Layers\...`. This was the
+root cause behind the v4.3.x diskpart/DISM troubleshooting pass.

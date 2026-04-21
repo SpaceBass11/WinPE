@@ -1,6 +1,7 @@
 # Script Reference
 
-Complete technical reference for `unified_winpe_deploy.ps1`.
+Complete technical reference for `unified_winpe_deploy.ps1` and the
+`scripts/build_boot_wim.ps1` boot media builder.
 
 ## Parameters
 
@@ -166,3 +167,87 @@ A timestamped log file is created in the temp directory:
 `deploy_YYYYMMDD_HHMMSS.log`
 
 All `Write-Log` messages are appended with `[timestamp] [level] message` format.
+
+---
+
+# build_boot_wim.ps1
+
+Reproducible builder for a WinPE `boot.wim` that is compatible with this
+deploy tool. Run from the ADK "Deployment and Imaging Tools Environment"
+as Administrator.
+
+## Parameters
+
+### -WorkDir [string]
+Working directory for `copype` output. Default: `C:\WinPE_Build`.
+
+### -Architecture [amd64|x86|arm64]
+Target architecture. Default: `amd64`.
+
+### -DeployScript [string]
+Path to `unified_winpe_deploy.ps1`. Default: sibling of the script's parent
+directory (the repo root).
+
+### -AdkPath [string]
+ADK install root. Default:
+`C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit`.
+
+### -Clean [switch]
+Delete `WorkDir` before starting. Also unmounts any stale image at
+`WorkDir\mount` (discards changes) to clear prior failed runs.
+
+### -UsbDrive [string]
+Drive letter (e.g. `'P:'`) of the already-partitioned FAT32 boot partition
+created per `docs/USB_SETUP.md` Step 4. The built media is xcopied there
+after boot.wim is committed.
+
+### -ReleaseUsbLetter [switch]
+After copying to `-UsbDrive`, runs `mountvol <letter> /d` so the boot
+partition is no longer mounted in your current Windows session. The USB
+remains bootable — only the drive-letter assignment in the running OS is
+removed. Requires `-UsbDrive`.
+
+## What It Adds
+
+**Optional components** (ADK WinPE_OCs, base + en-us language pack):
+`WinPE-WMI`, `WinPE-NetFx`, `WinPE-Scripting`, `WinPE-PowerShell`,
+`WinPE-DismCmdlets`, `WinPE-SecureStartup`, `WinPE-StorageWMI`,
+`WinPE-EnhancedStorage`, `WinPE-FMAPI`.
+
+**Offline registry tweaks** (applied to `SYSTEM` hive inside `boot.wim`):
+- `ControlSet001\Control\FileSystem\NtfsEnableDirCaseSensitivity = 1`
+  — enables case-sensitive NTFS directory support in WinPE. Without this,
+  DISM `/apply-image` fails at ~19% with "Incorrect function" on captured
+  images that contain Windows Containers/Hyper-V layer files (the layers
+  use `CASE_SENSITIVE_DIR`).
+
+**Embedded deploy script:** `unified_winpe_deploy.ps1` is copied to
+`X:\scripts\` inside the boot image.
+
+**`startnet.cmd`:** Auto-launches the deploy script after `wpeinit` and
+a short settle delay. Probes drive letters D:-Z: for a volume labeled
+`IMAGES` and exports it as `%DEPLOY_IMAGE_DRIVE%` so the deploy script
+skips a full scan.
+
+## Safety Behavior
+
+- Mount/customize/unmount is wrapped in `try/finally`; a mid-build failure
+  discards the mount (`/Discard`) rather than committing a broken image.
+- Registry hive is unloaded in a `finally` block after a forced GC so
+  lingering handles don't prevent unload.
+- Language pack misses are logged as warnings, not fatal.
+- Package installs run against specific cab paths — no wildcards, so a
+  missing cab is caught immediately.
+
+## Examples
+
+```powershell
+# Build only - output at C:\WinPE_Build\media\ for later xcopy
+.\scripts\build_boot_wim.ps1
+
+# Clean rebuild, write to pre-partitioned USB boot partition, release P:
+.\scripts\build_boot_wim.ps1 -Clean -UsbDrive P: -ReleaseUsbLetter
+
+# Custom workdir and ADK path
+.\scripts\build_boot_wim.ps1 -WorkDir D:\WinPE_Build -AdkPath 'E:\ADK'
+```
