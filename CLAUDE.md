@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a **PowerShell-based WinPE image deployment tool** (v4.3.0) that automates
+This is a **PowerShell-based WinPE image deployment tool** (v4.4.0) that automates
 Windows installation from `.wim`/`.esd` files in a WinPE boot environment. The tool
 is designed to run from a USB drive with a dual-partition layout: a small WinPE boot
 partition and a larger data partition holding Windows images.

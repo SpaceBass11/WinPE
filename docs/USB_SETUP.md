@@ -37,12 +37,12 @@ that auto-launches it.
 Output: `C:\WinPE_Build\media\` (or wherever `-WorkDir` points).
 
 See `docs/SCRIPT_REFERENCE.md` for all parameters, including `-UsbDrive`
-and `-ReleaseUsbLetter` which combine Steps 2 and 5 below.
+and `-ReleaseUsbLetter` which combine Steps 2 and 4 below.
 
 ### Why not `MakeWinPEMedia /UFD`?
 
 The script's build output is the `media\` tree, not an ISO. We xcopy it onto
-an already-partitioned USB (Step 4/5) because `MakeWinPEMedia /UFD` wipes
+an already-partitioned USB (Steps 3-4) because `MakeWinPEMedia /UFD` wipes
 the whole USB and destroys the dual-partition layout this tool relies on.
 
 ### Manual alternative (if you can't run the builder)
@@ -79,7 +79,7 @@ reg add "HKLM\WinPE_OFFLINE\ControlSet001\Control\FileSystem" /v NtfsEnableDirCa
 reg unload HKLM\WinPE_OFFLINE
 ```
 
-## Step 4: Partition the USB Drive
+## Step 3: Partition the USB Drive
 
 Open **diskpart** as Administrator:
 
@@ -99,7 +99,7 @@ exit
 
 > **WARNING:** Double-check the disk number! This erases the entire USB drive.
 
-## Step 5: Make USB Bootable with WinPE
+## Step 4: Make USB Bootable with WinPE
 
 Copy the built WinPE media to the boot partition:
 
@@ -108,7 +108,7 @@ xcopy /s /e /y C:\WinPE_Build\media\*.* P:\
 ```
 
 > **Note:** Do NOT use `MakeWinPEMedia /UFD` here — it reformats the entire USB
-> and destroys the dual-partition layout created in Step 4.
+> and destroys the dual-partition layout created in Step 3.
 
 ### Release the P: drive letter (optional but recommended)
 
@@ -125,9 +125,9 @@ current Windows session is removed. Plug the USB in elsewhere and it'll
 still boot.
 
 > **Tip:** `build_boot_wim.ps1 -UsbDrive P: -ReleaseUsbLetter` does Steps 2,
-> 5, and this release in one shot.
+> 4, and this release in one shot.
 
-## Step 6: Add Windows Images to Data Partition
+## Step 5: Add Windows Images to Data Partition
 
 Copy your `.wim` or `.esd` files to the data partition:
 
@@ -145,18 +145,41 @@ copy E:\sources\install.esd I:\images\
 ```
 
 **From a running Windows installation (capture):**
+
+Always capture with `/CheckIntegrity` and `/verify` — `/CheckIntegrity`
+embeds SHA1 hashes so integrity can be verified later, and `/verify`
+re-reads every file after writing to catch bad source reads at capture
+time rather than at deploy time.
+
 ```cmd
-:: Boot into WinPE, then capture
-Dism /Capture-Image /ImageFile:I:\images\MyCapture.wim /CaptureDir:C:\ /Name:"My Windows Build"
+:: Boot into WinPE, then capture (directly onto the USB Images partition)
+Dism /Capture-Image /ImageFile:I:\images\MyCapture.wim /CaptureDir:C:\ /Name:"My Windows Build" /CheckIntegrity /verify /Compress:max
+```
+
+If the captured image contains Windows Containers or Hyper-V layers (dense
+reparse points + hard-link storms under `C:\ProgramData\Microsoft\Windows\Containers\Layers`),
+the boot.wim must be built with the builder script (Step 2) — the
+`NtfsEnableDirCaseSensitivity` reg tweak there is required for DISM apply
+to succeed. To skip the layer cache entirely at capture time, use a
+`/configfile` with an ExclusionList:
+
+```ini
+; exclude.ini - layer cache is rebuilt on first container use
+[ExclusionList]
+\ProgramData\Microsoft\Windows\Containers\Layers
+```
+
+```cmd
+Dism /Capture-Image /ImageFile:I:\images\MyCapture.wim /CaptureDir:C:\ /Name:"My Windows Build" /ConfigFile:exclude.ini /CheckIntegrity /verify /Compress:max
 ```
 
 **Export a specific edition from a multi-index WIM:**
 ```cmd
 Dism /Get-WimInfo /WimFile:E:\sources\install.esd
-Dism /Export-Image /SourceImageFile:E:\sources\install.esd /SourceIndex:7 /DestinationImageFile:I:\images\Win11_Pro.wim /Compress:max
+Dism /Export-Image /SourceImageFile:E:\sources\install.esd /SourceIndex:7 /DestinationImageFile:I:\images\Win11_Pro.wim /Compress:max /CheckIntegrity
 ```
 
-## Step 7: Test
+## Step 6: Test
 
 1. Plug USB into target machine
 2. Enter UEFI/BIOS boot menu (usually F12, F2, or Del at POST)

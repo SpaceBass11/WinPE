@@ -13,7 +13,9 @@
     Path to a specific WIM or ESD image file. When specified, the image is used
     directly without any drive scanning.
 .VERSION
-    4.3.0 - Env var image discovery, DISM argument fix, bug fixes
+    4.4.0 - Diskpart resilience (noerr on readonly clear), Linux/LVM partition
+            detection, DISM /CheckIntegrity, exit-1 guidance, reproducible
+            boot.wim builder (scripts/build_boot_wim.ps1)
 #>
 
 [CmdletBinding()]
@@ -36,7 +38,7 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.3.0'
+    ScriptVersion = '4.4.0'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')

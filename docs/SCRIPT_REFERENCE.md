@@ -110,7 +110,7 @@ Located at the top of the script in `$Script:Config`:
 ```powershell
 $Script:Config = @{
     MinimumMemoryGB    = 8          # Warn below this
-    ScriptVersion      = '4.3.0'   # Display version
+    ScriptVersion      = '4.4.0'   # Display version
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths        = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions    = @('*.wim', '*.esd')

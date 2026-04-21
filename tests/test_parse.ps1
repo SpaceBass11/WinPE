@@ -1,13 +1,14 @@
 <#
 .SYNOPSIS
-    Validates PowerShell syntax of unified_winpe_deploy.ps1
+    Validates PowerShell syntax of unified_winpe_deploy.ps1 and scripts/build_boot_wim.ps1
 .DESCRIPTION
-    Parses the script and reports any syntax errors. Returns exit code 0 on
+    Parses each script and reports any syntax errors. Returns exit code 0 on
     success, 1 on failure. Works with both PowerShell 5.1 and 7+.
 #>
 
 $ErrorActionPreference = 'Stop'
-$scriptPath = Join-Path $PSScriptRoot '..' 'unified_winpe_deploy.ps1'
+$scriptPath  = Join-Path $PSScriptRoot '..' 'unified_winpe_deploy.ps1'
+$builderPath = Join-Path $PSScriptRoot '..' 'scripts\build_boot_wim.ps1'
 $passed = 0
 $failed = 0
 
@@ -20,6 +21,26 @@ function Write-Result {
         Write-Host "  [FAIL] $Test - $Detail" -ForegroundColor Red
         $script:failed++
     }
+}
+
+function Test-ScriptSyntax {
+    param([string]$Path, [string]$Label)
+    if (-not (Test-Path $Path)) {
+        Write-Result -Test "$Label exists" -Pass $false -Detail "Not found at $Path"
+        return $false
+    }
+    Write-Result -Test "$Label exists" -Pass $true
+    $c = Get-Content $Path -Raw
+    $parseErrors = $null
+    [System.Management.Automation.PSParser]::Tokenize($c, [ref]$parseErrors) | Out-Null
+    $ok = ($parseErrors.Count -eq 0)
+    Write-Result -Test "$Label syntax valid" -Pass $ok -Detail "$($parseErrors.Count) error(s)"
+    if (-not $ok) {
+        foreach ($err in $parseErrors) {
+            Write-Host "    Line $($err.Token.StartLine): $($err.Message)" -ForegroundColor Yellow
+        }
+    }
+    return $ok
 }
 
 Write-Host "`n=== WinPE Deploy Script - Syntax Validation ===" -ForegroundColor Cyan
@@ -85,6 +106,10 @@ Write-Result -Test "CmdletBinding attribute present" -Pass $hasCmdletBinding
 # Test 8: Requires RunAsAdministrator
 $hasRequires = $content -match '#Requires\s+-RunAsAdministrator'
 Write-Result -Test "#Requires -RunAsAdministrator present" -Pass $hasRequires
+
+# Test 9: build_boot_wim.ps1 (syntax only - it's a simpler single-purpose script)
+Write-Host "`n--- scripts/build_boot_wim.ps1 ---" -ForegroundColor Cyan
+Test-ScriptSyntax -Path $builderPath -Label "Builder" | Out-Null
 
 # Summary
 Write-Host "`n=== Results ===" -ForegroundColor Cyan
