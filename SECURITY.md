@@ -21,7 +21,7 @@ on Git tags for reference but are not patched.
 **Do not open a public GitHub issue for security reports.**
 
 Please report security vulnerabilities through
-[GitHub Security Advisories](https://github.com/spacebass11/winpe/security/advisories/new).
+[GitHub Security Advisories](https://github.com/spacebass11/WinPE/security/advisories/new).
 
 When reporting, include:
 

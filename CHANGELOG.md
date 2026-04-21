@@ -67,6 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Various smaller bug fixes in image discovery and confirmation prompts.
 
-[Unreleased]: https://github.com/spacebass11/winpe/compare/v4.4.0...HEAD
-[4.4.0]: https://github.com/spacebass11/winpe/releases/tag/v4.4.0
-[4.3.0]: https://github.com/spacebass11/winpe/releases/tag/v4.3.0
+[Unreleased]: https://github.com/spacebass11/WinPE/compare/v4.4.0...HEAD
+[4.4.0]: https://github.com/spacebass11/WinPE/releases/tag/v4.4.0
+[4.3.0]: https://github.com/spacebass11/WinPE/releases/tag/v4.3.0

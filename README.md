@@ -1,6 +1,6 @@
 # WinPE Image Deployment Tool
 
-[![CI](https://github.com/spacebass11/winpe/actions/workflows/ci.yml/badge.svg)](https://github.com/spacebass11/winpe/actions/workflows/ci.yml)
+[![CI](https://github.com/spacebass11/WinPE/actions/workflows/ci.yml/badge.svg)](https://github.com/spacebass11/WinPE/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PowerShell 5.1+](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://learn.microsoft.com/powershell/)
 [![Platform: WinPE](https://img.shields.io/badge/Platform-WinPE-informational.svg)](https://learn.microsoft.com/windows-hardware/manufacture/desktop/winpe-intro)
@@ -112,6 +112,7 @@ The script creates a standard UEFI/GPT partition layout:
 - [USB Setup Guide](docs/USB_SETUP.md) - Preparing the bootable USB drive
 - [Script Reference](docs/SCRIPT_REFERENCE.md) - Detailed function and parameter docs
 - [Architecture](docs/ARCHITECTURE.md) - Design rationale and data flow
+- [Code Signing](docs/SIGNING.md) - Signing the script for enterprise use
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [Known Issues](docs/KNOWN_ISSUES.md) - Current limitations and recent fixes
 - [Contributing](CONTRIBUTING.md) - How to contribute
