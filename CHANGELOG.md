@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Open-source repo infrastructure: `LICENSE` (MIT), `SECURITY.md`,
+  `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1),
+  `CHANGELOG.md`, `.gitignore`, `.editorconfig`, `.gitattributes`.
+- GitHub community files: `.github/CODEOWNERS`,
+  `.github/dependabot.yml` (weekly GitHub Actions bumps),
+  `.github/ISSUE_TEMPLATE/` (bug report, feature request, config),
+  `.github/PULL_REQUEST_TEMPLATE.md` with a mandatory safety
+  checklist for deployment-path changes.
+- `.github/workflows/ci.yml`: PowerShell syntax parse,
+  `scripts/validate_script.ps1`, PSScriptAnalyzer with shared settings,
+  actionlint, and Markdown link checking (lychee).
+- `.github/workflows/release.yml`: tag-triggered GitHub release with
+  `unified_winpe_deploy.ps1`, `scripts/build_boot_wim.ps1`, and
+  `SHA256SUMS` as artifacts; release notes pulled from the matching
+  `CHANGELOG.md` section.
+- `PSScriptAnalyzerSettings.psd1` — shared rule excludes (Write-Host,
+  WMI, ApprovedVerbs, ShouldProcess) used by both local and CI runs.
+- `docs/ARCHITECTURE.md` — design rationale, runtime data flow, why
+  specific technical choices were made, and explicit non-goals.
+- `docs/SIGNING.md` — instructions for enterprise code-signing of
+  the deploy script and offline-hive cert import for `AllSigned`
+  WinPE images.
+- README badges (CI, license, PowerShell version, platform), a
+  prominent disk-destruction warning callout, "Who this is for / not
+  for" section, contributing section, and license footer.
+
+### Changed
+- Trimmed trailing whitespace from `unified_winpe_deploy.ps1`
+  (whitespace-only, no logic change).
+- Normalized every `spacebass11/winpe` URL to the canonical
+  `spacebass11/WinPE` across README, CHANGELOG, SECURITY, issue
+  template config, and the CI link-check exclude list.
+
 ## [4.4.0] - 2026-04-21
 
 ### Added
