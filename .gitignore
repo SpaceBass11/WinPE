@@ -1,6 +1,7 @@
-# WinPE build artifacts
+# WinPE build artifacts (builder default is C:\WinPE_Build; the
+# path is only relevant on Windows, but we keep relative patterns
+# in case someone runs the builder with -WorkDir inside the repo)
 /WinPE_Build/
-C:/WinPE_Build/
 mount/
 *.wim
 *.esd

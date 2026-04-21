@@ -75,14 +75,31 @@ Set-AuthenticodeSignature .\scripts\build_boot_wim.ps1 -Certificate $cert `
 If you set WinPE's execution policy to `AllSigned`, the image must
 trust the cert chain. Import the root / intermediate certs into the
 offline image's `Trusted Root Certification Authorities` store during
-the build:
+the build, while the image is mounted (after `Mount-WindowsImage`,
+before commit):
 
 ```powershell
-# Inside build_boot_wim.ps1 customization window (after Mount-WindowsImage),
-# before committing the image:
-Add-WindowsDriver -Path $MountPath -Driver .\your-root.cer
-# (or use reg.exe against the offline SOFTWARE hive to add to the trust store)
+# Load the offline SOFTWARE hive from the mounted image
+reg load HKLM\WinPE_SOFTWARE "$MountPath\Windows\System32\config\SOFTWARE"
+
+try {
+    # Import the root CA cert into the offline trust store.
+    # The certutil -f -addstore on an offline hive path is the
+    # supported way; the PowerShell provider does not bind to an
+    # offline hive path.
+    certutil -f `
+        -addstore `
+        "\\HKLM\WinPE_SOFTWARE\Microsoft\SystemCertificates\Root" `
+        .\your-root.cer
+} finally {
+    [GC]::Collect()
+    reg unload HKLM\WinPE_SOFTWARE
+}
 ```
+
+> `Add-WindowsDriver` / `Import-Certificate` target the *running* OS,
+> not an offline mounted image. Use `certutil` or `reg.exe` against the
+> hive as shown above.
 
 Exact steps depend on your PKI; consult your CA's guide.
 
