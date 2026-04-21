@@ -1,0 +1,9 @@
+# Default owner for everything in this repo
+*   @spacebass11
+
+# Safety-critical files — require explicit review
+/unified_winpe_deploy.ps1    @spacebass11
+/scripts/build_boot_wim.ps1  @spacebass11
+/SECURITY.md                 @spacebass11
+/LICENSE                     @spacebass11
+/.github/workflows/          @spacebass11

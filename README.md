@@ -111,8 +111,11 @@ The script creates a standard UEFI/GPT partition layout:
 
 - [USB Setup Guide](docs/USB_SETUP.md) - Preparing the bootable USB drive
 - [Script Reference](docs/SCRIPT_REFERENCE.md) - Detailed function and parameter docs
+- [Architecture](docs/ARCHITECTURE.md) - Design rationale and data flow
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [Known Issues](docs/KNOWN_ISSUES.md) - Current limitations and recent fixes
+- [Contributing](CONTRIBUTING.md) - How to contribute
+- [Code of Conduct](CODE_OF_CONDUCT.md) - Contributor Covenant v2.1
 - [Changelog](CHANGELOG.md) - Version history
 - [Security Policy](SECURITY.md) - Reporting vulnerabilities
 

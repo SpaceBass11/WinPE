@@ -52,8 +52,7 @@ jobs:
           $results = Invoke-ScriptAnalyzer `
             -Path . `
             -Recurse `
-            -Severity @('Error','Warning') `
-            -ExcludeRule PSAvoidUsingWriteHost,PSUseShouldProcessForStateChangingFunctions,PSUseApprovedVerbs,PSAvoidUsingWMICmdlet
+            -Settings ./PSScriptAnalyzerSettings.psd1
 
           if ($results) {
             $results | Format-Table -AutoSize
