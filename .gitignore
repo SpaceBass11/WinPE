@@ -1,0 +1,37 @@
+# WinPE build artifacts
+/WinPE_Build/
+C:/WinPE_Build/
+mount/
+*.wim
+*.esd
+*.iso
+
+# Deploy logs
+deploy_*.log
+*.log
+
+# Diskpart working files
+deploy_diskpart.txt
+
+# PowerShell / editor artifacts
+*.ps1xml.bak
+*.bak
+*.tmp
+*.swp
+*~
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Test output
+TestResults/
+coverage/

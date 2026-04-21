@@ -1,6 +1,32 @@
 # WinPE Image Deployment Tool
 
+[![CI](https://github.com/spacebass11/winpe/actions/workflows/ci.yml/badge.svg)](https://github.com/spacebass11/winpe/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![PowerShell 5.1+](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://learn.microsoft.com/powershell/)
+[![Platform: WinPE](https://img.shields.io/badge/Platform-WinPE-informational.svg)](https://learn.microsoft.com/windows-hardware/manufacture/desktop/winpe-intro)
+
 A PowerShell-based TUI tool for deploying Windows images (`.wim`/`.esd`) from a bootable USB drive in a WinPE environment. Designed for IT admins, engineers, and field technicians who need reliable, repeatable bare-metal Windows deployments.
+
+> [!WARNING]
+> **This tool wipes entire disks.** It calls `diskpart clean` on the target
+> disk, which is irreversible. Always double-check the selected disk number
+> and never run with `-Force -Silent` on a host you have not explicitly
+> targeted. There is no undo.
+
+## Who This Is For
+
+**Use this if you:**
+- Deploy Windows images to bare-metal hardware from a USB stick
+- Want a reproducible WinPE build (no Rufus-and-hope, no hand-edited ISOs)
+- Need unattended deployment via `-Silent -WimFile X -TargetDisk N -Force`
+- Are comfortable reading PowerShell and taking responsibility for the
+  target disk
+
+**Don't use this if you:**
+- Need network-based (PXE / WDS / MDT / SCCM) deployment — use MDT/ConfigMgr
+- Need driver injection, unattend.xml orchestration, or domain join as part
+  of the apply — this is a focused "wipe, apply, bcdboot" tool
+- Expect Windows Sandbox / Hyper-V / dev-VM provisioning — wrong scope
 
 ## What It Does
 
@@ -86,6 +112,9 @@ The script creates a standard UEFI/GPT partition layout:
 - [USB Setup Guide](docs/USB_SETUP.md) - Preparing the bootable USB drive
 - [Script Reference](docs/SCRIPT_REFERENCE.md) - Detailed function and parameter docs
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
+- [Known Issues](docs/KNOWN_ISSUES.md) - Current limitations and recent fixes
+- [Changelog](CHANGELOG.md) - Version history
+- [Security Policy](SECURITY.md) - Reporting vulnerabilities
 
 ## Requirements
 
@@ -95,6 +124,26 @@ The script creates a standard UEFI/GPT partition layout:
 - UEFI-capable target system
 - USB drive 32GB+ (8GB minimum for WinPE + 1 image)
 
+## Contributing
+
+Pull requests welcome, especially for hardware-compatibility fixes. Before
+opening one, please:
+
+1. Read the safety conventions in [CLAUDE.md](CLAUDE.md) — in particular,
+   never weaken the typed-confirmation chain.
+2. Run the local validators:
+   ```powershell
+   pwsh -NoProfile -File ./tests/test_parse.ps1
+   pwsh -NoProfile -File ./scripts/validate_script.ps1
+   ```
+3. Describe manual test coverage in the PR template — CI only verifies
+   syntax and static analysis, not real WinPE behavior.
+
+## License
+
+[MIT](LICENSE) — © 2026 spacebass11. You use this tool at your own risk;
+see the license for the full disclaimer of warranty.
+
 ## Version
 
 **v4.4.0** - Diskpart resilience (`noerr` on readonly clear), Linux/LVM
@@ -102,4 +151,4 @@ partition detection, DISM `/CheckIntegrity` + exit-1 recovery guidance,
 reproducible boot.wim builder (`scripts/build_boot_wim.ps1`) with the
 `NtfsEnableDirCaseSensitivity` fix for Windows Containers layer apply.
 
-**v4.3.0** - Env var image discovery, smart launcher support, bug fixes
+See [CHANGELOG.md](CHANGELOG.md) for full history.

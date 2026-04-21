@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    name: PowerShell syntax
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: pwsh
+        run: $PSVersionTable
+
+      - name: Run syntax tests
+        shell: pwsh
+        run: ./tests/test_parse.ps1
+
+  static-analysis:
+    name: Static analysis
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run validate_script
+        shell: pwsh
+        run: ./scripts/validate_script.ps1
+
+  pssa:
+    name: PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer `
+            -Path . `
+            -Recurse `
+            -Severity @('Error','Warning') `
+            -ExcludeRule PSAvoidUsingWriteHost,PSUseShouldProcessForStateChangingFunctions,PSUseApprovedVerbs,PSAvoidUsingWMICmdlet
+
+          if ($results) {
+            $results | Format-Table -AutoSize
+            $errors = @($results | Where-Object Severity -eq 'Error')
+            if ($errors.Count -gt 0) {
+              Write-Error "PSScriptAnalyzer found $($errors.Count) error(s)."
+              exit 1
+            }
+            Write-Host "PSScriptAnalyzer found $($results.Count) warning(s) - not failing the build."
+          } else {
+            Write-Host "PSScriptAnalyzer: clean."
+          }
