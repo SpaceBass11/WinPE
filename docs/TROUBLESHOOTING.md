@@ -6,15 +6,15 @@
 
 **Cause:** `startnet.cmd` not configured or PowerShell not available in WinPE.
 
-**Fix:**
-1. Mount the WinPE `boot.wim`
-2. Verify `startnet.cmd` contains:
-   ```cmd
-   wpeinit
-   powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
-   ```
-3. Verify the script exists at `X:\scripts\unified_winpe_deploy.ps1`
-4. Ensure WinPE-PowerShell package is included in the image
+**Fix:** Use `scripts/build_boot_wim.ps1` (configures everything correctly
+in one shot). If you must fix an existing boot.wim manually, verify
+`startnet.cmd` ends with:
+```cmd
+wpeinit
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
+```
+The script must exist at `X:\scripts\unified_winpe_deploy.ps1` and the
+`WinPE-PowerShell` package must be installed in the image.
 
 
 ### "'timeout' is not recognized" at boot
@@ -60,18 +60,82 @@ seen as USB or removable, it won't appear.
 - If needed, the `Get-SystemDisks` function filter can be adjusted to include
   the target interface type
 
+### Disk menu shows "No partitions" on a disk that clearly has data (e.g. Linux/RHEL)
+
+**Cause:** Prior to v4.4.0, `Win32_DiskPartition` was used as the source of
+truth for partition detection — but it only enumerates partitions Windows
+recognizes, so Linux (ext4/xfs/LVM) partitions were silently reported as
+"No partitions". A disk with data could appear as a safe empty target.
+
+**Fix:** v4.4.0+ uses `Win32_DiskDrive.Partitions` (the raw partition-table
+count) as the source of truth. Disks with Linux partitions now display
+as `N partition(s) (non-Windows - e.g. Linux/LVM)` and correctly trigger
+the `[HAS DATA - WILL BE ERASED!]` warning. Update to v4.4.0+ if you're
+still seeing the old behavior.
+
 ### DISM fails with error code
 
 **Common DISM errors:**
 
 | Error | Meaning | Fix |
 |-------|---------|-----|
+| 1 | Incorrect function | See next section — usually Containers/Layers metadata or WIM corruption |
 | 2 | File not found | Verify WIM path exists and is accessible |
 | 11 | Invalid image index | Check available indexes with `Dism /Get-WimInfo /WimFile:path.wim` |
 | 87 | Invalid parameter | Check WIM file integrity |
 | 1392 | Corrupted WIM | Re-download or re-capture the image |
 | 112 | Disk full | Target disk too small for the image |
 | 1168 | Element not found | WIM may be corrupted or index doesn't exist |
+
+### DISM apply fails at ~19% with "Incorrect function" (exit 1)
+
+**Cause:** The captured image contains Windows Containers / Hyper-V layer
+files under `C:\ProgramData\Microsoft\Windows\Containers\Layers\...`. These
+set the NTFS `CASE_SENSITIVE_DIR` flag, which the WinPE kernel rejects
+unless `NtfsEnableDirCaseSensitivity` is set in the WinPE registry.
+`dism.log` typically shows `RestoreFileNodeList`, `RestoreFilesCallback`,
+or `EnumImageDataEntries` returning "Incorrect function" on files inside
+`Containers\Layers\`.
+
+**Fix (preferred):** Rebuild your WinPE boot.wim with the provided builder,
+which sets the reg tweak automatically:
+
+```powershell
+.\scripts\build_boot_wim.ps1 -Clean -UsbDrive P: -ReleaseUsbLetter
+```
+
+**Fix (quick test in a running WinPE session):**
+```cmd
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v NtfsEnableDirCaseSensitivity /t REG_DWORD /d 1 /f
+```
+Then retry the apply. This is lost on reboot — bake it into the boot.wim
+permanently per the preferred fix.
+
+**Fallback (keep current boot.wim, strip the layer cache from the WIM):**
+Mount the WIM, delete `\ProgramData\Microsoft\Windows\Containers\Layers`,
+unmount /commit. The Containers feature stays installed; the layer cache
+rebuilds on first use.
+
+If the image has no Containers feature and you still see this error, the
+WIM is probably corrupted on disk. Re-capture with `/CheckIntegrity /verify`
+or re-copy the WIM from the master.
+
+### Diskpart fails with exit code -2147211247 ("failed to clear disk attributes")
+
+**Cause:** The target disk is flagged read-only (Storage Spaces leftovers,
+BIOS write-protect, SED lock, HBA setting, or a physical write-protect
+switch) and `attributes disk clear readonly` can't clear it.
+
+The deploy script runs this command with `noerr` since v4.4.0, so diskpart
+now proceeds to `clean` even if the clear fails — which often succeeds on
+its own. If you still see this exit code, `clean` itself is failing.
+
+**Fix:**
+1. Physical: check for write-protect switches on the drive
+2. Firmware: clear vendor security locks in BIOS/UEFI or the vendor tool
+3. SED-locked drive: unlock via vendor tool or PSID-revert
+4. Manual retry: `diskpart` → `select disk N` → `attributes disk clear readonly` → `clean`
+5. If `clean` still fails, the protection is below the OS — resolve in firmware or swap hardware
 
 ### BCDBoot fails
 
@@ -156,7 +220,7 @@ If no label match is found, the script falls back to scanning all drives.
 
 Run the script manually to see full output:
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
 ```
 
 Check available images:

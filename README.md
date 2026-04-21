@@ -97,4 +97,9 @@ The script creates a standard UEFI/GPT partition layout:
 
 ## Version
 
+**v4.4.0** - Diskpart resilience (`noerr` on readonly clear), Linux/LVM
+partition detection, DISM `/CheckIntegrity` + exit-1 recovery guidance,
+reproducible boot.wim builder (`scripts/build_boot_wim.ps1`) with the
+`NtfsEnableDirCaseSensitivity` fix for Windows Containers layer apply.
+
 **v4.3.0** - Env var image discovery, smart launcher support, bug fixes
