@@ -3,6 +3,14 @@
 # in case someone runs the builder with -WorkDir inside the repo)
 /WinPE_Build/
 mount/
+
+# Third-party binaries staged for builder input (CCTK, drivers, etc.).
+# Dell CCTK in particular is NOT redistributable — never commit it.
+/vendor/
+/cctk-source/
+cctk.exe
+hapint*.sys
+hapint*.inf
 *.wim
 *.esd
 *.iso

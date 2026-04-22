@@ -1,5 +1,15 @@
 # BIOS Configuration with CCTK (Dell fleets)
 
+> [!IMPORTANT]
+> **CCTK binaries are not redistributable.** Dell's EULA for Command |
+> Configure does not permit third-party redistribution. Do **not**
+> commit `cctk.exe`, the HAPI driver, or any CCTK DLL to this repo or
+> a fork. Download Dell Command | Configure directly from Dell's
+> support site onto your admin workstation and reference it by path
+> via `-CctkSource` when running `scripts/build_boot_wim.ps1`.
+> `.gitignore` is set up to block `/vendor/`, `/cctk-source/`,
+> `cctk.exe`, and `hapint*.inf/.sys` as a safety net.
+
 The deploy tool can optionally apply BIOS configuration via Dell's
 [Client Configuration Toolkit (CCTK)](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure)
 **before** the Windows image is applied. This is aimed at new Dell

@@ -72,6 +72,11 @@ These are load-bearing. If your PR touches them, the review bar is high:
    deployment always requires the typed string.
 5. **Use `shutdown.exe`, not `Stop-Computer`.** The PowerShell cmdlet is
    unreliable in WinPE.
+6. **Never commit third-party binaries.** Dell CCTK, WinPE itself, and
+   any vendor driver/tool must be fetched from the vendor at build time
+   — not redistributed via this repo. `.gitignore` blocks common paths
+   (`/vendor/`, `/cctk-source/`, `cctk.exe`, `hapint*.inf/.sys`) but
+   don't rely on that alone.
 
 ## Commit Messages
 
