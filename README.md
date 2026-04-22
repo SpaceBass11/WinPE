@@ -83,6 +83,7 @@ The script launches automatically via `startnet.cmd` when WinPE boots. No manual
 | `-ImagePath` | String | Directory to search for images (skips drive scanning) |
 | `-WimFile` | String | Direct path to a `.wim`/`.esd` file |
 | `-TargetDisk` | Int | Disk number to deploy to (skips disk selection) |
+| `-WipeDisks` | String | Comma-separated disk numbers to *also* wipe (clean-only) alongside the primary target (e.g. `"1,2"`). Requires `-Force` in silent mode. |
 | `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`), and a single-index image. |
 | `-ListOnly` | Switch | Show available images and exit |
 
@@ -112,6 +113,7 @@ The script creates a standard UEFI/GPT partition layout:
 - [USB Setup Guide](docs/USB_SETUP.md) - Preparing the bootable USB drive
 - [Script Reference](docs/SCRIPT_REFERENCE.md) - Detailed function and parameter docs
 - [Architecture](docs/ARCHITECTURE.md) - Design rationale and data flow
+- [BIOS Configuration (CCTK)](docs/CCTK.md) - Pre-apply BIOS setup for Dell fleets
 - [Code Signing](docs/SIGNING.md) - Signing the script for enterprise use
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [Known Issues](docs/KNOWN_ISSUES.md) - Current limitations and recent fixes
@@ -149,6 +151,12 @@ opening one, please:
 see the license for the full disclaimer of warranty.
 
 ## Version
+
+**v4.5.0** - Dell CCTK pre-apply BIOS configuration (RAID→AHCI,
+passwords, boot order — embedded in `boot.wim` via
+`build_boot_wim.ps1 -CctkSource`; per-machine `<SERVICETAG>.ini` on
+the IMAGES partition). Multi-disk wipe stage with streamlined
+`WIPE ALL` confirmation and new `-WipeDisks` silent-mode parameter.
 
 **v4.4.0** - Diskpart resilience (`noerr` on readonly clear), Linux/LVM
 partition detection, DISM `/CheckIntegrity` + exit-1 recovery guidance,

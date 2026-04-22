@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.0] - 2026-04-22
+
+### Added
+- **Dell CCTK pre-apply BIOS configuration.** Builder gains `-CctkSource`
+  to embed Dell's Client Configuration Toolkit plus its HAPI driver
+  into `boot.wim`. Deploy script runs CCTK after environment checks
+  and before disk selection, picking the config in this precedence
+  order from `<IMAGES>\cctk\`:
+  1. `<SERVICETAG>.ini` — per-machine (matches `Win32_BIOS.SerialNumber`)
+  2. `<MODEL>.ini` — per-model (alnum-normalized `Win32_ComputerSystem.Model`)
+  3. `default.ini` — catch-all
+  4. None → skip CCTK, continue to deploy
+  A non-zero CCTK exit aborts the deploy before anything destructive
+  runs. Primary use case: flipping new Dell hardware from RAID to
+  AHCI and setting setup/system passwords in the same pass that
+  applies Windows. See `docs/CCTK.md` for config format, selection
+  rules, and security tradeoffs.
+- **Multi-disk wipe stage.** After the primary target is confirmed,
+  an optional menu lists remaining non-USB fixed disks. User enters
+  comma-separated disk numbers; a single `WIPE ALL` confirmation
+  covers the whole set. Each selected disk gets a `diskpart clean`
+  before the primary deploy, in the same diskpart session. Solves
+  the "vendor OEM appeared as D: on the second NVMe" problem without
+  a separate WinPE round-trip.
+- `-WipeDisks "1,2"` parameter for unattended automation. Validated
+  against the comma-separated-integers format in silent-mode checks;
+  requires `-Force` like other destructive flags.
+- `docs/CCTK.md` — full setup, config precedence, password-rotation
+  patterns, and an honest accounting of plaintext-secrecy limits.
+
+### Changed
+- `New-DiskpartScript` accepts an `-ExtraWipeDisks` array. Extras are
+  emitted as `clean`-only preamble before the primary target's full
+  GPT + EFI + MSR + NTFS sequence — no repartitioning, just wiped.
+- `Start-Deployment` now calls `Invoke-CctkConfig` between the memory
+  check and disk selection, and `Select-AdditionalWipeDisks` right
+  after the target disk is confirmed.
+- Version bumped to **4.5.0** in `$Script:Config.ScriptVersion` and
+  the `.VERSION` header block.
+
+## [Infrastructure - merged into 4.5.0 release]
+
 ### Added
 - Open-source repo infrastructure: `LICENSE` (MIT), `SECURITY.md`,
   `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1),
@@ -101,6 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Various smaller bug fixes in image discovery and confirmation prompts.
 
-[Unreleased]: https://github.com/spacebass11/WinPE/compare/v4.4.0...HEAD
+[Unreleased]: https://github.com/spacebass11/WinPE/compare/v4.5.0...HEAD
+[4.5.0]: https://github.com/spacebass11/WinPE/releases/tag/v4.5.0
 [4.4.0]: https://github.com/spacebass11/WinPE/releases/tag/v4.4.0
 [4.3.0]: https://github.com/spacebass11/WinPE/releases/tag/v4.3.0

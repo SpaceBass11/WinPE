@@ -33,6 +33,17 @@ confirmation unless combined with `-Force`. Use `diskpart` > `list disk` to find
 ### -Force [switch]
 Skips the "ERASE" confirmation when used with `-TargetDisk`. Without this flag,
 `-TargetDisk` pre-selects the disk but still requires typed confirmation.
+Also skips the `WIPE ALL` confirmation when `-WipeDisks` is set.
+
+### -WipeDisks [string]
+Comma-separated disk numbers to also wipe (clean-only, no repartitioning)
+alongside the primary target. Validated against the
+`^\s*\d+(\s*,\s*\d+)*\s*$` pattern in silent mode. Requires `-Force` for
+unattended runs.
+
+```powershell
+.\unified_winpe_deploy.ps1 -TargetDisk 0 -WipeDisks "1,2" -Force
+```
 
 ### -Silent [switch]
 Unattended mode for automation. For deployment runs, it requires:
@@ -80,6 +91,13 @@ Discovers and displays all available images non-interactively, then exits withou
 | `Get-SystemDisks` | Enumerates fixed (non-USB) disks via WMI, logs skipped USB drives |
 | `Show-DiskMenu` | Color-coded disk selection display |
 | `Select-TargetDisk` | Interactive disk picker with safety confirmations |
+| `Select-AdditionalWipeDisks` | Optional menu for extra disks to clean (streamlined single `WIPE ALL` confirmation) |
+
+### BIOS Configuration
+
+| Function | Purpose |
+|----------|---------|
+| `Invoke-CctkConfig` | Pre-apply Dell CCTK BIOS config (service tag → model → default precedence). See [CCTK.md](CCTK.md) |
 
 ### Image Index Selection
 
@@ -206,6 +224,18 @@ After copying to `-UsbDrive`, runs `mountvol <letter> /d` so the boot
 partition is no longer mounted in your current Windows session. The USB
 remains bootable — only the drive-letter assignment in the running OS is
 removed. Requires `-UsbDrive`.
+
+### -CctkSource [string]
+Path to an extracted Dell Client Configuration Toolkit directory
+(the one containing `cctk.exe`). When given, the builder:
+- copies the CCTK tree to `X:\cctk\` inside `boot.wim`
+- installs the HAPI driver (`hapint*.inf`) into the offline image via
+  `dism /Add-Driver /ForceUnsigned`
+
+The deploy script auto-detects `X:\cctk\cctk.exe` at runtime and
+applies a config from `<IMAGES>\cctk\` (see [CCTK.md](CCTK.md) for
+the selection precedence and config format). CCTK binaries are not
+redistributable — supply your own.
 
 ## What It Adds
 

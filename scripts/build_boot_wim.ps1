@@ -38,6 +38,14 @@
     After xcopy, run `mountvol <UsbDrive> /d` so the boot partition is no
     longer mounted in your working Windows session. Requires -UsbDrive.
 
+.PARAMETER CctkSource
+    Path to an extracted Dell Client Configuration Toolkit (CCTK) folder
+    (the one containing cctk.exe). When given, the builder embeds CCTK
+    into the boot.wim at X:\cctk\ and installs the HAPI driver into the
+    offline image so CCTK can talk to the BIOS from WinPE. Per-machine
+    configs live on the IMAGES data partition, not in boot.wim - see
+    docs/CCTK.md for the selection precedence.
+
 .EXAMPLE
     # Build only, leave output in C:\WinPE_Build\media for later xcopy
     .\build_boot_wim.ps1
@@ -45,6 +53,11 @@
 .EXAMPLE
     # Build and copy to pre-partitioned USB boot partition P:, then release P:
     .\build_boot_wim.ps1 -UsbDrive P: -ReleaseUsbLetter -Clean
+
+.EXAMPLE
+    # Build with CCTK embedded (extracted from Dell installer to C:\cctk-src)
+    .\build_boot_wim.ps1 -Clean -UsbDrive P: -ReleaseUsbLetter `
+        -CctkSource C:\cctk-src
 #>
 [CmdletBinding()]
 param(
@@ -55,7 +68,8 @@ param(
     [string]$AdkPath = 'C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit',
     [switch]$Clean,
     [string]$UsbDrive,
-    [switch]$ReleaseUsbLetter
+    [switch]$ReleaseUsbLetter,
+    [string]$CctkSource
 )
 
 $ErrorActionPreference = 'Stop'
@@ -123,6 +137,33 @@ if ($UsbDrive) {
     }
     if (-not (Test-Path "$UsbDrive\")) {
         throw "USB drive $UsbDrive is not accessible - partition and assign the letter per docs/USB_SETUP.md Step 4 first."
+    }
+}
+
+# CCTK source validation
+$cctkExe = $null
+$hapiInf = $null
+if ($CctkSource) {
+    if (-not (Test-Path $CctkSource -PathType Container)) {
+        throw "-CctkSource must be an existing directory (got '$CctkSource')"
+    }
+    $CctkSource = (Resolve-Path $CctkSource).Path
+
+    $cctkExe = Get-ChildItem -Path $CctkSource -Recurse -Filter 'cctk.exe' -ErrorAction SilentlyContinue |
+        Where-Object { $_.DirectoryName -match [regex]::Escape("\$Architecture\") -or $_.DirectoryName -notmatch '\\x86\\|\\x64\\|\\amd64\\|\\arm64\\' } |
+        Select-Object -First 1
+    if (-not $cctkExe) {
+        $cctkExe = Get-ChildItem -Path $CctkSource -Recurse -Filter 'cctk.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if (-not $cctkExe) {
+        throw "cctk.exe not found under $CctkSource - point -CctkSource at the extracted CCTK folder."
+    }
+
+    # HAPI driver inf (name varies: hapint64.inf, hapint64_DCH.inf, etc.)
+    $hapiInf = Get-ChildItem -Path $CctkSource -Recurse -Include 'hapint*.inf','dcdbas*.inf' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $hapiInf) {
+        Write-Warn "No HAPI driver inf found under $CctkSource - CCTK may fail in WinPE without it."
+        Write-Warn "Look for HAPI\\hapint64.inf (or similar) in the CCTK distribution."
     }
 }
 
@@ -209,6 +250,26 @@ try {
     New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
     Copy-Item -Path $DeployScript -Destination $scriptsDir -Force
     Write-Ok "Copied $(Split-Path -Leaf $DeployScript) to X:\scripts\"
+
+    # Step 5b: embed CCTK (optional)
+    if ($cctkExe) {
+        Write-Step "Embedding CCTK (source: $CctkSource)"
+        $cctkDest = Join-Path $mountDir 'cctk'
+        New-Item -ItemType Directory -Path $cctkDest -Force | Out-Null
+        # Copy the directory that contains cctk.exe (architecture-matched preferred)
+        $cctkSrcDir = $cctkExe.DirectoryName
+        Copy-Item -Path (Join-Path $cctkSrcDir '*') -Destination $cctkDest -Recurse -Force
+        Write-Ok "Copied CCTK ($cctkSrcDir) to X:\cctk\"
+
+        if ($hapiInf) {
+            Write-Step "Installing HAPI driver into offline image ($($hapiInf.Name))"
+            & dism.exe /Image:$mountDir /Add-Driver /Driver:$($hapiInf.FullName) /ForceUnsigned | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "HAPI driver install failed (exit $LASTEXITCODE) - required for CCTK to talk to BIOS in WinPE"
+            }
+            Write-Ok "HAPI driver installed"
+        }
+    }
 
     # Step 6: write startnet.cmd
     Write-Step "Writing startnet.cmd"

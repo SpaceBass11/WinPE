@@ -13,6 +13,10 @@
     Path to a specific WIM or ESD image file. When specified, the image is used
     directly without any drive scanning.
 .VERSION
+    4.5.0 - CCTK pre-apply BIOS configuration (Dell fleets, RAID->AHCI
+            automation). Multi-disk wipe stage for secondary drives and
+            vendor OEM partitions. New -WipeDisks parameter for silent
+            automation.
     4.4.0 - Diskpart resilience (noerr on readonly clear), Linux/LVM partition
             detection, DISM /CheckIntegrity, exit-1 guidance, reproducible
             boot.wim builder (scripts/build_boot_wim.ps1)
@@ -23,6 +27,7 @@ param(
     [string]$ImagePath,
     [string]$WimFile,
     [int]$TargetDisk = -1,
+    [string]$WipeDisks,
     [switch]$Force,
     [switch]$Silent,
     [switch]$ListOnly
@@ -38,10 +43,12 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.4.0'
+    ScriptVersion = '4.5.0'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')
+    CctkPath = 'X:\cctk\cctk.exe'
+    CctkConfigDir = 'cctk'
 }
 
 $Script:Colors = @{
@@ -826,7 +833,10 @@ function Select-ImageIndex {
 
 #region Image Deployment
 function New-DiskpartScript {
-    param([int]$DiskNumber)
+    param(
+        [int]$DiskNumber,
+        [array]$ExtraWipeDisks = @()
+    )
 
     # Free up S: and C: drive letters if already assigned to avoid diskpart conflicts
     $lettersToFree = @('S', 'C')
@@ -849,7 +859,22 @@ function New-DiskpartScript {
         }
     }
 
+    # Preamble: clean any additional disks the user requested first.
+    # These get a bare 'clean' only - no GPT conversion, no partitions.
+    # Windows Setup / future deploys can take them from there.
+    $extraPreamble = ''
+    foreach ($extra in $ExtraWipeDisks) {
+        $extraPreamble += @"
+select disk $($extra.Number)
+online disk noerr
+attributes disk clear readonly noerr
+clean
+
+"@
+    }
+
 $commands = @"
+$extraPreamble
 select disk $DiskNumber
 online disk noerr
 attributes disk clear readonly noerr
@@ -1033,6 +1058,208 @@ function Set-BootConfiguration {
 }
 #endregion
 
+#region BIOS Configuration (CCTK)
+function Invoke-CctkConfig {
+    # Pre-deploy BIOS configuration for Dell hardware via CCTK.
+    # CCTK is embedded into boot.wim by scripts/build_boot_wim.ps1 -CctkSource.
+    # Config files live on the IMAGES data partition at <IMAGES>\cctk\ so a
+    # single USB can drive a multi-machine fleet without rebuilding the image.
+    #
+    # Selection precedence for the config file:
+    #   1. <SERVICETAG>.ini (per-machine, matches Win32_BIOS.SerialNumber)
+    #   2. <MODEL>.ini      (per-model, alnum-normalized Win32_ComputerSystem.Model)
+    #   3. default.ini      (catch-all)
+    #   4. none             -> skip CCTK entirely and continue to deploy
+    #
+    # Any non-zero exit from cctk.exe aborts the deploy - running DISM on a
+    # half-configured BIOS is worse than failing loud.
+
+    $cctkExe = $Script:Config.CctkPath
+    if (-not (Test-Path $cctkExe)) {
+        # CCTK not embedded in this build - nothing to do
+        return $true
+    }
+
+    $imageDrive = $env:DEPLOY_IMAGE_DRIVE
+    if (-not $imageDrive) {
+        Write-Log "CCTK embedded but DEPLOY_IMAGE_DRIVE is unset - skipping BIOS config" -Level Warning
+        Write-Log "  To apply BIOS config, set DEPLOY_IMAGE_DRIVE or boot via the builder's startnet.cmd" -Level Info
+        return $true
+    }
+
+    $cctkDir = Join-Path $imageDrive $Script:Config.CctkConfigDir
+    if (-not (Test-Path $cctkDir)) {
+        Write-Log "No $cctkDir directory found on IMAGES partition - skipping BIOS config" -Level Info
+        return $true
+    }
+
+    # Resolve per-machine identifiers
+    $serviceTag = $null
+    $model = $null
+    try {
+        $serviceTag = (Get-WmiObject -Class Win32_BIOS -ErrorAction Stop).SerialNumber
+        if ($serviceTag) { $serviceTag = $serviceTag.Trim() }
+    } catch {
+        Write-Log "Could not read BIOS serial/service tag: $($_.Exception.Message)" -Level Warning
+    }
+    try {
+        $rawModel = (Get-WmiObject -Class Win32_ComputerSystem -ErrorAction Stop).Model
+        if ($rawModel) { $model = ($rawModel -replace '[^A-Za-z0-9]', '').Trim() }
+    } catch {
+        Write-Log "Could not read computer model: $($_.Exception.Message)" -Level Warning
+    }
+
+    $configPath = $null
+    $matchReason = $null
+
+    if ($serviceTag) {
+        $candidate = Join-Path $cctkDir "$serviceTag.ini"
+        if (Test-Path $candidate) {
+            $configPath = $candidate
+            $matchReason = "service tag $serviceTag"
+        }
+    }
+    if (-not $configPath -and $model) {
+        $candidate = Join-Path $cctkDir "$model.ini"
+        if (Test-Path $candidate) {
+            $configPath = $candidate
+            $matchReason = "model $model"
+        }
+    }
+    if (-not $configPath) {
+        $candidate = Join-Path $cctkDir 'default.ini'
+        if (Test-Path $candidate) {
+            $configPath = $candidate
+            $matchReason = 'default'
+        }
+    }
+
+    if (-not $configPath) {
+        Write-Log "No CCTK config matched (tag: '$serviceTag', model: '$model') - skipping BIOS config" -Level Info
+        return $true
+    }
+
+    Write-Banner "APPLYING BIOS CONFIGURATION (CCTK)"
+    Write-Log "Config: $configPath  ($matchReason)" -Level Info
+    Write-Log "CCTK:   $cctkExe" -Level Info
+    Write-Log "Note: BIOS changes activate on next POST (end of deploy reboot)" -Level Info
+
+    try {
+        & $cctkExe --infile="$configPath"
+        $cctkExit = $LASTEXITCODE
+    } catch {
+        Write-Log "CCTK invocation failed: $($_.Exception.Message)" -Level Error
+        return $false
+    }
+
+    if ($cctkExit -ne 0) {
+        Write-Log "CCTK returned exit code $cctkExit - aborting deploy" -Level Error
+        Write-Log "  Common causes:" -Level Info
+        Write-Log "    - Invalid setting name in $configPath" -Level Info
+        Write-Log "    - Setup/system password mismatch (add --valsetuppwd=<current> to the config)" -Level Info
+        Write-Log "    - HAPI driver not loaded (rebuild boot.wim with -CctkSource pointing at full CCTK tree)" -Level Info
+        return $false
+    }
+
+    Write-Log "BIOS configuration applied successfully" -Level Success
+    return $true
+}
+#endregion
+
+#region Additional-Disk Wipe
+function Select-AdditionalWipeDisks {
+    param(
+        [Parameter(Mandatory)] [array]$AllDisks,
+        [Parameter(Mandatory)] $TargetDisk
+    )
+
+    # Candidates: every enumerated disk other than the primary target.
+    # Get-SystemDisks already excludes USB and removable media.
+    $candidates = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number })
+    if ($candidates.Count -eq 0) { return @() }
+
+    # Silent path: resolve -WipeDisks without prompting
+    if ($Silent) {
+        if (-not $WipeDisks) { return @() }
+        $nums = @($WipeDisks -split ',' | ForEach-Object { [int]($_.Trim()) })
+        $picked = @($candidates | Where-Object { $_.Number -in $nums })
+        $missing = $nums | Where-Object { $_ -notin ($picked | ForEach-Object Number) }
+        if ($missing) {
+            Write-Log "Requested extra wipe disks $($missing -join ',') are not valid non-target disks - aborting" -Level Error
+            return $null
+        }
+        foreach ($d in $picked) {
+            Write-Log "Silent mode: queuing disk $($d.Number) ($($d.Model)) for additional wipe" -Level Warning
+        }
+        return $picked
+    }
+
+    # Interactive path
+    Write-Banner "OPTIONAL: WIPE ADDITIONAL DISKS"
+    Write-Log "Target disk $($TargetDisk.Number) will be wiped and partitioned (already confirmed)." -Level Info
+    Write-Log "Other disks below can optionally be CLEANED ONLY (no repartitioning) in the same run." -Level Info
+    Write-Log "Useful for secondary drives, vendor OEM partitions that appear after first boot, etc." -Level Info
+    Write-Host ""
+
+    foreach ($d in $candidates) {
+        $marker = if ($d.HasPartitions) { '[HAS DATA - WILL BE ERASED!]' } else { '[empty]' }
+        $color = if ($d.HasPartitions) { $Script:Colors.Warning } else { $Script:Colors.Info }
+        Write-Host ("  Disk {0,2}: {1,-40} {2,7:N1} GB  {3}" -f $d.Number, $d.Model, $d.Size, $marker) -ForegroundColor $color
+    }
+    Write-Host ""
+    Write-Log "Enter comma-separated disk numbers to ALSO wipe (e.g. '1,2'), or press Enter to skip" -Level Prompt
+    $response = Read-Host
+
+    if ([string]::IsNullOrWhiteSpace($response)) {
+        Write-Log "No additional disks selected - only disk $($TargetDisk.Number) will be touched" -Level Info
+        return @()
+    }
+
+    $requested = @($response -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $picked = @()
+    foreach ($tok in $requested) {
+        if ($tok -notmatch '^\d+$') {
+            Write-Log "Ignoring invalid disk number '$tok'" -Level Warning
+            continue
+        }
+        $num = [int]$tok
+        $match = $candidates | Where-Object { $_.Number -eq $num } | Select-Object -First 1
+        if (-not $match) {
+            Write-Log "Disk $num is not a valid additional-wipe target (either the primary target, USB, or unknown) - skipping" -Level Warning
+            continue
+        }
+        if ($picked | Where-Object { $_.Number -eq $num }) { continue }
+        $picked += $match
+    }
+
+    if ($picked.Count -eq 0) {
+        Write-Log "No valid additional disks selected - continuing with primary target only" -Level Info
+        return @()
+    }
+
+    # Single WIPE ALL confirmation for the whole set (streamlined, per design).
+    Write-Host ""
+    Write-Log "The following disks will be cleaned in addition to disk $($TargetDisk.Number):" -Level Warning
+    foreach ($d in $picked) {
+        Write-Log ("  Disk {0}: {1}  ({2:N1} GB)" -f $d.Number, $d.Model, $d.Size) -Level Warning
+    }
+    Write-Host ""
+
+    if ($Force) {
+        Write-Log "Force flag set - skipping WIPE ALL confirmation" -Level Warning
+        return $picked
+    }
+
+    Write-Log "Type 'WIPE ALL' to confirm, or anything else to cancel additional wipes" -Level Prompt
+    $confirm = Read-Host
+    if ($confirm -ne 'WIPE ALL') {
+        Write-Log "Additional wipe cancelled - only disk $($TargetDisk.Number) will be touched" -Level Info
+        return @()
+    }
+    return $picked
+}
+#endregion
+
 #region Main Process
 function Start-Deployment {
     Write-Banner "UNIVERSAL WINDOWS IMAGE DEPLOYMENT TOOL v$($Script:Config.ScriptVersion)"
@@ -1058,6 +1285,10 @@ function Start-Deployment {
         }
         if (-not $Force) {
             Write-Log "Silent mode requires -Force to avoid interactive final confirmation" -Level Error
+            return $false
+        }
+        if ($WipeDisks -and $WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
+            Write-Log "-WipeDisks must be comma-separated disk numbers (e.g. '1,2') - got '$WipeDisks'" -Level Error
             return $false
         }
     }
@@ -1094,10 +1325,19 @@ function Start-Deployment {
     if (-not (Test-WinPEEnvironment)) { return $false }
     if (-not (Test-SystemMemory)) { return $false }
 
+    # Apply BIOS configuration (Dell CCTK) before any destructive disk work.
+    # A CCTK failure here aborts the deploy - half-configured BIOS is worse
+    # than failing loud. No-op if CCTK isn't embedded in the image.
+    if (-not (Invoke-CctkConfig)) { return $false }
+
     # Get target disk
     $disks = Get-SystemDisks
     $targetDisk = Select-TargetDisk -Disks $disks
     if (-not $targetDisk) { return $false }
+
+    # Optional: additional disks to wipe (secondary drives, vendor OEM partitions)
+    $extraWipeDisks = Select-AdditionalWipeDisks -AllDisks $disks -TargetDisk $targetDisk
+    if ($null -eq $extraWipeDisks) { return $false }
 
     Write-Banner "STARTING IMAGE DEPLOYMENT"
     Write-Log "Image: $($selectedImage.Name)" -Level Info
@@ -1137,8 +1377,8 @@ function Start-Deployment {
     }
     Write-Log "Disk size check passed: $($targetDisk.Size) GB available, ~$estimatedSizeGB GB image ($sizeSource)" -Level Success
 
-    # Partition disk
-    if (-not (New-DiskpartScript -DiskNumber $targetDisk.Number)) { return $false }
+    # Partition disk (plus any requested additional disk cleans)
+    if (-not (New-DiskpartScript -DiskNumber $targetDisk.Number -ExtraWipeDisks $extraWipeDisks)) { return $false }
     if (-not (Invoke-Diskpart)) { return $false }
 
     # Verify diskpart created expected drive letters (retry for slow PnP mount manager)
