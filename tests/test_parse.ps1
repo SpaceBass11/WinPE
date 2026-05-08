@@ -9,6 +9,7 @@
 $ErrorActionPreference = 'Stop'
 $scriptPath  = Join-Path $PSScriptRoot '..' 'unified_winpe_deploy.ps1'
 $builderPath = Join-Path $PSScriptRoot '..' 'scripts\build_boot_wim.ps1'
+$prepPath    = Join-Path $PSScriptRoot '..' 'scripts\prepare_wim.ps1'
 $passed = 0
 $failed = 0
 
@@ -110,6 +111,10 @@ Write-Result -Test "#Requires -RunAsAdministrator present" -Pass $hasRequires
 # Test 9: build_boot_wim.ps1 (syntax only - it's a simpler single-purpose script)
 Write-Host "`n--- scripts/build_boot_wim.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $builderPath -Label "Builder" | Out-Null
+
+# Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)
+Write-Host "`n--- scripts/prepare_wim.ps1 ---" -ForegroundColor Cyan
+Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 
 # Summary
 Write-Host "`n=== Results ===" -ForegroundColor Cyan

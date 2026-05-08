@@ -49,8 +49,9 @@ USB Drive Layout:
 |------|---------|
 | `unified_winpe_deploy.ps1` | Main deployment script - the core deliverable |
 | `scripts/build_boot_wim.ps1` | Reproducible WinPE boot.wim builder (components + reg tweaks + embed deploy script) |
+| `scripts/prepare_wim.ps1` | Companion WIM prep: ISO -> debloated/customized install.wim ready to deploy |
 | `scripts/validate_script.ps1` | Static analysis checks for the deploy script |
-| `tests/test_parse.ps1` | PowerShell syntax validation (also checks builder) |
+| `tests/test_parse.ps1` | PowerShell syntax validation (deploy + builder + prep) |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule excludes used locally and in CI |
 | `docs/USB_SETUP.md` | USB drive preparation guide |
 | `docs/SCRIPT_REFERENCE.md` | Full parameter and function reference |
