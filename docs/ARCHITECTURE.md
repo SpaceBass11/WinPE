@@ -1,29 +1,35 @@
 # Architecture
 
-High-level design notes for `unified_winpe_deploy.ps1` and
-`scripts/build_boot_wim.ps1`. For parameter / function reference, see
+High-level design notes for `unified_winpe_deploy.ps1`,
+`scripts/build_boot_wim.ps1`, and `scripts/prepare_wim.ps1`. For
+parameter / function reference, see
 [SCRIPT_REFERENCE.md](SCRIPT_REFERENCE.md).
 
-## Two Programs, One Product
+## Three Programs, One Product
 
 ```
-┌───────────────────────────────┐       ┌─────────────────────────────┐
-│ scripts/build_boot_wim.ps1    │       │ unified_winpe_deploy.ps1    │
-│                               │       │                             │
-│ Build time (admin Windows)    │       │ Run time (inside WinPE)     │
-│  - copype                     │  →    │  - discover .wim / .esd     │
-│  - install components         │       │  - pick image + disk        │
-│  - reg tweak                  │       │  - diskpart GPT             │
-│  - embed deploy script        │       │  - dism /apply-image        │
-│  - write startnet.cmd         │       │  - bcdboot (UEFI)           │
-│  - commit boot.wim            │       │                             │
-└───────────────────────────────┘       └─────────────────────────────┘
-           outputs                                 runs
-        boot.wim + media                   from USB boot partition
+┌───────────────────────────┐  ┌───────────────────────────┐  ┌───────────────────────────┐
+│ scripts/prepare_wim.ps1   │  │ scripts/build_boot_wim.ps1│  │ unified_winpe_deploy.ps1  │
+│                           │  │                           │  │                           │
+│ Prep time (admin Windows) │  │ Build time (admin)        │  │ Run time (inside WinPE)   │
+│  - mount ISO              │  │  - copype                 │  │  - discover .wim / .esd   │
+│  - pick edition           │  │  - install components     │  │  - CCTK pre-apply (Dell)  │
+│  - debloat (whitelist)    │  │  - reg tweak              │  │  - pick image + disk      │
+│  - optional reg tweaks    │→ │  - embed deploy script    │→ │  - optional extra wipe    │
+│  - export Compress:max    │  │  - optional CCTK embed    │  │  - diskpart GPT           │
+│  - WIM ready for IMAGES   │  │  - write startnet.cmd     │  │  - dism /apply-image      │
+│                           │  │  - commit boot.wim        │  │  - bcdboot (UEFI)         │
+└───────────────────────────┘  └───────────────────────────┘  └───────────────────────────┘
+        outputs                      outputs                       runs
+   custom .wim file              boot.wim + media         from USB boot partition
 ```
 
-The builder runs once per WinPE version change. The deploy script runs
-every time you deploy.
+`prepare_wim.ps1` runs once per WIM you want to ship. `build_boot_wim.ps1`
+runs once per WinPE version change (or whenever you re-bake CCTK in).
+`unified_winpe_deploy.ps1` runs every time you deploy. All three are
+optional in the sense that `prepare_wim` can be skipped if you have a
+WIM from elsewhere, and `build_boot_wim` can be skipped if you already
+have a compatible boot.wim.
 
 ## Runtime Data Flow
 

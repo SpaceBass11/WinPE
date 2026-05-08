@@ -22,6 +22,13 @@ USB Drive Layout:
 
 **Primary script:** `unified_winpe_deploy.ps1`
 
+**Pipeline overview** (three programs, one product):
+1. `scripts/prepare_wim.ps1` — *prerequisite, run once per WIM:* prep a clean
+   debloated install.wim from a stock Windows ISO (admin Windows host)
+2. `scripts/build_boot_wim.ps1` — *prerequisite, run once per WinPE rev:* build
+   the WinPE boot.wim that hosts the deploy script (admin Windows host)
+3. `unified_winpe_deploy.ps1` — *runtime, every deploy:* the flow below
+
 ### Deployment Flow
 1. Boot from USB → WinPE loads → script auto-starts
 2. Administrator check (script requires elevation)

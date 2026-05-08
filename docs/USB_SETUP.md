@@ -9,6 +9,17 @@ Complete guide for preparing a bootable WinPE USB drive with the image deploymen
 - Windows 10/11 machine with admin access
 - `.wim` or `.esd` image files to deploy
 
+## Step 0: (Optional) Prep your Windows images
+
+If you want a debloated, customized `install.wim` (instead of using one
+straight off a Microsoft ISO), use the companion script
+`scripts/prepare_wim.ps1`. It mounts an ISO, picks the edition you
+want, removes provisioned AppX packages with a whitelist, optionally
+disables Copilot, and re-exports a compressed clean WIM. See the
+[Script Reference](SCRIPT_REFERENCE.md#prepare_wimps1) for details.
+You can skip this step and use unmodified ISO WIMs if you don't care
+about debloat.
+
 ## Step 1: Install Windows ADK + WinPE Add-on
 
 Download and install from Microsoft:
