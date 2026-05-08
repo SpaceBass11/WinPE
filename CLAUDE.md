@@ -142,3 +142,33 @@ captured WIM set the `CASE_SENSITIVE_DIR` flag. Without this key, DISM
 apply fails with "Incorrect function" (exit 1) mid-apply on
 `C:\ProgramData\Microsoft\Windows\Containers\Layers\...`. This was the
 root cause behind the v4.3.x diskpart/DISM troubleshooting pass.
+
+## Git Workflow (Claude Code Web)
+
+**Direct push to `main` is blocked by the Claude Code Web harness as a
+built-in protection — not a GitHub branch-protection rule.** A `git push
+origin main` from this environment fails with HTTP 403 + `Everything
+up-to-date` (a confusing combination that means "remote rejected"). The
+repo's `main` itself has no GitHub branch protection — it's a harness
+guardrail.
+
+**The supported workflow:**
+
+1. Make commits locally on `main` as usual.
+2. Push to a side branch: `git push -u origin main:claude/<short-name>`.
+3. The user opens a PR from `claude/<short-name>` into `main` via the
+   GitHub UI and merges it.
+4. After merge, locally: `git pull origin main` to fast-forward.
+5. If the local-main is now ahead of origin (because you committed but
+   the PR hasn't been merged yet), and the stop hook complains, you
+   can `git reset --hard origin/main` — the work is safely on the side
+   branch, and `git pull` brings it back after merge.
+
+**Don't waste tokens** retrying direct pushes to main with
+exponential backoff — they will all fail. Push to a side branch the
+first time.
+
+**Don't create multiple side branches per session** if avoidable —
+add new commits to the existing one (`git checkout -b <name>
+origin/<name>`, commit, push) so the user has one PR to review,
+not several.
