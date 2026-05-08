@@ -136,6 +136,17 @@ mkdir I:\images
 copy D:\sources\install.wim I:\images\Win11_Pro.wim
 ```
 
+**Optional — Dell BIOS configs:** if you built `boot.wim` with
+`-CctkSource`, also create a `cctk\` folder on this same data partition
+and drop your `.ini` configs there. The deploy script picks the right
+config per machine (service tag → model → `default.ini`). See
+[CCTK.md](CCTK.md) for setup and config format.
+
+```cmd
+mkdir I:\cctk
+copy admin-machine:\configs\default.ini I:\cctk\default.ini
+```
+
 ### Getting WIM Files
 
 **From a Windows ISO:**
@@ -198,14 +209,22 @@ USB Drive:
 │   ├── Boot/
 │   ├── EFI/
 │   └── sources/
-│       └── boot.wim  (contains unified_winpe_deploy.ps1)
+│       └── boot.wim  (contains unified_winpe_deploy.ps1, optionally CCTK)
 │
 └── [Partition 2: NTFS "Images" remaining space]
-    └── images/
-        ├── Win11_Pro_24H2.wim
-        ├── Win10_Enterprise_LTSC.wim
-        └── (more .wim/.esd files)
+    ├── images/
+    │   ├── Win11_Pro_24H2.wim
+    │   ├── Win10_Enterprise_LTSC.wim
+    │   └── (more .wim/.esd files)
+    └── cctk/                       (optional, Dell BIOS configs)
+        ├── default.ini             (catch-all)
+        ├── OptiPlex7090.ini        (per-model override, optional)
+        └── 1A2B3C4.ini             (per-service-tag override, optional)
 ```
+
+The `cctk\` folder is only used if your boot.wim was built with
+`-CctkSource` (so `cctk.exe` is embedded in the image). See
+[CCTK.md](CCTK.md) for the config-file format and selection rules.
 
 ## Tips
 

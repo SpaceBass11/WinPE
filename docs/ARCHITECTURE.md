@@ -35,9 +35,7 @@ every time you deploy.
                                            → powershell -File X:\scripts\...ps1
 
 [Deploy]  Administrator check
-        → Silent-mode contract check (if -Silent)
-        → WinPE environment check (blocks unless CONTINUE ANYWAY)
-        → Memory check (8GB warn)
+        → Silent-mode contract check (if -Silent: -WimFile/-TargetDisk/-Force/-WipeDisks format)
         → Image discovery
              ├── -WimFile?          → direct path
              ├── -ImagePath?        → search directory
@@ -45,18 +43,26 @@ every time you deploy.
              └── fall back          → scan all non-system drives
         → TUI: select image
         → DISM /Get-WimInfo → TUI: select edition (index)
+        → WinPE environment check (blocks unless CONTINUE ANYWAY)
+        → Memory check (8GB warn)
+        → CCTK pre-apply (if X:\cctk\cctk.exe present)
+             ├── pick config: <SERVICETAG>.ini → <MODEL>.ini → default.ini
+             ├── apply: cctk --infile=<picked>
+             └── non-zero exit       → abort deploy (no disks touched yet)
         → TUI: select target disk
              ├── system disk?       → type DESTROY SYSTEM
              ├── -TargetDisk only?  → type ERASE
              └── final confirm      → type ERASE
+        → TUI: optional additional-wipe disks
+             └── single WIPE ALL    → clean-only preamble in same diskpart session
         → Disk size vs image size validation
         → Free C: / S: drive letters (never system drive)
-        → diskpart: clean + GPT + EFI 300MB (S:) + MSR 16MB + NTFS (C:)
+        → diskpart: [extra disk cleans] + clean + GPT + EFI 300MB (S:) + MSR 16MB + NTFS (C:)
         → Post-diskpart: verify S: and C: exist
         → dism /apply-image /CheckIntegrity (inline progress)
         → Post-deploy: verify C:\Windows\System32 exists
         → bcdboot C:\Windows /s S: /f UEFI
-        → Optional shutdown prompt
+        → Optional shutdown prompt → final reboot activates queued CCTK BIOS
 ```
 
 ## Why These Choices
@@ -146,6 +152,8 @@ Fail loud and early:
 | `docs/TROUBLESHOOTING.md` | User-facing: known failure modes and fixes. |
 | `docs/KNOWN_ISSUES.md` | Maintainer-facing: active caveats + recent fixes. |
 | `docs/ARCHITECTURE.md` | This file. Design rationale. |
+| `docs/CCTK.md` | User-facing: Dell CCTK pre-apply BIOS configuration. |
+| `docs/SIGNING.md` | User-facing: enterprise code-signing of the deploy script. |
 | `CLAUDE.md` | Contributor-facing: project conventions and safety rules. |
 | `CHANGELOG.md` | Release history (keepachangelog). |
 

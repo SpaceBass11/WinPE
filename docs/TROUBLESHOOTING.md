@@ -216,6 +216,45 @@ bcdboot C:\Windows /s S: /f UEFI
 or edit the `find /i "IMAGES"` string in `startnet.cmd` to match your label.
 If no label match is found, the script falls back to scanning all drives.
 
+### CCTK: "CCTK returned exit code N - aborting deploy"
+
+CCTK only runs when `X:\cctk\cctk.exe` is embedded in `boot.wim` (via the
+builder's `-CctkSource` parameter) AND a config matches in
+`%DEPLOY_IMAGE_DRIVE%\cctk\`. Common exit codes:
+
+| Exit | Meaning | Fix |
+|------|---------|-----|
+| 0    | Success | — |
+| 116  | HAPI driver load error | Rebuild boot.wim with `-CctkSource` pointing at a tree that contains `HAPI\hapint64.inf` (or similar). The builder logs a warning if it can't find a HAPI inf during the build. |
+| 149  | Setup password mismatch | Add `--valsetuppwd=<current>` to the .ini so CCTK can authenticate with the existing BIOS password before changing it. |
+| 197  | Setting not supported on this model | Check `cctk --help` against the actual hardware. Some settings are model-specific. |
+
+If CCTK silently skips (`No CCTK config matched`), check that:
+- The IMAGES partition has a `cctk\` subdirectory
+- The directory contains at least one of `<SERVICETAG>.ini`,
+  `<MODEL>.ini`, or `default.ini`
+- `Win32_BIOS.SerialNumber` (your service tag) and `Win32_ComputerSystem.Model`
+  match what you expect — run `wmic bios get serialnumber` and
+  `wmic computersystem get model` from a WinPE shell to verify.
+
+See `docs/CCTK.md` for full configuration details.
+
+### "No additional disks selected" but I expected to see disk N
+
+The additional-wipe menu only shows disks that:
+- Are not the primary target (you already confirmed wiping that)
+- Are not USB / removable / optical (filtered by `Get-SystemDisks`)
+
+If you need to wipe a USB-attached drive, the deploy script intentionally
+won't let you — pull it from the menu via `diskpart` manually:
+
+```cmd
+diskpart
+list disk
+select disk N
+clean
+```
+
 ## Getting Debug Info
 
 Run the script manually to see full output:

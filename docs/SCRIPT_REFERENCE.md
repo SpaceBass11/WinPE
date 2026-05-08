@@ -128,10 +128,12 @@ Located at the top of the script in `$Script:Config`:
 ```powershell
 $Script:Config = @{
     MinimumMemoryGB    = 8          # Warn below this
-    ScriptVersion      = '4.4.0'   # Display version
+    ScriptVersion      = '4.5.0'   # Display version
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths        = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions    = @('*.wim', '*.esd')
+    CctkPath           = 'X:\cctk\cctk.exe'   # In-image CCTK location (set by builder)
+    CctkConfigDir      = 'cctk'               # Subdirectory on IMAGES drive for configs
 }
 ```
 
@@ -169,12 +171,18 @@ Disk (GPT)
 ```
 Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
            → Image selection → Edition selection
-           → Memory check → Disk selection
+           → Memory check
+           → CCTK pre-apply (if X:\cctk\cctk.exe present and config matched)
+                              └── Non-zero exit → abort deploy
+           → Disk selection
                               ├── System disk? → Type "DESTROY SYSTEM"
                               ├── -TargetDisk without -Force → Type "ERASE"
                               └── Final confirm → Type "ERASE"
+           → Additional-wipe prompt (optional)
+                              └── Selected disks → single "WIPE ALL" confirmation
            → Disk size validation
-           → Diskpart (frees C:/S: first) → DISM (inline progress)
+           → Diskpart (frees C:/S: first; clean-only preamble for extras)
+           → DISM (inline progress)
            → Post-deploy verification (C:\Windows, C:\Windows\System32)
            → Boot config → Success
 ```

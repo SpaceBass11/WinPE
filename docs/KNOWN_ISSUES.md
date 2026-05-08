@@ -1,6 +1,6 @@
 # Known Issues & Audit Findings
 
-Current status for `unified_winpe_deploy.ps1` (v4.4.0) and `scripts/build_boot_wim.ps1`.
+Current status for `unified_winpe_deploy.ps1` (v4.5.0) and `scripts/build_boot_wim.ps1`.
 
 ## Active Warnings
 
@@ -9,7 +9,7 @@ Current status for `unified_winpe_deploy.ps1` (v4.4.0) and `scripts/build_boot_w
 - **Workaround:** Run validation from WinPE/Windows or any runner with PowerShell installed.
 
 ### 2. USB disks are intentionally excluded from target list
-- **Impact:** External USB SSD/HDD targets cannot be selected by default.
+- **Impact:** External USB SSD/HDD targets cannot be selected by default — this also means USB disks can never be picked as additional-wipe targets in the multi-disk wipe stage.
 - **Assessment:** Safety-first behavior to avoid wiping the deployment USB itself.
 
 ### 3. 100MB discovery filter hides tiny lab images
@@ -23,7 +23,23 @@ Current status for `unified_winpe_deploy.ps1` (v4.4.0) and `scripts/build_boot_w
 ### 5. Capture commands in USB_SETUP.md assume default capabilities
 - **Impact:** The `Dism /Capture-Image` examples use `/Compress:max` and `/CheckIntegrity /verify`. `/verify` re-reads every file — capture is slower but catches bad source reads at capture time. ESD-style `/compress:recovery` is intentionally not used for master images because it doesn't support `/CheckIntegrity`.
 
+### 6. CCTK passwords sit in plaintext on the IMAGES partition
+- **Impact:** Anyone with physical access to the USB can read setup/system passwords from `<IMAGES>\cctk\*.ini`.
+- **Assessment:** Inherent to unattended WinPE flows — no cryptographic protection is possible without runtime input. Mitigation is physical security of the USB and rotating BIOS passwords post-deploy. See `docs/CCTK.md`.
+
+### 7. CCTK is not redistributable
+- **Impact:** Dell's EULA for Command | Configure does not allow shipping `cctk.exe` or HAPI driver in this repo. The repo never ships CCTK; users supply their own via `-CctkSource` on the builder.
+- **Workaround:** Install Dell Command | Configure on your admin workstation, point `-CctkSource` at it. `.gitignore` blocks accidental commits (`cctk.exe`, `hapint*.inf/.sys`, `/vendor/`, `/cctk-source/`).
+
 ## Recently Fixed
+
+### G. Dell CCTK pre-apply BIOS configuration (v4.5.0)
+- **Change:** Builder gains `-CctkSource` to embed CCTK + HAPI driver into `boot.wim`. Deploy script runs `cctk --infile=<config>` before disk selection, picking from `<IMAGES>\cctk\` by service tag → model → `default.ini` precedence. Non-zero CCTK exit aborts the deploy.
+- **Benefit:** Fresh Dell hardware (RAID-by-default, no setup password) can be flipped to AHCI + passwords + boot order in the same pass that applies Windows. One reboot at the end activates BIOS and first-boots the new OS together. See `docs/CCTK.md`.
+
+### H. Multi-disk wipe stage (v4.5.0)
+- **Change:** After the primary target is confirmed, an optional menu lists remaining non-USB fixed disks. User enters comma-separated numbers; a single `WIPE ALL` confirmation covers the whole set. Each gets a `diskpart clean` (no repartition) before the primary deploy, in the same diskpart session. New `-WipeDisks "1,2"` for silent automation.
+- **Benefit:** Fixes the "vendor OEM appeared as D: on the second NVMe" problem without a separate WinPE round-trip.
 
 ### A. Silent unattended safety contract tightened
 - **Change:** `-Silent` deployment runs now require `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`).
