@@ -141,11 +141,25 @@ foreach ($d in @($WorkDir, $mountDir, $scratchDir)) {
     if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
 }
 
+# Re-entrancy: a prior failed run can leave a stale WIM mount at $mountDir
+# which blocks Mount-WindowsImage with a confusing error. Detect and discard
+# before we start (no -Save - we don't trust whatever state was left behind).
+try {
+    $stale = Get-WindowsImage -Mounted -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -ieq $mountDir }
+    if ($stale) {
+        Write-Warn "Stale WIM mount detected at $mountDir - discarding before continuing"
+        Dismount-WindowsImage -Path $mountDir -Discard | Out-Null
+    }
+} catch {
+    Write-Warn "Could not check for stale mounts ($($_.Exception.Message)) - continuing anyway"
+}
+
 # Step 1: mount ISO, extract install.wim, dismount ISO (try/finally)
 Write-Step "Mounting ISO: $SourceIso"
 $isoMounted = $false
 try {
-    $diskImage = Mount-DiskImage -ImagePath $SourceIso -PassThru
+    Mount-DiskImage -ImagePath $SourceIso | Out-Null
     $isoMounted = $true
     Start-Sleep -Seconds 2  # Give the volume time to surface
     $isoVolume = Get-DiskImage -ImagePath $SourceIso | Get-Volume
@@ -209,10 +223,14 @@ try {
 
     Write-Step "Debloating provisioned AppX packages"
     $packages = Get-AppxProvisionedPackage -Path $mountDir
+    # Normalize whitelist to lower-case once so the per-package check is
+    # case-insensitive without paying the .ToLower() cost in the loop.
+    # PowerShell 5.1 doesn't have -icontains, so this is the portable form.
+    $whitelistLower = @($Whitelist | ForEach-Object { $_.Trim().ToLowerInvariant() })
     $kept = 0
     $removed = 0
     foreach ($pkg in $packages) {
-        if ($Whitelist -contains $pkg.DisplayName) {
+        if ($whitelistLower -contains $pkg.DisplayName.ToLowerInvariant()) {
             $kept++
             continue
         }

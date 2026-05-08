@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Validates PowerShell syntax of unified_winpe_deploy.ps1 and scripts/build_boot_wim.ps1
+    Validates PowerShell syntax of unified_winpe_deploy.ps1, scripts/build_boot_wim.ps1,
+    and scripts/prepare_wim.ps1.
 .DESCRIPTION
     Parses each script and reports any syntax errors. Returns exit code 0 on
     success, 1 on failure. Works with both PowerShell 5.1 and 7+.
