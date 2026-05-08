@@ -45,6 +45,16 @@ unattended runs.
 .\unified_winpe_deploy.ps1 -TargetDisk 0 -WipeDisks "1,2" -Force
 ```
 
+### -MinImageSizeMB [int]
+Minimum file size (in MB) for a `.wim`/`.esd` file to be considered during
+auto-discovery. Default: `100`. Files smaller than this are skipped to
+avoid picking up boot artifacts that share the extension. Lower it if
+you're using small lab images.
+
+```powershell
+.\unified_winpe_deploy.ps1 -MinImageSizeMB 25
+```
+
 ### -Silent [switch]
 Unattended mode for automation. For deployment runs, it requires:
 - `-WimFile` (to avoid interactive image selection)
@@ -288,4 +298,85 @@ skips a full scan.
 
 # Custom workdir and ADK path
 .\scripts\build_boot_wim.ps1 -WorkDir D:\WinPE_Build -AdkPath 'E:\ADK'
+```
+
+---
+
+# prepare_wim.ps1
+
+Companion to `unified_winpe_deploy.ps1`. Takes a stock Windows ISO,
+extracts `install.wim`, picks the requested edition, debloats provisioned
+AppX packages with a whitelist, optionally applies offline registry
+tweaks, and re-exports a clean WIM for deployment. Run on an
+admin Windows workstation (not in WinPE).
+
+## Parameters
+
+### -SourceIso [string] (Required)
+Path to the Windows installation ISO (must contain
+`sources\install.wim` or `sources\install.esd`).
+
+### -OutputWim [string] (Required)
+Where to write the customized WIM. Parent directory is created if missing.
+
+### -Edition [string]
+Edition name as DISM reports it. Default: `'Windows 11 Enterprise'`.
+Run `Get-WindowsImage -ImagePath <install.wim>` to list available names.
+
+### -WorkDir [string]
+Temporary working directory for ISO mount, WIM mount, and DISM scratch.
+Default: `C:\WimPrep`. Created if missing, NOT auto-deleted (re-runnable,
+easier to debug).
+
+### -Whitelist [string[]]
+Array of provisioned AppX package `DisplayName`s to keep. Anything not
+in this list is removed. Default is a sane Microsoft set (Photos,
+Calculator, Notepad, Store, Terminal, Camera, Defender UI, codecs).
+
+### -WhitelistFile [string]
+Path to a text file with one DisplayName per line. Lines starting with
+`#` are comments. Overrides `-Whitelist` if both are given. Useful for
+keeping the whitelist under version control separately.
+
+### -DisableCopilot [switch]
+Apply the offline registry tweak that disables Windows Copilot via
+policy (`HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot\TurnOffWindowsCopilot=1`).
+
+### -NoCleanup [switch]
+Skip the dismount-discard cleanup paths. Mainly for debugging stuck
+mounts. Off by default.
+
+## Safety Behavior
+
+- ISO mount, WIM mount, and registry hive load are each wrapped in
+  `try/finally`. A mid-script failure discards the WIM mount (no
+  half-debloated WIM committed) and unloads the offline hive.
+- Whitelist approach intentionally fails forward when Microsoft adds new
+  bloat — new packages stay until you explicitly whitelist them.
+- `Remove-AppxProvisionedPackage` errors abort the run (no
+  `-ErrorAction SilentlyContinue` swallowing). If a package can't be
+  removed, you want to know.
+- Final export uses `-CompressionType Max -CheckIntegrity` so the
+  output is space-efficient and SHA1-hashed for later verification.
+
+## Examples
+
+```powershell
+# Default whitelist + Copilot off
+.\scripts\prepare_wim.ps1 `
+    -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
+    -OutputWim 'E:\images\Win11_24h2_Enterprise_Custom.wim' `
+    -DisableCopilot
+
+# Custom whitelist file (one DisplayName per line, # for comments)
+.\scripts\prepare_wim.ps1 `
+    -SourceIso 'D:\iso\Win11.iso' `
+    -OutputWim 'E:\images\Win11_Custom.wim' `
+    -WhitelistFile 'C:\configs\my_whitelist.txt'
+
+# Different edition (Pro instead of Enterprise)
+.\scripts\prepare_wim.ps1 `
+    -SourceIso 'D:\iso\Win11.iso' `
+    -OutputWim 'E:\images\Win11_Pro_Custom.wim' `
+    -Edition 'Windows 11 Pro'
 ```

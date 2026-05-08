@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `scripts/prepare_wim.ps1` — companion WIM preparation script. Mounts a
+  stock Windows ISO, picks the requested edition, debloats provisioned
+  AppX with a whitelist (default = sane Microsoft set; override with
+  `-Whitelist` array or `-WhitelistFile`), optionally applies the
+  Copilot-disable registry tweak, and re-exports a `Compress:max` +
+  `CheckIntegrity` WIM. Mounts wrap in `try/finally` and discard on
+  mid-run failure. Pairs with the deploy tool: prep on an admin
+  workstation, drop the output on the IMAGES partition, deploy via
+  WinPE.
+- `-MinImageSizeMB` parameter on the deploy script. Replaces the
+  hardcoded `100MB` discovery filter with a runtime override (default
+  still 100). Lower it for small lab images.
+- Full `.PARAMETER` documentation on the deploy script header so
+  `Get-Help unified_winpe_deploy.ps1` now describes all parameters
+  (was missing `-TargetDisk`, `-WipeDisks`, `-Force`, `-Silent`,
+  `-ListOnly`).
+
+### Changed
+- `tests/test_parse.ps1` extended to also syntax-check
+  `scripts/prepare_wim.ps1`.
+- README now has a "Companion Scripts" table calling out which script
+  runs where.
+
 ## [4.5.0] - 2026-04-22
 
 ### Added

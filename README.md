@@ -45,10 +45,12 @@ USB Drive (32GB+ recommended)
 ├── Partition 1: WinPE Boot (FAT32, ~2GB)
 │   └── Contains WinPE with auto-start configuration
 └── Partition 2: Data (NTFS, remaining space)
-    └── images/
-        ├── Win11_Pro_24H2.wim
-        ├── Win10_Enterprise_LTSC.wim
-        └── (any .wim or .esd files)
+    ├── images/
+    │   ├── Win11_Pro_24H2.wim
+    │   ├── Win10_Enterprise_LTSC.wim
+    │   └── (any .wim or .esd files)
+    └── cctk/                       (optional, Dell BIOS configs)
+        └── default.ini             (and/or per-tag, per-model overrides)
 ```
 
 See [docs/USB_SETUP.md](docs/USB_SETUP.md) for step-by-step USB preparation instructions.
@@ -84,6 +86,8 @@ The script launches automatically via `startnet.cmd` when WinPE boots. No manual
 | `-WimFile` | String | Direct path to a `.wim`/`.esd` file |
 | `-TargetDisk` | Int | Disk number to deploy to (skips disk selection) |
 | `-WipeDisks` | String | Comma-separated disk numbers to *also* wipe (clean-only) alongside the primary target (e.g. `"1,2"`). Requires `-Force` in silent mode. |
+| `-MinImageSizeMB` | Int | Auto-discovery minimum image size in MB (default 100). Lower for small lab images. |
+| `-Force` | Switch | Skip the typed `ERASE` / `WIPE ALL` confirmations. Never bypasses `DESTROY SYSTEM`. |
 | `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`), and a single-index image. |
 | `-ListOnly` | Switch | Show available images and exit |
 
@@ -107,6 +111,16 @@ The script creates a standard UEFI/GPT partition layout:
 - **Two-step confirmation** for disk destruction:
   - Type `DESTROY SYSTEM` for system disk
   - Type `ERASE` for final confirmation
+
+## Companion Scripts
+
+| Script | Purpose | Runs On |
+|--------|---------|---------|
+| `unified_winpe_deploy.ps1` | The deploy tool. Wipes target, applies WIM, configures UEFI boot. | Inside WinPE (booted from USB) |
+| `scripts/build_boot_wim.ps1` | Builds the WinPE `boot.wim` with the right components, the `NtfsEnableDirCaseSensitivity` reg tweak, and optionally embedded Dell CCTK. | Admin Windows workstation (ADK installed) |
+| `scripts/prepare_wim.ps1` | Takes a stock Windows ISO, debloats provisioned AppX with a whitelist, optionally disables Copilot, exports a clean WIM ready to deploy. | Admin Windows workstation |
+| `scripts/validate_script.ps1` | Static-analysis checks for the deploy script. Used by CI. | Any host with PowerShell |
+| `tests/test_parse.ps1` | Syntax validation for all three scripts above. Used by CI. | Any host with PowerShell |
 
 ## Documentation
 

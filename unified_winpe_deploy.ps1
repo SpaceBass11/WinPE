@@ -12,6 +12,31 @@
 .PARAMETER WimFile
     Path to a specific WIM or ESD image file. When specified, the image is used
     directly without any drive scanning.
+.PARAMETER TargetDisk
+    Pre-select a disk number to deploy to. Still requires typed ERASE
+    confirmation unless combined with -Force. Use 'diskpart > list disk' to
+    find the right number. -1 (default) means "ask interactively".
+.PARAMETER WipeDisks
+    Comma-separated additional disk numbers to clean (no repartitioning)
+    alongside the primary target. Example: "1,2". Validated against the
+    pattern '^\s*\d+(\s*,\s*\d+)*\s*$' in silent mode. Requires -Force when
+    combined with -Silent.
+.PARAMETER MinImageSizeMB
+    Minimum image file size in MB during auto-discovery. Files smaller than
+    this are skipped to avoid picking up boot/system artifacts that happen
+    to share the .wim/.esd extension. Default: 100. Lower it if you're
+    using small lab images.
+.PARAMETER Force
+    Skip the typed "ERASE" confirmation when -TargetDisk is set. Also skips
+    the "WIPE ALL" confirmation when -WipeDisks is set. Does NOT bypass the
+    "DESTROY SYSTEM" confirmation when targeting the running system disk —
+    that always requires the typed string.
+.PARAMETER Silent
+    Unattended mode for automation. For deployment runs (not -ListOnly), it
+    requires -WimFile, -TargetDisk, and -Force, and a single-index image.
+    Fails fast if any precondition is missing.
+.PARAMETER ListOnly
+    Discover and display all available images, then exit. No deployment.
 .VERSION
     4.5.0 - CCTK pre-apply BIOS configuration (Dell fleets, RAID->AHCI
             automation). Multi-disk wipe stage for secondary drives and
@@ -28,6 +53,7 @@ param(
     [string]$WimFile,
     [int]$TargetDisk = -1,
     [string]$WipeDisks,
+    [int]$MinImageSizeMB = 100,
     [switch]$Force,
     [switch]$Silent,
     [switch]$ListOnly
@@ -306,8 +332,8 @@ function Search-DirectoryForImages {
             $files = Get-ChildItem @searchParams
 
             foreach ($file in $files) {
-                # Skip tiny files (likely not real images)
-                if ($file.Length -gt 100MB) {
+                # Skip tiny files (likely not real images) - threshold from -MinImageSizeMB
+                if ($file.Length -gt ($MinImageSizeMB * 1MB)) {
                     $images += @{
                         Path = $file.FullName
                         Name = $file.Name
