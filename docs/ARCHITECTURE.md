@@ -67,8 +67,10 @@ have a compatible boot.wim.
         → Post-diskpart: verify S: and C: exist
         → dism /apply-image /CheckIntegrity (inline progress)
         → Post-deploy: verify C:\Windows\System32 exists
+        → Unattend staging (if -UnattendFile): copy to C:\Windows\Panther\unattend.xml
         → bcdboot C:\Windows /s S: /f UEFI
         → Optional shutdown prompt → final reboot activates queued CCTK BIOS
+             └── Windows Setup reads unattend.xml on first boot (OOBE, domain join, etc.)
 ```
 
 ## Why These Choices
@@ -149,6 +151,7 @@ Fail loud and early:
 | File / Directory | Role |
 |---|---|
 | `unified_winpe_deploy.ps1` | The deploy script. Runs inside WinPE. |
+| `scripts/prepare_wim.ps1` | WIM prep tool. ISO → debloated/customized install.wim (admin Windows workstation). |
 | `scripts/build_boot_wim.ps1` | Build-time WinPE builder. Runs on Windows with ADK. |
 | `scripts/validate_script.ps1` | Static analysis of deploy script. Runs in CI. |
 | `tests/test_parse.ps1` | PowerShell syntax validation. Runs in CI. |
@@ -170,9 +173,13 @@ them:
 
 - Network deployment (PXE, WDS, MDT, SCCM) — wrong tool
 - BIOS / MBR boot — GPT / UEFI only
-- Domain join / unattend.xml / driver injection — apply only
 - GUI — TUI by design, runs on serial / remote consoles
 - Multi-disk RAID / Storage Spaces setup — single target disk
 - Secure-erase / DoD wipe — standard `diskpart clean` only
 
-If you want any of these, you want a different tool.
+**Formerly listed as non-goals, now supported:**
+- Driver injection — pre-bake into WIM via `prepare_wim.ps1 -DriverPath`
+- Unattend.xml / first-boot orchestration — via `-UnattendFile`
+- Domain join — via an answer file with `JoinDomain` in the `specialize` pass
+
+If you want network deployment or full MDT orchestration, you want a different tool.

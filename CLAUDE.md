@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a **PowerShell-based WinPE image deployment tool** (v4.5.0) that automates
+This is a **PowerShell-based WinPE image deployment tool** (v4.6.0) that automates
 Windows installation from `.wim`/`.esd` files in a WinPE boot environment. The tool
 is designed to run from a USB drive with a dual-partition layout: a small WinPE boot
 partition and a larger data partition holding Windows images.
@@ -47,8 +47,9 @@ USB Drive Layout:
 15. Post-diskpart verification (S: and C: available)
 16. DISM applies the WIM to C:\ (progress shown inline)
 17. Post-deploy verification (C:\Windows\System32 exists)
-18. BCDBoot configures UEFI boot on S: (EFI partition)
-19. Optional shutdown prompt (uses shutdown.exe for WinPE reliability) — final reboot activates any queued CCTK BIOS changes
+18. **Unattend staging** — if `-UnattendFile` given, copies answer file to `C:\Windows\Panther\unattend.xml` for Windows Setup to process on first boot (OOBE skip, domain join, computer name, autologon)
+19. BCDBoot configures UEFI boot on S: (EFI partition)
+20. Optional shutdown prompt (uses shutdown.exe for WinPE reliability) — final reboot activates any queued CCTK BIOS changes + Windows processes unattend.xml
 
 ## Key Files
 

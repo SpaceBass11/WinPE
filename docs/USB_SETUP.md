@@ -9,16 +9,34 @@ Complete guide for preparing a bootable WinPE USB drive with the image deploymen
 - Windows 10/11 machine with admin access
 - `.wim` or `.esd` image files to deploy
 
-## Step 0: (Optional) Prep your Windows images
+## Step 0: (Optional) Prep your Windows image
 
-If you want a debloated, customized `install.wim` (instead of using one
-straight off a Microsoft ISO), use the companion script
-`scripts/prepare_wim.ps1`. It mounts an ISO, picks the edition you
-want, removes provisioned AppX packages with a whitelist, optionally
-disables Copilot, and re-exports a compressed clean WIM. See the
-[Script Reference](SCRIPT_REFERENCE.md#prepare_wimps1) for details.
-You can skip this step and use unmodified ISO WIMs if you don't care
-about debloat.
+Use `scripts/prepare_wim.ps1` to produce a debloated, customized WIM from
+a stock Windows ISO. Run on your **admin workstation** (not in WinPE):
+
+```powershell
+# Minimal: debloat default whitelist + disable Copilot
+.\scripts\prepare_wim.ps1 `
+    -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
+    -OutputWim 'I:\images\Win11_Enterprise.wim' `
+    -DisableCopilot
+
+# With pre-baked drivers (chipset, NVMe, NIC — inject at WIM prep time)
+.\scripts\prepare_wim.ps1 `
+    -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
+    -OutputWim 'I:\images\Win11_Enterprise.wim' `
+    -DriverPath 'C:\Drivers\Dell_OptiPlex7090' `
+    -DisableCopilot
+```
+
+**What it does:** mounts the ISO, picks the requested edition, removes
+provisioned AppX packages not on the whitelist, optionally injects drivers
+and applies registry tweaks, then re-exports a `Compress:max` WIM.
+
+You can skip this step and copy an unmodified `.wim`/`.esd` directly from
+the ISO — just drop it in `I:\images\` in Step 5.
+
+For full options, see [Script Reference](SCRIPT_REFERENCE.md#prepare_wimps1).
 
 ## Step 1: Install Windows ADK + WinPE Add-on
 
@@ -147,6 +165,28 @@ mkdir I:\images
 copy D:\sources\install.wim I:\images\Win11_Pro.wim
 ```
 
+**Optional — Unattend.xml for first-boot configuration:** if you want
+Windows Setup to auto-configure on first boot (skip OOBE, set computer
+name, join a domain, configure autologon), create an `unattend.xml` and
+keep it on your admin machine. Pass it to the deploy script at runtime
+via `-UnattendFile` — it is copied to `C:\Windows\Panther\` after apply,
+before the machine reboots:
+
+```powershell
+.\unified_winpe_deploy.ps1 `
+    -WimFile "D:\images\Win11.wim" `
+    -UnattendFile "D:\configs\unattend.xml"
+```
+
+The unattend file does **not** need to be on the USB — it can live anywhere
+accessible from the machine running the script (typically from the USB
+IMAGES partition for convenience):
+
+```cmd
+mkdir I:\configs
+copy admin-machine:\configs\unattend.xml I:\configs\unattend.xml
+```
+
 **Optional — Dell BIOS configs:** if you built `boot.wim` with
 `-CctkSource`, also create a `cctk\` folder on this same data partition
 and drop your `.ini` configs there. The deploy script picks the right
@@ -222,20 +262,25 @@ USB Drive:
 │   └── sources/
 │       └── boot.wim  (contains unified_winpe_deploy.ps1, optionally CCTK)
 │
-└── [Partition 2: NTFS "Images" remaining space]
+└── [Partition 2: NTFS "IMAGES" remaining space]
     ├── images/
-    │   ├── Win11_Pro_24H2.wim
+    │   ├── Win11_Enterprise_Custom.wim    ← output of prepare_wim.ps1
     │   ├── Win10_Enterprise_LTSC.wim
     │   └── (more .wim/.esd files)
-    └── cctk/                       (optional, Dell BIOS configs)
-        ├── default.ini             (catch-all)
-        ├── OptiPlex7090.ini        (per-model override, optional)
-        └── 1A2B3C4.ini             (per-service-tag override, optional)
+    ├── configs/                           (optional, unattend.xml answer files)
+    │   ├── unattend.xml                   ← used with -UnattendFile
+    │   └── unattend_domain.xml
+    └── cctk/                             (optional, Dell BIOS configs)
+        ├── default.ini                   (catch-all)
+        ├── OptiPlex7090.ini              (per-model override, optional)
+        └── 1A2B3C4.ini                   (per-service-tag override, optional)
 ```
 
-The `cctk\` folder is only used if your boot.wim was built with
-`-CctkSource` (so `cctk.exe` is embedded in the image). See
-[CCTK.md](CCTK.md) for the config-file format and selection rules.
+- The `configs\` folder is a convention; `-UnattendFile` accepts any
+  path accessible during the WinPE session.
+- The `cctk\` folder is only used if your boot.wim was built with
+  `-CctkSource` (so `cctk.exe` is embedded in the image). See
+  [CCTK.md](CCTK.md) for the config-file format and selection rules.
 
 ## Tips
 

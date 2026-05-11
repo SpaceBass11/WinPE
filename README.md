@@ -26,6 +26,89 @@ A PowerShell-based TUI tool for deploying Windows images (`.wim`/`.esd`) from a 
 - Need network-based (PXE / WDS / MDT / SCCM) deployment — use MDT/ConfigMgr
 - Expect Windows Sandbox / Hyper-V / dev-VM provisioning — wrong scope
 
+## Getting Started
+
+Complete path from a fresh repo download to a deployed machine.
+
+### Prerequisites (one-time, on your admin workstation)
+
+1. **Windows ADK + WinPE add-on** — download from
+   [Microsoft's ADK page](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install).
+   Install only the **Deployment Tools** feature.
+2. **A Windows ISO** — from VLSC, Visual Studio subscriptions, or an existing
+   `.wim`/`.esd` if you already have one.
+3. **A USB drive** — 32 GB+ recommended (8 GB minimum for WinPE + one image).
+
+### Step 1 — Partition the USB
+
+Open diskpart as Administrator (this erases the USB):
+
+```cmd
+diskpart
+list disk
+select disk <USB_NUMBER>     ← double-check this
+clean
+create partition primary size=2048
+format quick fs=fat32 label="WinPE"
+assign letter=P
+create partition primary
+format quick fs=ntfs label="IMAGES"
+assign letter=I
+exit
+```
+
+Full details and warnings: [docs/USB_SETUP.md](docs/USB_SETUP.md).
+
+### Step 2 — Prepare your Windows image (optional but recommended)
+
+Run on your **admin workstation** (not in WinPE). Takes a stock ISO and
+produces a debloated, customized `.wim` ready to deploy:
+
+```powershell
+# Requires admin. Run from the repo root.
+.\scripts\prepare_wim.ps1 `
+    -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
+    -OutputWim 'I:\images\Win11_Enterprise.wim' `
+    -DisableCopilot
+```
+
+Skip this step if you already have a `.wim`/`.esd` — just copy it to
+`I:\images\` directly.
+
+Optional extras:
+- **Pre-bake drivers** (chipset, NVMe, NIC): add `-DriverPath 'C:\Drivers\Model'`
+- **Custom app whitelist**: add `-WhitelistFile 'C:\configs\whitelist.txt'`
+
+### Step 3 — Build the WinPE boot image
+
+Open **Deployment and Imaging Tools Environment** as Administrator (from the
+Start menu under Windows Kits), then run the builder from the repo root:
+
+```powershell
+# Writes WinPE media directly to the USB boot partition
+.\scripts\build_boot_wim.ps1 -Clean -UsbDrive P: -ReleaseUsbLetter
+```
+
+This runs `copype`, installs required WinPE components, applies the
+`NtfsEnableDirCaseSensitivity` registry fix, embeds the deploy script at
+`X:\scripts\`, writes `startnet.cmd`, and xcopies the media to `P:`.
+`-ReleaseUsbLetter` releases `P:` afterwards (USB stays bootable).
+
+> **Dell fleets only:** add `-CctkSource 'C:\Program Files (x86)\Dell\Command Configure\X86_64'`
+> to embed CCTK for pre-deploy BIOS configuration (RAID→AHCI, passwords, boot order).
+> See [docs/CCTK.md](docs/CCTK.md).
+
+### Step 4 — Deploy
+
+1. Plug the USB into the target machine.
+2. Boot from USB in **UEFI mode** (usually F12 → select "UEFI: USB …").
+3. WinPE loads → the deploy script auto-starts.
+4. Follow the TUI: select image → select edition → select target disk → confirm.
+5. When complete: remove USB and reboot.
+
+For unattended (scripted) deployments, see the `-Silent` flag in the
+Parameters table below.
+
 ## What It Does
 
 1. **Boots from USB** into WinPE (UEFI)
@@ -69,6 +152,9 @@ The script launches automatically via `startnet.cmd` when WinPE boots. No manual
 
 # Use a specific WIM file directly
 .\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11_Pro.wim"
+
+# Deploy with an unattend.xml for first-boot config (OOBE skip, domain join, etc.)
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" -UnattendFile "D:\configs\unattend.xml"
 
 # List available images without deploying
 .\unified_winpe_deploy.ps1 -ListOnly
@@ -165,6 +251,11 @@ opening one, please:
 see the license for the full disclaimer of warranty.
 
 ## Version
+
+**v4.6.0** - Driver injection (`prepare_wim.ps1 -DriverPath`) to pre-bake
+drivers into the WIM at prep time. Unattend.xml staging (`-UnattendFile`)
+— answer file is dropped to `C:\Windows\Panther\` post-apply for first-boot
+OOBE skip, computer name, domain join, etc.
 
 **v4.5.0** - Dell CCTK pre-apply BIOS configuration (RAID→AHCI,
 passwords, boot order — embedded in `boot.wim` via

@@ -64,6 +64,25 @@ Unattended mode for automation. For deployment runs, it requires:
 
 `-Silent` still does **not** bypass system-disk `DESTROY SYSTEM` confirmation, and it will fail fast when the selected image has multiple indexes (because unattended runs cannot answer the edition prompt).
 
+### -UnattendFile [string]
+Path to an `unattend.xml` answer file. After the Windows image is applied and
+`C:\Windows\System32` verification passes, the file is copied to
+`C:\Windows\Panther\unattend.xml` — one of the canonical locations Windows
+Setup searches on first boot. Use this for:
+
+- **OOBE skip** (`SkipMachineOOBE`, `SkipUserOOBE`)
+- **Computer name** (`ComputerName` in the `specialize` pass)
+- **Domain join** (`JoinDomain`, `MachineObjectOU`, domain credentials in `specialize`)
+- **Autologon** (`AutoLogon` in `oobeSystem`)
+
+The file is validated (must exist) before any destructive disk work begins —
+the deploy aborts early if the path is wrong.
+
+```powershell
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" `
+    -UnattendFile "D:\configs\unattend.xml"
+```
+
 ### -ListOnly [switch]
 Discovers and displays all available images non-interactively, then exits without deploying.
 
@@ -139,7 +158,7 @@ Located at the top of the script in `$Script:Config`:
 ```powershell
 $Script:Config = @{
     MinimumMemoryGB    = 8          # Warn below this
-    ScriptVersion      = '4.5.0'   # Display version
+    ScriptVersion      = '4.6.0'   # Display version
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths        = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions    = @('*.wim', '*.esd')
@@ -181,6 +200,7 @@ Disk (GPT)
 
 ```
 Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
+           → -UnattendFile validation (fail fast if path doesn't exist)
            → Image selection → Edition selection
            → Memory check
            → CCTK pre-apply (if X:\cctk\cctk.exe present and config matched)
@@ -195,6 +215,7 @@ Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
            → Diskpart (frees C:/S: first; clean-only preamble for extras)
            → DISM (inline progress)
            → Post-deploy verification (C:\Windows, C:\Windows\System32)
+           → Unattend staging (if -UnattendFile: copy to C:\Windows\Panther\unattend.xml)
            → Boot config → Success
 ```
 
@@ -339,6 +360,27 @@ Path to a text file with one DisplayName per line. Lines starting with
 `#` are comments. Overrides `-Whitelist` if both are given. Useful for
 keeping the whitelist under version control separately.
 
+### -DriverPath [string]
+Path to a folder containing driver packages (`.inf` files). Searched
+recursively. Drivers are injected into the offline image via
+`Add-WindowsDriver -Recurse -ForceUnsigned` while the WIM is mounted,
+after debloat and before save/re-export.
+
+Use this to pre-bake chipset, NVMe, NIC, or vendor-specific drivers so
+deployed machines have them out-of-box without a post-deploy injection step.
+
+Suggested folder layout:
+```
+C:\Drivers\Dell_OptiPlex7090\
+  chipset\   ← Intel chipset .inf files
+  nvme\      ← vendor NVMe .inf files
+  nic\       ← NIC .inf files
+```
+
+The script validates that the path exists and contains at least one `.inf`
+before mounting — fails fast so you don't waste 10 minutes on a mount/unmount
+cycle for a bad path.
+
 ### -DisableCopilot [switch]
 Apply the offline registry tweak that disables Windows Copilot via
 policy (`HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot\TurnOffWindowsCopilot=1`).
@@ -380,4 +422,11 @@ mounts. Off by default.
     -SourceIso 'D:\iso\Win11.iso' `
     -OutputWim 'E:\images\Win11_Pro_Custom.wim' `
     -Edition 'Windows 11 Pro'
+
+# Pre-bake drivers + disable Copilot
+.\scripts\prepare_wim.ps1 `
+    -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
+    -OutputWim 'E:\images\Win11_Enterprise_Custom.wim' `
+    -DriverPath 'C:\Drivers\Dell_OptiPlex7090' `
+    -DisableCopilot
 ```

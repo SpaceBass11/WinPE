@@ -1,6 +1,6 @@
 # Known Issues & Audit Findings
 
-Current status for `unified_winpe_deploy.ps1` (v4.5.0) and `scripts/build_boot_wim.ps1`.
+Current status for `unified_winpe_deploy.ps1` (v4.6.0), `scripts/prepare_wim.ps1`, and `scripts/build_boot_wim.ps1`.
 
 ## Active Warnings
 
