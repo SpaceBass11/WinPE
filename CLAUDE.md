@@ -144,6 +144,153 @@ apply fails with "Incorrect function" (exit 1) mid-apply on
 `C:\ProgramData\Microsoft\Windows\Containers\Layers\...`. This was the
 root cause behind the v4.3.x diskpart/DISM troubleshooting pass.
 
+## Masterize Checklist
+
+Run this after any significant change or before pushing a release branch. Each
+item is a concrete grep/read check — not a vague directive. Work top to bottom;
+fix anything that fails before moving on.
+
+### 1. Version Consistency
+
+| Location | What to check |
+|----------|---------------|
+| `unified_winpe_deploy.ps1` line ~4 | `.VERSION X.Y.Z` header comment |
+| `unified_winpe_deploy.ps1` line ~39 | `$Script:Config.ScriptVersion = 'X.Y.Z'` |
+| `CHANGELOG.md` | Latest `## [X.Y.Z]` section matches both above |
+| `CHANGELOG.md` `[Unreleased]` link | Compare URL ends with `vX.Y.Z...HEAD` |
+| `CHANGELOG.md` bottom | `[X.Y.Z]: .../releases/tag/vX.Y.Z` link exists |
+| `docs/KNOWN_ISSUES.md` header | Title line says `(vX.Y.Z)` and lists all three scripts |
+| `CLAUDE.md` Project Overview | First paragraph says `(vX.Y.Z)` |
+| `README.md` | Version badge / footer matches |
+
+```bash
+# Quick grep — all should print the same version string
+grep -n 'ScriptVersion\|\.VERSION\|^\## \[4' unified_winpe_deploy.ps1 CHANGELOG.md
+grep -n 'v4\.' docs/KNOWN_ISSUES.md CLAUDE.md README.md | head -20
+```
+
+### 2. Cross-Doc Script Coverage
+
+All three scripts must appear in every overview table:
+
+- `README.md` — "Companion scripts" or "Parameters" table
+- `ARCHITECTURE.md` — file layout / key files table
+- `CLAUDE.md` — Key Files table (this file)
+- `docs/KNOWN_ISSUES.md` — header line listing scripts
+
+```bash
+for f in README.md docs/ARCHITECTURE.md CLAUDE.md docs/KNOWN_ISSUES.md; do
+  echo "=== $f ==="; grep -c 'prepare_wim\|build_boot_wim\|unified_winpe_deploy' "$f"
+done
+```
+
+### 3. Drive-Letter Conventions
+
+| Letter | Context | Correct usage |
+|--------|---------|---------------|
+| `I:\` | Admin workstation | IMAGES data partition when partitioning USB |
+| `P:\` | Admin workstation | WinPE FAT32 boot partition |
+| `D:\` | WinPE runtime | IMAGES partition as seen from booted WinPE |
+| `X:\` | WinPE runtime | RAM disk (scripts, logs live here) |
+| `C:\` | Target | Windows is deployed here |
+| `S:\` | Target | EFI partition (hardcoded in diskpart script) |
+
+Check for stray `E:\images\` references (the old incorrect convention):
+
+```bash
+grep -rn 'E:\\images\|E:/images' docs/ scripts/ unified_winpe_deploy.ps1
+# Should produce zero matches
+```
+
+### 4. Volume Labels
+
+Labels must be uppercase and consistent:
+
+```bash
+grep -rn 'label=' docs/ scripts/ | grep -iv '"IMAGES"\|"WinPE"'
+# Any match here is a bug — labels should be IMAGES and WinPE exactly
+```
+
+### 5. Parameter Coverage in SCRIPT_REFERENCE.md
+
+Every parameter in each script must have a matching section in
+`docs/SCRIPT_REFERENCE.md`. Check by diffing param blocks against doc headers:
+
+```bash
+# Extract param names from each script
+grep '^\s*\[' unified_winpe_deploy.ps1 | grep 'Parameter\|string\|switch\|int' | grep -v '#'
+grep '^\s*\[' scripts/prepare_wim.ps1 | grep 'Parameter\|string\|switch\|int' | grep -v '#'
+
+# Then confirm each name appears in SCRIPT_REFERENCE.md
+grep '^\-\-\-\|^### `-' docs/SCRIPT_REFERENCE.md
+```
+
+### 6. Non-Goals Accuracy
+
+`docs/ARCHITECTURE.md` and `README.md` "Don't use this if you" non-goals must
+not list features that are now implemented:
+
+- Driver injection → supported via `prepare_wim.ps1 -DriverPath` ✓
+- Unattend.xml / OOBE / domain join → supported via `-UnattendFile` ✓
+- BIOS config → supported via CCTK ✓
+
+```bash
+grep -n 'non.goal\|not.*support\|driver inject\|domain join\|unattend' \
+  docs/ARCHITECTURE.md README.md | grep -iv 'supported\|now\|via'
+```
+
+### 7. Deployment Flow Completeness
+
+The numbered steps must be consistent across three sources. Spot-check that
+unattend staging, CCTK, and extra-wipe steps appear in all three:
+
+- `CLAUDE.md` Deployment Flow (steps 1–20)
+- `docs/ARCHITECTURE.md` runtime data flow diagram
+- `docs/USB_SETUP.md` Step 6 test sequence (high-level, not every step)
+
+```bash
+grep -n 'Unattend\|unattend\|CCTK\|cctk\|wipe\|Wipe' \
+  CLAUDE.md docs/ARCHITECTURE.md docs/USB_SETUP.md
+```
+
+### 8. In-Script .EXAMPLE Paths
+
+`.EXAMPLE` blocks inside scripts must use documented conventions (`I:\images\`
+for admin workstation, not `E:\` or `D:\`):
+
+```bash
+grep -n '\.EXAMPLE' -A 10 unified_winpe_deploy.ps1 scripts/prepare_wim.ps1 \
+  scripts/build_boot_wim.ps1 | grep 'images\\'
+# All paths shown should start with I:\images\
+```
+
+### 9. Safety Invariants (deploy script only)
+
+Quick grep to confirm the two invariants that must never regress:
+
+```bash
+# -Force must NOT bypass the DESTROY SYSTEM confirmation
+grep -n 'DESTROY SYSTEM\|Force.*DESTROY\|bypass.*system' unified_winpe_deploy.ps1
+
+# Unattend copy must happen AFTER post-deploy verification, BEFORE bcdboot
+grep -n 'Panther\|bcdboot\|Post.deploy\|System32' unified_winpe_deploy.ps1 | head -20
+# Panther line must appear BETWEEN the System32 check and bcdboot line
+```
+
+### 10. CHANGELOG Link Integrity
+
+```bash
+# [Unreleased] compare URL
+grep '\[Unreleased\]' CHANGELOG.md
+
+# Every [X.Y.Z] section header has a matching link at the bottom
+grep '^\## \[' CHANGELOG.md | grep -oP '\d+\.\d+\.\d+' | while read v; do
+  grep -q "\[$v\]:" CHANGELOG.md && echo "OK $v" || echo "MISSING link for $v"
+done
+```
+
+---
+
 ## Git Workflow (Claude Code Web)
 
 **Direct push to `main` is blocked by the Claude Code Web harness as a
