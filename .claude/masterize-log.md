@@ -28,6 +28,44 @@ Format for new entries:
 
 ---
 
+## 2026-05-11 — Pass 3 (commit TBD on claude/fix-disk-partitioning-VdGdp)
+
+**Phase 1 result:** clean (10/10 mechanical checks passed, plus new check 11 added)
+**Phase 2 result:** 3 issues found and fixed
+
+**Phase 1 catches:** none
+
+**Phase 2 catches:**
+- `docs/ARCHITECTURE.md`: three-programs diagram missing `- optional drivers`
+  in the `prepare_wim.ps1` column. `-DriverPath` driver injection was added in
+  v4.6.0 but the diagram column was never updated. Fixed by adding
+  `│  - optional drivers       │` to the prepare_wim column. Same pattern as
+  the "unattend staging missing from deploy column" catch in Pass 2.
+- `docs/SCRIPT_REFERENCE.md` line 267: `-UsbDrive` parameter description said
+  the FAT32 boot partition was "created per USB_SETUP.md Step 4". Step 3 creates
+  the partition (diskpart, format, assign letter=P); Step 4 only copies WinPE
+  content to it. Fixed "Step 4" → "Step 3".
+- `docs/KNOWN_ISSUES.md`: items A and B (Silent contract, WimFile validation)
+  lacked `(v4.3.0)` version tags, inconsistent with items C-J which all carry
+  version tags. Fixed by adding `(v4.3.0)` to both headers.
+
+**New checks added to process:**
+- Phase 1 check 11: Three-programs diagram feature coverage — greps confirm
+  the prepare_wim.ps1 column mentions "driver" and the deploy column mentions
+  "unattend" and "cctk". Mechanizes the diagram-completeness pattern that has
+  now been caught in two consecutive passes.
+
+**Notes / patterns observed:**
+- The diagram-miss pattern (Phase 2 check B) has now recurred twice in a row.
+  The new Phase 1 check 11 should prevent it recurring a third time.
+- The step-reference bug (SCRIPT_REFERENCE.md "Step 4" vs "Step 3") is a
+  low-level instance of Phase 2 check A (cross-reference accuracy). It's the
+  kind of thing that drifts when a doc is rewritten and step numbers shift.
+- Version tag consistency (items A/B) is cosmetic but reduces operator
+  confusion when scanning the Recently Fixed section chronologically.
+
+---
+
 ## 2026-05-11 — Pass 2 (commit b44085c on claude/fix-disk-partitioning-VdGdp)
 
 **Phase 1 result:** clean (10/10 mechanical checks passed)

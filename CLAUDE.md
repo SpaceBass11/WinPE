@@ -308,6 +308,27 @@ grep '^\## \[' CHANGELOG.md | grep -oP '\d+\.\d+\.\d+' | while read v; do
 done
 ```
 
+#### 11. Three-Programs Diagram Feature Coverage
+
+The compact ASCII diagram in `docs/ARCHITECTURE.md` must include each
+script's current major capabilities. When a new feature is added to a
+script, the corresponding diagram column must be updated.
+
+```bash
+# prepare_wim.ps1 column must mention driver injection (v4.6.0)
+grep -A 15 'Prep time (admin Windows)' docs/ARCHITECTURE.md | grep 'driver'
+
+# deploy script column must mention unattend staging (v4.6.0) and CCTK (v4.5.0)
+grep -A 15 'Run time (inside WinPE)' docs/ARCHITECTURE.md | grep -i 'unattend'
+grep -A 15 'Run time (inside WinPE)' docs/ARCHITECTURE.md | grep -i 'cctk'
+# All three greps must produce output — empty = diagram is stale
+```
+
+Concrete miss this caught (2026-05-11 Pass 3): `prepare_wim.ps1` column
+was missing `- optional drivers` after the `-DriverPath` feature landed
+in v4.6.0 (same pattern as unattend staging was missing from the deploy
+column in Pass 2).
+
 ---
 
 ### Phase 2: Semantic Checks (read-driven)

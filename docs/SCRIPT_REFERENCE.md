@@ -264,7 +264,7 @@ Delete `WorkDir` before starting. Also unmounts any stale image at
 
 ### -UsbDrive [string]
 Drive letter (e.g. `'P:'`) of the already-partitioned FAT32 boot partition
-created per `docs/USB_SETUP.md` Step 4. The built media is xcopied there
+created per `docs/USB_SETUP.md` Step 3. The built media is xcopied there
 after boot.wim is committed.
 
 ### -ReleaseUsbLetter [switch]
