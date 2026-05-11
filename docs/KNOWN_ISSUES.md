@@ -33,6 +33,27 @@ Current status for `unified_winpe_deploy.ps1` (v4.6.0), `scripts/prepare_wim.ps1
 
 ## Recently Fixed
 
+### I. Driver injection in `prepare_wim.ps1` via `-DriverPath` (v4.6.0)
+- **Change:** New `-DriverPath` parameter on `prepare_wim.ps1`. Pass a folder
+  containing `.inf` driver packages; the script injects them into the offline
+  WIM via `Add-WindowsDriver -Recurse -ForceUnsigned` while the image is
+  mounted (after debloat, before save/re-export). The path is validated for
+  existence and `.inf` count before mount — fails fast rather than wasting a
+  full mount/unmount cycle on a bad path.
+- **Benefit:** Pre-bake chipset, NVMe, NIC, or vendor-specific drivers into
+  the WIM once at prep time. Every deployed machine gets them out-of-box
+  without a post-deploy injection step.
+
+### J. Unattend.xml staging via `-UnattendFile` (v4.6.0)
+- **Change:** New `-UnattendFile` parameter on `unified_winpe_deploy.ps1`.
+  After DISM apply and `C:\Windows\System32` verification, the file is copied
+  to `C:\Windows\Panther\unattend.xml` — a standard Windows Setup search
+  location. The file is validated (must exist) before any destructive disk
+  work begins so the deploy aborts early on a bad path.
+- **Benefit:** Enables OOBE skip, computer name assignment, domain join
+  (`JoinDomain` in the `specialize` pass), and autologon without MDT or
+  SCCM. The final reboot processes the answer file on first Windows boot.
+
 ### G. Dell CCTK pre-apply BIOS configuration (v4.5.0)
 - **Change:** Builder gains `-CctkSource` to embed CCTK + HAPI driver into `boot.wim`. Deploy script runs `cctk --infile=<config>` before disk selection, picking from `<IMAGES>\cctk\` by service tag → model → `default.ini` precedence. Non-zero CCTK exit aborts the deploy.
 - **Benefit:** Fresh Dell hardware (RAID-by-default, no setup password) can be flipped to AHCI + passwords + boot order in the same pass that applies Windows. One reboot at the end activates BIOS and first-boots the new OS together. See `docs/CCTK.md`.

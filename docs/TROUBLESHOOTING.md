@@ -212,7 +212,7 @@ bcdboot C:\Windows /s S: /f UEFI
 
 **Cause:** USB data partition volume label doesn't match the label in `startnet.cmd`.
 
-**Fix:** Either label the data partition `IMAGES` (matches USB_SETUP.md Step 4)
+**Fix:** Either label the data partition `IMAGES` (matches USB_SETUP.md Step 3)
 or edit the `find /i "IMAGES"` string in `startnet.cmd` to match your label.
 If no label match is found, the script falls back to scanning all drives.
 
