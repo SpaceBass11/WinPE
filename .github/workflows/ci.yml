@@ -65,3 +65,22 @@ jobs:
           } else {
             Write-Host "PSScriptAnalyzer: clean."
           }
+
+  actionlint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        uses: rhysd/actionlint@v1
+
+  link-check:
+    name: Markdown link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --config .lychee.toml '**/*.md'
+          fail: true
