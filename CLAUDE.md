@@ -144,13 +144,30 @@ apply fails with "Incorrect function" (exit 1) mid-apply on
 `C:\ProgramData\Microsoft\Windows\Containers\Layers\...`. This was the
 root cause behind the v4.3.x diskpart/DISM troubleshooting pass.
 
-## Masterize Checklist
+## Masterize Process
 
-Run this after any significant change or before pushing a release branch. Each
-item is a concrete grep/read check — not a vague directive. Work top to bottom;
-fix anything that fails before moving on.
+A two-phase audit run before any significant release or whenever the user
+says "masterize". Phase 1 is fast (greps). Phase 2 is the read-driven
+pass that catches what grep can't. Both should run every time — Phase 1
+clean does **not** mean Phase 2 will be clean.
 
-### 1. Version Consistency
+**Before you start:** read [`.claude/masterize-log.md`](.claude/masterize-log.md)
+— it records what prior sessions caught, including issues whose root cause
+came back later. If a prior session added a new check, you must run it.
+
+**When you finish:** append a new entry to that log. If Phase 2 caught
+something Phase 1 didn't, add a new Phase 1 check (or a new Phase 2 check
+if it can't be mechanized) so the next session catches it for free. This
+is how the process improves itself.
+
+---
+
+### Phase 1: Mechanical Checks (grep-driven)
+
+Each item is a concrete grep — copy-pasteable, no judgement required. Work
+top to bottom; fix anything that fails before moving on.
+
+#### 1. Version Consistency
 
 | Location | What to check |
 |----------|---------------|
@@ -169,7 +186,7 @@ grep -n 'ScriptVersion\|\.VERSION\|^\## \[4' unified_winpe_deploy.ps1 CHANGELOG.
 grep -n 'v4\.' docs/KNOWN_ISSUES.md CLAUDE.md README.md | head -20
 ```
 
-### 2. Cross-Doc Script Coverage
+#### 2. Cross-Doc Script Coverage
 
 All three scripts must appear in every overview table:
 
@@ -184,7 +201,7 @@ for f in README.md docs/ARCHITECTURE.md CLAUDE.md docs/KNOWN_ISSUES.md; do
 done
 ```
 
-### 3. Drive-Letter Conventions
+#### 3. Drive-Letter Conventions
 
 | Letter | Context | Correct usage |
 |--------|---------|---------------|
@@ -202,16 +219,18 @@ grep -rn 'E:\\images\|E:/images' docs/ scripts/ unified_winpe_deploy.ps1
 # Should produce zero matches
 ```
 
-### 4. Volume Labels
+#### 4. Volume Labels
 
 Labels must be uppercase and consistent:
 
 ```bash
 grep -rn 'label=' docs/ scripts/ | grep -iv '"IMAGES"\|"WinPE"'
 # Any match here is a bug — labels should be IMAGES and WinPE exactly
+# Known false positive: validate_script.ps1's check for the C:\ target
+# partition uses label=Windows, which is correct (different context).
 ```
 
-### 5. Parameter Coverage in SCRIPT_REFERENCE.md
+#### 5. Parameter Coverage in SCRIPT_REFERENCE.md
 
 Every parameter in each script must have a matching section in
 `docs/SCRIPT_REFERENCE.md`. Check by diffing param blocks against doc headers:
@@ -225,7 +244,7 @@ grep '^\s*\[' scripts/prepare_wim.ps1 | grep 'Parameter\|string\|switch\|int' | 
 grep '^\-\-\-\|^### `-' docs/SCRIPT_REFERENCE.md
 ```
 
-### 6. Non-Goals Accuracy
+#### 6. Non-Goals Accuracy
 
 `docs/ARCHITECTURE.md` and `README.md` "Don't use this if you" non-goals must
 not list features that are now implemented:
@@ -239,7 +258,7 @@ grep -n 'non.goal\|not.*support\|driver inject\|domain join\|unattend' \
   docs/ARCHITECTURE.md README.md | grep -iv 'supported\|now\|via'
 ```
 
-### 7. Deployment Flow Completeness
+#### 7. Deployment Flow Completeness
 
 The numbered steps must be consistent across three sources. Spot-check that
 unattend staging, CCTK, and extra-wipe steps appear in all three:
@@ -253,7 +272,7 @@ grep -n 'Unattend\|unattend\|CCTK\|cctk\|wipe\|Wipe' \
   CLAUDE.md docs/ARCHITECTURE.md docs/USB_SETUP.md
 ```
 
-### 8. In-Script .EXAMPLE Paths
+#### 8. In-Script .EXAMPLE Paths
 
 `.EXAMPLE` blocks inside scripts must use documented conventions (`I:\images\`
 for admin workstation, not `E:\` or `D:\`):
@@ -264,7 +283,7 @@ grep -n '\.EXAMPLE' -A 10 unified_winpe_deploy.ps1 scripts/prepare_wim.ps1 \
 # All paths shown should start with I:\images\
 ```
 
-### 9. Safety Invariants (deploy script only)
+#### 9. Safety Invariants (deploy script only)
 
 Quick grep to confirm the two invariants that must never regress:
 
@@ -277,7 +296,7 @@ grep -n 'Panther\|bcdboot\|Post.deploy\|System32' unified_winpe_deploy.ps1 | hea
 # Panther line must appear BETWEEN the System32 check and bcdboot line
 ```
 
-### 10. CHANGELOG Link Integrity
+#### 10. CHANGELOG Link Integrity
 
 ```bash
 # [Unreleased] compare URL
@@ -288,6 +307,109 @@ grep '^\## \[' CHANGELOG.md | grep -oP '\d+\.\d+\.\d+' | while read v; do
   grep -q "\[$v\]:" CHANGELOG.md && echo "OK $v" || echo "MISSING link for $v"
 done
 ```
+
+---
+
+### Phase 2: Semantic Checks (read-driven)
+
+These need you to read the file and judge, not just grep. Phase 1 clean
+does not imply Phase 2 clean — the 2026-05-11 session passed all of
+Phase 1 then caught four bugs in Phase 2. Each check below was added in
+response to a real miss; don't skip them.
+
+#### A. Cross-reference accuracy
+
+Every "Step N", "Section X", "see <doc>" reference must point to the
+correct target. Grep can confirm the reference exists; only reading the
+target can confirm it's correct.
+
+```bash
+# Find every cross-reference to a numbered step in USB_SETUP.md
+grep -rn 'USB_SETUP.md Step [0-9]\|Step [0-9].*USB_SETUP' docs/ README.md
+# For each match, open USB_SETUP.md and confirm the step number actually
+# does what the reference claims.
+```
+
+Concrete miss this caught: `docs/TROUBLESHOOTING.md` said
+"matches USB_SETUP.md Step 4" for the `IMAGES` volume label, but Step 4
+is the xcopy step — the label is set in Step 3.
+
+#### B. Diagram completeness
+
+When prose describes a flow with N steps, every diagram in the same doc
+that summarizes that flow must include all N. Grep can find the keyword
+in the file but cannot tell you it's missing from a specific ASCII box.
+
+Action: for each ASCII diagram in `docs/ARCHITECTURE.md`, `README.md`,
+and the deploy script header, compare its bullets against the
+corresponding prose section. If the prose lists a step the diagram
+doesn't, fix the diagram.
+
+Concrete miss this caught: `docs/ARCHITECTURE.md` runtime data-flow
+section listed "Unattend staging" as a step, but the compact three-programs
+diagram at the top of the same file did not show it.
+
+#### C. Release-coverage in KNOWN_ISSUES.md
+
+Every release that adds a feature must have a corresponding entry under
+"Recently Fixed" in `docs/KNOWN_ISSUES.md`. The CHANGELOG has the canonical
+list; KNOWN_ISSUES.md is the operator-friendly summary.
+
+```bash
+# Releases with feature entries in CHANGELOG
+grep '^\## \[' CHANGELOG.md | grep -oP '\d+\.\d+\.\d+'
+
+# Versions referenced in KNOWN_ISSUES.md "Recently Fixed"
+grep -oP 'v\d+\.\d+\.\d+' docs/KNOWN_ISSUES.md | sort -u
+
+# Diff: every CHANGELOG version should appear at least once in KNOWN_ISSUES
+# (unless that release was purely cosmetic — judge by reading the CHANGELOG entry)
+```
+
+Concrete miss this caught: v4.6.0 added two major features (`-DriverPath`,
+`-UnattendFile`) but `docs/KNOWN_ISSUES.md` had no v4.6.0 entries under
+"Recently Fixed".
+
+#### D. Doc staleness
+
+Any doc with a date header — `DEEP_REVIEW.md`, any audit file, anything
+in `docs/` that opens with `(YYYY-MM-DD)` — is suspect once more than
+~3 months old or once two releases have shipped past it. Re-read against
+current code/CHANGELOG and update the date + scope.
+
+```bash
+# Find date-stamped docs
+grep -l '^# .*([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\})' docs/
+# For each, compare against current CHANGELOG and current scripts list.
+```
+
+Concrete miss this caught: `docs/DEEP_REVIEW.md` was dated 2026-03-17
+and predated v4.5.0 (CCTK + multi-disk wipe) and v4.6.0 (unattend +
+prepare_wim driver injection). Its "Scope Reviewed" only mentioned the
+deploy script, missing the other two scripts entirely.
+
+#### E. Self-Improvement
+
+If you found a Phase 2 issue this session, ask: could a future grep
+catch this same class of bug?
+
+- If yes → add a Phase 1 check
+- If no → add a Phase 2 entry explaining what to read and why
+
+Then record it in `.claude/masterize-log.md` under "New checks added".
+
+The point: every masterize pass should leave the process slightly
+stronger than it found it. If five sessions all kept catching the same
+class of bug semantically, the third session should have mechanized the
+check.
+
+---
+
+### Session Log
+
+`/.claude/masterize-log.md` is the durable record. Each entry is one
+masterize pass. Future sessions read it before starting a pass.
+
 
 ---
 
