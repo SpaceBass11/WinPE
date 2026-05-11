@@ -24,8 +24,6 @@ A PowerShell-based TUI tool for deploying Windows images (`.wim`/`.esd`) from a 
 
 **Don't use this if you:**
 - Need network-based (PXE / WDS / MDT / SCCM) deployment — use MDT/ConfigMgr
-- Need driver injection, unattend.xml orchestration, or domain join as part
-  of the apply — this is a focused "wipe, apply, bcdboot" tool
 - Expect Windows Sandbox / Hyper-V / dev-VM provisioning — wrong scope
 
 ## What It Does
@@ -35,8 +33,9 @@ A PowerShell-based TUI tool for deploying Windows images (`.wim`/`.esd`) from a 
 3. **Presents a TUI menu** for image and disk selection
 4. **Wipes and partitions** the target disk (GPT layout for UEFI)
 5. **Applies the Windows image** via DISM
-6. **Configures UEFI boot** via BCDBoot
-7. **Ready for first boot** - remove USB and reboot
+6. **Stages `unattend.xml`** to `C:\Windows\Panther\` (if `-UnattendFile` given)
+7. **Configures UEFI boot** via BCDBoot
+8. **Ready for first boot** — Windows Setup processes the answer file on first POST
 
 ## USB Drive Layout
 
@@ -87,6 +86,7 @@ The script launches automatically via `startnet.cmd` when WinPE boots. No manual
 | `-TargetDisk` | Int | Disk number to deploy to (skips disk selection) |
 | `-WipeDisks` | String | Comma-separated disk numbers to *also* wipe (clean-only) alongside the primary target (e.g. `"1,2"`). Requires `-Force` in silent mode. |
 | `-MinImageSizeMB` | Int | Auto-discovery minimum image size in MB (default 100). Lower for small lab images. |
+| `-UnattendFile` | String | Path to an `unattend.xml` answer file. Copied to `C:\Windows\Panther\unattend.xml` post-apply so Windows Setup processes it on first boot (OOBE skip, domain join, etc.). |
 | `-Force` | Switch | Skip the typed `ERASE` / `WIPE ALL` confirmations. Never bypasses `DESTROY SYSTEM`. |
 | `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`), and a single-index image. |
 | `-ListOnly` | Switch | Show available images and exit |

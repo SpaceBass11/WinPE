@@ -44,6 +44,22 @@
     Lines starting with # are treated as comments. Useful for keeping the
     whitelist in source control separately from this script.
 
+.PARAMETER DriverPath
+    Path to a folder containing driver packages (.inf files) to inject into
+    the offline image. Searched recursively. Use this to pre-bake chipset,
+    NIC, storage, or vendor drivers into the WIM so no post-deploy injection
+    step is needed at deploy time.
+
+    Folder layout suggestion (one sub-folder per driver package):
+        C:\Drivers\
+          Dell_OptiPlex7090\
+            chipset\  (Intel chipset .inf files)
+            nvme\     (vendor NVMe .inf files)
+            nic\      (NIC .inf files)
+
+    Drivers are injected via Add-WindowsDriver with -Recurse -ForceUnsigned.
+    Non-zero injection failures abort the script before saving the WIM.
+
 .PARAMETER DisableCopilot
     Apply the offline registry tweak to disable Windows Copilot via policy
     (`HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot\TurnOffWindowsCopilot=1`).
@@ -65,6 +81,14 @@
         -SourceIso 'D:\iso\Win11.iso' `
         -OutputWim 'E:\images\Win11_Custom.wim' `
         -WhitelistFile 'C:\configs\my_whitelist.txt'
+
+.EXAMPLE
+    # Inject drivers + disable Copilot
+    .\scripts\prepare_wim.ps1 `
+        -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
+        -OutputWim 'E:\images\Win11_24H2_Enterprise_Custom.wim' `
+        -DriverPath 'C:\Drivers\Dell_OptiPlex7090' `
+        -DisableCopilot
 #>
 [CmdletBinding()]
 param(
@@ -101,6 +125,7 @@ param(
         'MicrosoftWindows.Client.WebExperience'
     ),
     [string]$WhitelistFile,
+    [string]$DriverPath,
     [switch]$DisableCopilot,
     [switch]$NoCleanup
 )
@@ -116,6 +141,18 @@ if (-not (Test-Path $SourceIso -PathType Leaf)) {
     throw "SourceIso not found: $SourceIso"
 }
 $SourceIso = (Resolve-Path $SourceIso).Path
+
+if ($DriverPath) {
+    if (-not (Test-Path $DriverPath -PathType Container)) {
+        throw "DriverPath not found or is not a directory: $DriverPath"
+    }
+    $DriverPath = (Resolve-Path $DriverPath).Path
+    $infCount = (Get-ChildItem -Path $DriverPath -Filter '*.inf' -Recurse -ErrorAction SilentlyContinue).Count
+    if ($infCount -eq 0) {
+        throw "DriverPath '$DriverPath' contains no .inf files (searched recursively)"
+    }
+    Write-Step "Driver injection: found $infCount .inf file(s) under $DriverPath"
+}
 
 $outputDir = Split-Path -Parent $OutputWim
 if ($outputDir -and -not (Test-Path $outputDir)) {
@@ -269,6 +306,13 @@ try {
         }
     }
 
+    if ($DriverPath) {
+        Write-Step "Injecting drivers from $DriverPath"
+        $driverResult = Add-WindowsDriver -Path $mountDir -Driver $DriverPath -Recurse -ForceUnsigned
+        $injected = @($driverResult).Count
+        Write-Ok "Injected $injected driver package(s)"
+    }
+
     $saveMount = $true
 } finally {
     if ($wimMounted) {
@@ -295,8 +339,9 @@ Write-Ok "Wrote $OutputWim ($finalSizeGB GB)"
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
-Write-Host "  Input:  $SourceIso"
-Write-Host "  Output: $OutputWim"
+Write-Host "  Input:   $SourceIso"
+Write-Host "  Output:  $OutputWim"
+if ($DriverPath) { Write-Host "  Drivers: $DriverPath" }
 Write-Host ""
 Write-Host "Next: copy the WIM to your USB IMAGES partition under \images\"
 Write-Host "      then boot a target host with the WinPE USB to deploy."

@@ -7,29 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.0] - 2026-05-11
+
 ### Added
+- **Driver injection in `prepare_wim.ps1`** via new `-DriverPath` parameter.
+  Pass a folder containing `.inf` driver packages; the script injects them
+  into the offline WIM via `Add-WindowsDriver -Recurse -ForceUnsigned` while
+  the image is mounted (before the save/re-export step). Drivers are
+  pre-validated (`.inf` count check) before mount. Best for uniform fleets:
+  bake chipset, NVMe, and NIC drivers once; every deployed machine gets them
+  without a post-deploy injection step.
+- **Unattend.xml staging** via new `-UnattendFile` parameter on the deploy
+  script. After the Windows image is applied and `C:\Windows\System32`
+  verification passes, the file is copied to `C:\Windows\Panther\unattend.xml`
+  — one of the canonical locations Windows Setup searches on first boot.
+  Enables OOBE skip, computer name assignment, autologon, and domain join
+  without needing MDT or SCCM. File is validated before any destructive disk
+  work begins (fail fast).
 - `scripts/prepare_wim.ps1` — companion WIM preparation script. Mounts a
   stock Windows ISO, picks the requested edition, debloats provisioned
   AppX with a whitelist (default = sane Microsoft set; override with
   `-Whitelist` array or `-WhitelistFile`), optionally applies the
-  Copilot-disable registry tweak, and re-exports a `Compress:max` +
-  `CheckIntegrity` WIM. Mounts wrap in `try/finally` and discard on
-  mid-run failure. Pairs with the deploy tool: prep on an admin
-  workstation, drop the output on the IMAGES partition, deploy via
-  WinPE.
+  Copilot-disable registry tweak, optionally injects drivers (`-DriverPath`),
+  and re-exports a `Compress:max` + `CheckIntegrity` WIM. Mounts wrap in
+  `try/finally` and discard on mid-run failure.
 - `-MinImageSizeMB` parameter on the deploy script. Replaces the
   hardcoded `100MB` discovery filter with a runtime override (default
   still 100). Lower it for small lab images.
 - Full `.PARAMETER` documentation on the deploy script header so
-  `Get-Help unified_winpe_deploy.ps1` now describes all parameters
-  (was missing `-TargetDisk`, `-WipeDisks`, `-Force`, `-Silent`,
-  `-ListOnly`).
+  `Get-Help unified_winpe_deploy.ps1` now describes all parameters.
 
 ### Changed
 - `tests/test_parse.ps1` extended to also syntax-check
   `scripts/prepare_wim.ps1`.
-- README now has a "Companion Scripts" table calling out which script
-  runs where.
+- README "Don't use this if you" section updated — unattend.xml orchestration
+  and domain join are no longer listed as non-goals (both are now supported
+  via `-UnattendFile`). Driver injection removed from non-goals (supported
+  via `prepare_wim.ps1 -DriverPath`).
+- Version bumped to **4.6.0** in `$Script:Config.ScriptVersion` and the
+  `.VERSION` header block.
 
 ## [4.5.0] - 2026-04-22
 

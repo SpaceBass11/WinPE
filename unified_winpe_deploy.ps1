@@ -35,9 +35,19 @@
     Unattended mode for automation. For deployment runs (not -ListOnly), it
     requires -WimFile, -TargetDisk, and -Force, and a single-index image.
     Fails fast if any precondition is missing.
+.PARAMETER UnattendFile
+    Path to an unattend.xml answer file. After the Windows image is applied,
+    the file is copied to C:\Windows\Panther\unattend.xml so Windows Setup
+    picks it up on first boot (standard search-order location). Use this for
+    OOBE skip, computer name, autologon, domain join, or any other first-boot
+    configuration. The file must exist before deployment starts.
 .PARAMETER ListOnly
     Discover and display all available images, then exit. No deployment.
 .VERSION
+    4.6.0 - Driver injection support via prepare_wim.ps1 -DriverPath (pre-bake
+            drivers offline). Unattend.xml staging via -UnattendFile (dropped
+            to C:\Windows\Panther post-apply for first-boot processing: OOBE
+            skip, computer name, autologon, domain join).
     4.5.0 - CCTK pre-apply BIOS configuration (Dell fleets, RAID->AHCI
             automation). Multi-disk wipe stage for secondary drives and
             vendor OEM partitions. New -WipeDisks parameter for silent
@@ -54,6 +64,7 @@ param(
     [int]$TargetDisk = -1,
     [string]$WipeDisks,
     [int]$MinImageSizeMB = 100,
+    [string]$UnattendFile,
     [switch]$Force,
     [switch]$Silent,
     [switch]$ListOnly
@@ -69,7 +80,7 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.5.0'
+    ScriptVersion = '4.6.0'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')
@@ -1319,6 +1330,15 @@ function Start-Deployment {
         }
     }
 
+    # Validate -UnattendFile if provided (fail before anything destructive happens)
+    if ($UnattendFile) {
+        if (-not (Test-Path $UnattendFile -PathType Leaf)) {
+            Write-Log "UnattendFile not found: $UnattendFile" -Level Error
+            return $false
+        }
+        Write-Log "Unattend file: $UnattendFile" -Level Info
+    }
+
     # Find and select image
     $imageFiles = Find-ImageFiles
 
@@ -1454,6 +1474,16 @@ function Start-Deployment {
         }
     }
     Write-Log "Deployment verification passed" -Level Success
+
+    # Drop unattend.xml so Windows Setup picks it up on first boot
+    if ($UnattendFile) {
+        $pantherDir = 'C:\Windows\Panther'
+        if (-not (Test-Path $pantherDir)) {
+            New-Item -ItemType Directory -Path $pantherDir -Force | Out-Null
+        }
+        Copy-Item -Path $UnattendFile -Destination "$pantherDir\unattend.xml" -Force
+        Write-Log "Unattend file staged: $pantherDir\unattend.xml" -Level Success
+    }
 
     # Configure boot
     if (-not (Set-BootConfiguration)) {
