@@ -1,7 +1,15 @@
 # Script Reference
 
-Complete technical reference for `unified_winpe_deploy.ps1` and the
-`scripts/build_boot_wim.ps1` boot media builder.
+Complete technical reference for `unified_winpe_deploy.ps1`,
+`scripts/build_boot_wim.ps1`, and `scripts/prepare_wim.ps1`.
+
+> **Drive-letter conventions used in examples:**
+> - `I:\` — IMAGES partition as seen from the admin workstation (matches
+>   the `assign letter=I` in [USB_SETUP.md](USB_SETUP.md) Step 3).
+> - `D:\` — IMAGES partition as seen from WinPE at runtime (WinPE itself
+>   is on `X:`, the FAT32 boot partition gets the lowest free letter, and
+>   the NTFS data partition typically lands on `D:`).
+> - `P:\` — FAT32 WinPE boot partition on the admin workstation.
 
 ## Parameters
 
@@ -408,25 +416,25 @@ mounts. Off by default.
 # Default whitelist + Copilot off
 .\scripts\prepare_wim.ps1 `
     -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
-    -OutputWim 'E:\images\Win11_24h2_Enterprise_Custom.wim' `
+    -OutputWim 'I:\images\Win11_24h2_Enterprise_Custom.wim' `
     -DisableCopilot
 
 # Custom whitelist file (one DisplayName per line, # for comments)
 .\scripts\prepare_wim.ps1 `
     -SourceIso 'D:\iso\Win11.iso' `
-    -OutputWim 'E:\images\Win11_Custom.wim' `
+    -OutputWim 'I:\images\Win11_Custom.wim' `
     -WhitelistFile 'C:\configs\my_whitelist.txt'
 
 # Different edition (Pro instead of Enterprise)
 .\scripts\prepare_wim.ps1 `
     -SourceIso 'D:\iso\Win11.iso' `
-    -OutputWim 'E:\images\Win11_Pro_Custom.wim' `
+    -OutputWim 'I:\images\Win11_Pro_Custom.wim' `
     -Edition 'Windows 11 Pro'
 
 # Pre-bake drivers + disable Copilot
 .\scripts\prepare_wim.ps1 `
     -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
-    -OutputWim 'E:\images\Win11_Enterprise_Custom.wim' `
+    -OutputWim 'I:\images\Win11_Enterprise_Custom.wim' `
     -DriverPath 'C:\Drivers\Dell_OptiPlex7090' `
     -DisableCopilot
 ```

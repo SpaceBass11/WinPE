@@ -121,7 +121,7 @@ create partition primary size=2048
 format quick fs=fat32 label="WinPE"
 assign letter=P
 create partition primary
-format quick fs=ntfs label="Images"
+format quick fs=ntfs label="IMAGES"
 assign letter=I
 exit
 ```

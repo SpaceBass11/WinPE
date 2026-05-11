@@ -57,7 +57,7 @@ Create a `cctk\` folder on the IMAGES partition of your USB:
 
 ```
 P:\  (WinPE boot, hidden)
-E:\  (IMAGES data partition)
+I:\  (IMAGES data partition)
 ├── images\
 │   └── Win11_Pro_24H2.wim
 └── cctk\

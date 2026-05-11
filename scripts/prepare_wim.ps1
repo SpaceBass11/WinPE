@@ -72,21 +72,21 @@
     # Prep a Win11 Enterprise WIM with the default whitelist + Copilot off
     .\scripts\prepare_wim.ps1 `
         -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
-        -OutputWim 'E:\images\Win11_24h2_Enterprise_Custom.wim' `
+        -OutputWim 'I:\images\Win11_24h2_Enterprise_Custom.wim' `
         -DisableCopilot
 
 .EXAMPLE
     # Prep with custom whitelist file
     .\scripts\prepare_wim.ps1 `
         -SourceIso 'D:\iso\Win11.iso' `
-        -OutputWim 'E:\images\Win11_Custom.wim' `
+        -OutputWim 'I:\images\Win11_Custom.wim' `
         -WhitelistFile 'C:\configs\my_whitelist.txt'
 
 .EXAMPLE
     # Inject drivers + disable Copilot
     .\scripts\prepare_wim.ps1 `
         -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
-        -OutputWim 'E:\images\Win11_24H2_Enterprise_Custom.wim' `
+        -OutputWim 'I:\images\Win11_24H2_Enterprise_Custom.wim' `
         -DriverPath 'C:\Drivers\Dell_OptiPlex7090' `
         -DisableCopilot
 #>
