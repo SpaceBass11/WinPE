@@ -28,6 +28,52 @@ Format for new entries:
 
 ---
 
+## 2026-05-12 — Process Restructure (commit TBD on claude/masterize-improvements)
+
+Not a normal pass — this entry records a structural change to the
+process itself, prompted by user request to critique and improve it.
+
+**What changed:**
+- Moved the masterize playbook out of `CLAUDE.md` into
+  `docs/MASTERIZE.md`. CLAUDE.md kept a 15-line summary + pointer.
+  CLAUDE.md dropped from 465 lines to ~200, reducing the per-session
+  context tax.
+- Added **Phase 1B: Code Safety Invariants** — 7 grep/positional checks
+  that run against `unified_winpe_deploy.ps1` to verify safety
+  properties haven't regressed:
+  - 12. `-Force` anti-bypass guard near `DESTROY SYSTEM`
+  - 13. `mountvol /d` guarded by `$env:SystemDrive`
+  - 14. No `Stop-Computer` (must use `shutdown.exe`)
+  - 15. All `dism /Get-WimInfo` invocations use `/English`
+  - 16. `dism /apply-image` uses `/CheckIntegrity`
+  - 17. CCTK runs before disk selection (positional)
+  - 18. Unattend copy ordered between System32 verify and bcdboot
+- Each Phase 1B check emits explicit `OK` / `FAIL` so a session can
+  tell at a glance whether it passed. Phase 1A checks still print
+  raw output — migrate as opportunity allows.
+- Added preamble note: **sanity-test new checks against a known-bad
+  state before adding them.** Prompted by Pass 4's discovery that
+  check 5 had been silently returning empty for 3 passes.
+- Folded Pass 4's check-5 grep fix and check-12 (README USB layout)
+  into the new playbook so this branch is a superset.
+
+**Why:**
+Previous critique flagged that masterize was overweighted toward docs
+and barely touched the script itself. The script is the actual
+product — destructive code that operators run with admin rights — and
+its safety invariants were enforced only by reviewer memory.
+Phase 1B mechanizes the safety contract.
+
+**Notes:**
+- Phase numbering: existing Pass 1–4 log entries use "Phase 1" /
+  "Phase 2". Going forward, sessions should report "Phase 1A" /
+  "Phase 1B" / "Phase 2" separately. Old entries stay as written.
+- The "concrete miss this caught" annotations were trimmed from
+  MASTERIZE.md (the log is the durable record; the playbook should be
+  evergreen instructions, not change history).
+
+---
+
 ## 2026-05-11 — Pass 3 (commit fad4b93 on claude/fix-disk-partitioning-VdGdp → main)
 
 **Phase 1 result:** clean (10/10 mechanical checks passed, plus new check 11 added)

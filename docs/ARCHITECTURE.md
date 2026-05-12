@@ -164,6 +164,7 @@ Fail loud and early:
 | `docs/ARCHITECTURE.md` | This file. Design rationale. |
 | `docs/CCTK.md` | User-facing: Dell CCTK pre-apply BIOS configuration. |
 | `docs/SIGNING.md` | User-facing: enterprise code-signing of the deploy script. |
+| `docs/MASTERIZE.md` | Maintainer-facing: multi-phase release-audit playbook. |
 | `CLAUDE.md` | Contributor-facing: project conventions and safety rules. |
 | `CHANGELOG.md` | Release history (keepachangelog). |
 
