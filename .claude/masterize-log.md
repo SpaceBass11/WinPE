@@ -28,7 +28,7 @@ Format for new entries:
 
 ---
 
-## 2026-05-12 — Process Restructure (commit TBD on claude/masterize-improvements)
+## 2026-05-12 — Process Restructure (commit c4848da on claude/masterize-improvements)
 
 Not a normal pass — this entry records a structural change to the
 process itself, prompted by user request to critique and improve it.
