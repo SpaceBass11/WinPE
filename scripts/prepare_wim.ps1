@@ -129,20 +129,23 @@ param(
         'Microsoft.WebpImageExtension'
         # Core utilities most users actually use
         'Microsoft.DesktopAppInstaller'
-        'Microsoft.GetHelp'
+        'Microsoft.MicrosoftStickyNotes'
+        'Microsoft.Paint'
         'Microsoft.ScreenSketch'
         'Microsoft.SecHealthUI'
         'Microsoft.StorePurchaseApp'
         'Microsoft.Windows.Photos'
-        'Microsoft.WindowsAlarms'
         'Microsoft.WindowsCalculator'
         'Microsoft.WindowsCamera'
         'Microsoft.WindowsNotepad'
-        'Microsoft.WindowsSoundRecorder'
         'Microsoft.WindowsStore'
         'Microsoft.WindowsTerminal'
         'Microsoft.ApplicationCompatibilityEnhancements'
-        'MicrosoftWindows.Client.WebExperience'
+        # Archive
+        #'Microsoft.GetHelp'
+        #'Microsoft.WindowsAlarms'
+        #'Microsoft.WindowsSoundRecorder'
+        #'MicrosoftWindows.Client.WebExperience'
     ),
     [string]$WhitelistFile,
     [string]$DriverPath,
