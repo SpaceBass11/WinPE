@@ -62,11 +62,11 @@ Current status for `unified_winpe_deploy.ps1` (v4.6.0), `scripts/prepare_wim.ps1
 - **Change:** After the primary target is confirmed, an optional menu lists remaining non-USB fixed disks. User enters comma-separated numbers; a single `WIPE ALL` confirmation covers the whole set. Each gets a `diskpart clean` (no repartition) before the primary deploy, in the same diskpart session. New `-WipeDisks "1,2"` for silent automation.
 - **Benefit:** Fixes the "vendor OEM appeared as D: on the second NVMe" problem without a separate WinPE round-trip.
 
-### A. Silent unattended safety contract tightened
+### A. Silent unattended safety contract tightened (v4.3.0)
 - **Change:** `-Silent` deployment runs now require `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`).
 - **Benefit:** Prevents unexpected interactive prompts during automation.
 
-### B. Direct image path validation improved
+### B. Direct image path validation improved (v4.3.0)
 - **Change:** `-WimFile` now validates that the file exists and has a supported extension (`.wim`/`.esd`).
 - **Benefit:** Fails fast on invalid inputs instead of attempting downstream operations.
 

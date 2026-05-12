@@ -18,7 +18,7 @@ parameter / function reference, see
 │  - optional reg tweaks    │→ │  - embed deploy script    │→ │  - optional extra wipe    │
 │  - export Compress:max    │  │  - optional CCTK embed    │  │  - diskpart GPT           │
 │  - WIM ready for IMAGES   │  │  - write startnet.cmd     │  │  - dism /apply-image      │
-│                           │  │  - commit boot.wim        │  │  - unattend staging       │
+│  - optional drivers       │  │  - commit boot.wim        │  │  - unattend staging       │
 │                           │  │                           │  │  - bcdboot (UEFI)         │
 └───────────────────────────┘  └───────────────────────────┘  └───────────────────────────┘
         outputs                      outputs                       runs
