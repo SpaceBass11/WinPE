@@ -9,6 +9,25 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Added
+- **`-DisableExtraBloat` parameter on `prepare_wim.ps1`** — superset of
+  `-DisableCopilot`. Applies seven additional HKLM policy tweaks via the
+  same offline-hive mechanism: disable Recall, Widgets / News & Interests,
+  Bing in Start search (2 keys), telemetry, consumer feature auto-installs,
+  Edge first-run nag, and Teams Consumer Chat auto-install. All policies
+  are applied in a single hive load/unload cycle.
+- **`scripts/first-login.ps1`** — companion script staged into the image
+  at `C:\Windows\Setup\Scripts\first-login.ps1` when `-DisableExtraBloat`
+  is used. Runs once at first user sign-in (called from an `unattend.xml`
+  `FirstLogonCommands` entry) to apply per-user HKCU tweaks: show file
+  extensions, compact Explorer, hide Widgets/Chat taskbar icons, search
+  box → icon only, suggested apps off, classic right-click menu, OneDrive
+  uninstall. Each tweak is idempotent and logs to
+  `C:\Windows\Setup\Scripts\first-login.log`.
+- **`configs/unattend.example.xml`** — template `unattend.xml` with
+  sensible defaults: skip OOBE pages (EULA, OEM reg, online-account,
+  wireless setup), set locale + time-zone placeholder, create a local
+  admin account placeholder, computer name placeholder, and a
+  `FirstLogonCommands` entry that calls the staged `first-login.ps1`.
 - `scripts/refresh_usb.ps1` — thin workflow wrapper for the recurring
   "new Windows media, refresh the USB" loop. Sequences `prepare_wim.ps1`
   and (optionally) `build_boot_wim.ps1`, with auto-derived output names,

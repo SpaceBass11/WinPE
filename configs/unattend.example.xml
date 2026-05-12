@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ============================================================================
+  Example unattend.xml — Windows 11 + WinPE deploy pipeline.
+
+  Usage:
+    1. Copy this file (don't edit in place — keep the example clean).
+    2. Replace placeholders (PLACEHOLDER_TIMEZONE, PLACEHOLDER_USERNAME,
+       PLACEHOLDER_PASSWORD_BASE64). See notes below each section.
+    3. Save to your USB IMAGES partition at e.g. I:\configs\unattend.xml.
+    4. Run the deploy with:
+         unified_winpe_deploy.ps1 -UnattendFile <path>
+       The script copies the file to C:\Windows\Panther\unattend.xml.
+
+  What this template does:
+    - Sets US English locale (change in the international-core component)
+    - Sets a TimeZone (placeholder)
+    - Skips the most annoying OOBE pages (EULA, OEM reg, online account,
+      wireless setup, privacy settings)
+    - Creates a local admin account (placeholder)
+    - Sets a default ComputerName ("WIN-*" = Windows generates a random
+      suffix; replace with a real name if you need a known hostname)
+    - Calls scripts\first-login.ps1 to apply per-user HKCU debloat tweaks
+
+  Password encoding:
+    The Password\Value field expects a base64 of the UTF-16LE byte sequence
+    of: <password> + "AdministratorPassword" (or the corresponding
+    "<account>Password" string for LocalAccount entries).
+
+    In PowerShell:
+      $p = 'YourPasswordHere' + 'Password'
+      [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($p))
+
+    Set <PlainText>false</PlainText> if encoded, <PlainText>true</PlainText>
+    if you accept the security trade-off and want to inline the plaintext.
+
+  Adjusting for x86 / ARM64:
+    Replace processorArchitecture="amd64" with "x86" or "arm64" everywhere.
+
+  Microsoft's reference:
+    https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/
+  ============================================================================
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+
+  <!-- ====================================================================
+       specialize pass — runs after Sysprep, before first user login
+       ==================================================================== -->
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <!-- "WIN-*" = Windows generates a random 6-char suffix. Replace with
+           a fixed hostname if you image one machine at a time. -->
+      <ComputerName>WIN-*</ComputerName>
+      <!-- TimeZone names: run `tzutil /l` on any Windows box to list. -->
+      <TimeZone>PLACEHOLDER_TIMEZONE</TimeZone>
+    </component>
+  </settings>
+
+  <!-- ====================================================================
+       oobeSystem pass — runs OOBE on first boot
+       ==================================================================== -->
+  <settings pass="oobeSystem">
+
+    <component name="Microsoft-Windows-International-Core"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS">
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <NetworkLocation>Work</NetworkLocation>
+        <ProtectYourPC>3</ProtectYourPC>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+
+      <!-- Local admin account. The first LocalAccount becomes the default
+           login. Remove this block if you want OOBE to prompt for an
+           account instead (set HideOnlineAccountScreens=false too). -->
+      <UserAccounts>
+        <LocalAccounts>
+          <LocalAccount wcm:action="add">
+            <Name>PLACEHOLDER_USERNAME</Name>
+            <Group>Administrators</Group>
+            <DisplayName>PLACEHOLDER_USERNAME</DisplayName>
+            <Password>
+              <Value>PLACEHOLDER_PASSWORD_BASE64</Value>
+              <PlainText>false</PlainText>
+            </Password>
+          </LocalAccount>
+        </LocalAccounts>
+      </UserAccounts>
+
+      <!-- Apply per-user debloat tweaks on first sign-in. The script is
+           staged by `prepare_wim.ps1 -DisableExtraBloat`. If you didn't
+           use that flag, comment this block out or the SynchronousCommand
+           will fail (non-blocking, but noisy in setupact.log). -->
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>Apply per-user (HKCU) debloat tweaks</Description>
+          <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\first-login.ps1</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+
+    </component>
+  </settings>
+</unattend>
