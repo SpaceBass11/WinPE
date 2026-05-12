@@ -79,6 +79,16 @@ Optional extras:
 - **Pre-bake drivers** (chipset, NVMe, NIC): add `-DriverPath 'C:\Drivers\Model'`
 - **Custom app whitelist**: add `-WhitelistFile 'C:\configs\whitelist.txt'`
 
+> **Refreshing an existing USB?** If your USB is already set up and you
+> just want to drop a newer Windows ISO onto it, use the shortcut
+> wrapper instead. It auto-derives the output WIM name from the ISO
+> filename and prompts whether to also rebuild WinPE boot.wim:
+> ```powershell
+> .\scripts\refresh_usb.ps1 -SourceIso 'D:\iso\Win11_24H2.iso'
+> ```
+> See [docs/SCRIPT_REFERENCE.md](docs/SCRIPT_REFERENCE.md#refresh_usbps1)
+> for all parameters.
+
 ### Step 3 — Build the WinPE boot image
 
 Open **Deployment and Imaging Tools Environment** as Administrator (from the

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `scripts/refresh_usb.ps1` — thin workflow wrapper for the recurring
+  "new Windows media, refresh the USB" loop. Sequences `prepare_wim.ps1`
+  and (optionally) `build_boot_wim.ps1`, with auto-derived output names,
+  a single prompt for the boot-rebuild question, and pre-flight checks
+  that fail early if the ADK environment is missing.
+
 ## [4.6.0] - 2026-05-11
 
 ### Added
