@@ -10,14 +10,8 @@ include_fragments = false
 # be re-listed explicitly here.
 accept = ["200..=299", "429"]
 
-# Skip URLs that 404 by design until something happens on GitHub:
-#   - actions/: CI badge URL — 404s until the first workflow run
-#     completes, and on PRs from forks it 404s for the fork's badge path.
-#   - releases/tag/ and compare/: CHANGELOG footer links follow the
-#     Keep-a-Changelog convention but no release tags have been
-#     published yet. Remove these excludes once you start tagging.
+# Skip the CI badge URL — 404s until the first workflow run completes,
+# and on PRs from forks it returns 404 for the fork's badge path.
 exclude = [
   "https://github.com/spacebass11/WinPE/actions",
-  "https://github.com/spacebass11/WinPE/releases/tag/",
-  "https://github.com/spacebass11/WinPE/compare/",
 ]

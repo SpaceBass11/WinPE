@@ -2,10 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Version numbers are tracked in the script header for reference; no
+tagged GitHub releases are published.
 
-## [Unreleased]
+## Unreleased
 
 ### Added
 - `scripts/refresh_usb.ps1` — thin workflow wrapper for the recurring
@@ -31,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     file layout (TROUBLESHOOTING dropped from those lists; it's not
     an overview doc).
 
-## [4.6.0] - 2026-05-11
+## 4.6.0 - 2026-05-11
 
 ### Added
 - **Driver injection in `prepare_wim.ps1`** via new `-DriverPath` parameter.
@@ -71,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version bumped to **4.6.0** in `$Script:Config.ScriptVersion` and the
   `.VERSION` header block.
 
-## [4.5.0] - 2026-04-22
+## 4.5.0 - 2026-04-22
 
 ### Added
 - **Dell CCTK pre-apply BIOS configuration.** Builder gains `-CctkSource`
@@ -111,7 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version bumped to **4.5.0** in `$Script:Config.ScriptVersion` and
   the `.VERSION` header block.
 
-## [Infrastructure - merged into 4.5.0 release]
+## Infrastructure (merged into 4.5.0)
 
 ### Added
 - Open-source repo infrastructure: `LICENSE` (MIT), `SECURITY.md`,
@@ -147,7 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `spacebass11/WinPE` across README, CHANGELOG, SECURITY, issue
   template config, and the CI link-check exclude list.
 
-## [4.4.0] - 2026-04-21
+## 4.4.0 - 2026-04-21
 
 ### Added
 - `scripts/build_boot_wim.ps1` — reproducible WinPE boot.wim builder. Wraps
@@ -193,7 +194,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deploy aborting before `clean` when the target disk has a read-only flag
   set that can't be cleared.
 
-## [4.3.0] - 2026-03
+## 4.3.0 - 2026-03
 
 ### Added
 - `$env:DEPLOY_IMAGE_DRIVE` fast-path image discovery (set by `startnet.cmd`
@@ -207,8 +208,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Various smaller bug fixes in image discovery and confirmation prompts.
 
-[Unreleased]: https://github.com/spacebass11/WinPE/compare/v4.6.0...HEAD
-[4.6.0]: https://github.com/spacebass11/WinPE/releases/tag/v4.6.0
-[4.5.0]: https://github.com/spacebass11/WinPE/releases/tag/v4.5.0
-[4.4.0]: https://github.com/spacebass11/WinPE/releases/tag/v4.4.0
-[4.3.0]: https://github.com/spacebass11/WinPE/releases/tag/v4.3.0

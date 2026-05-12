@@ -132,19 +132,7 @@ jobs:
           if [ -n "$bad" ]; then echo "FAIL:"; echo "$bad"; fail=1; else echo "OK"; fi
 
           echo ""
-          echo "=== 5. CHANGELOG link integrity ==="
-          versions=$(grep '^## \[' CHANGELOG.md | grep -oP '\d+\.\d+\.\d+')
-          for v in $versions; do
-            if grep -q "\[$v\]:" CHANGELOG.md; then
-              echo "OK: link for $v"
-            else
-              echo "FAIL: missing link for $v"
-              fail=1
-            fi
-          done
-
-          echo ""
-          echo "=== 6. Three-programs diagram feature coverage ==="
+          echo "=== 5. Three-programs diagram feature coverage ==="
           for keyword in 'driver' 'unattend' 'cctk'; do
             if [ "$keyword" = "driver" ]; then
               section='Prep time (admin Windows)'
@@ -160,7 +148,7 @@ jobs:
           done
 
           echo ""
-          echo "=== 7. README USB drive layout diagram coverage ==="
+          echo "=== 6. README USB drive layout diagram coverage ==="
           for dir in 'images/' 'cctk/' 'configs/'; do
             if grep -A 16 '## USB Drive Layout' README.md | grep -q "$dir"; then
               echo "OK: '$dir' in USB layout"
@@ -171,7 +159,7 @@ jobs:
           done
 
           echo ""
-          echo "=== 8. .EXAMPLE paths use I:\\images\\ ==="
+          echo "=== 7. .EXAMPLE paths use I:\\images\\ ==="
           bad=$(grep -A 10 '\.EXAMPLE' unified_winpe_deploy.ps1 scripts/prepare_wim.ps1 scripts/build_boot_wim.ps1 | grep 'images\\' | grep -v 'I:\\images\\' || true)
           if [ -n "$bad" ]; then echo "FAIL:"; echo "$bad"; fail=1; else echo "OK"; fi
 
@@ -183,7 +171,7 @@ jobs:
           fail=0
           script=unified_winpe_deploy.ps1
 
-          echo "=== 9. -Force has explicit anti-bypass guard for system disk ==="
+          echo "=== 8. -Force has explicit anti-bypass guard for system disk ==="
           if grep -q 'Force cannot bypass\|cannot bypass system' $script; then
             echo "OK"
           else
@@ -192,7 +180,7 @@ jobs:
           fi
 
           echo ""
-          echo "=== 10. mountvol /d guarded by \$env:SystemDrive ==="
+          echo "=== 9. mountvol /d guarded by \$env:SystemDrive ==="
           if grep -B 6 'mountvol.*\/d' $script | grep -q 'SystemDrive'; then
             echo "OK"
           else
@@ -201,7 +189,7 @@ jobs:
           fi
 
           echo ""
-          echo "=== 11. No Stop-Computer (must use shutdown.exe in WinPE) ==="
+          echo "=== 10. No Stop-Computer (must use shutdown.exe in WinPE) ==="
           if grep -q 'Stop-Computer' $script; then
             echo "FAIL: Stop-Computer found — use shutdown.exe instead"
             fail=1
@@ -210,7 +198,7 @@ jobs:
           fi
 
           echo ""
-          echo "=== 12. dism /Get-WimInfo invocations use /English ==="
+          echo "=== 11. dism /Get-WimInfo invocations use /English ==="
           bad=$(grep -n 'dism\.exe.*Get-WimInfo\|& dism.*Get-WimInfo' $script | grep -v '/English' || true)
           if [ -z "$bad" ]; then
             echo "OK"
@@ -221,7 +209,7 @@ jobs:
           fi
 
           echo ""
-          echo "=== 13. dism /apply-image uses /CheckIntegrity ==="
+          echo "=== 12. dism /apply-image uses /CheckIntegrity ==="
           ai=$(grep -n '/apply-image' $script | grep -v 'Write-Log\|Recovery\|manually\|Last resort\|#')
           if echo "$ai" | grep -q '/CheckIntegrity'; then
             echo "OK"
@@ -231,7 +219,7 @@ jobs:
           fi
 
           echo ""
-          echo "=== 14. CCTK runs before disk selection ==="
+          echo "=== 13. CCTK runs before disk selection ==="
           cctk=$(grep -n 'Invoke-CctkConfig' $script | grep -v 'function ' | head -1 | cut -d: -f1)
           disk=$(grep -n 'Select-TargetDisk -Disks' $script | head -1 | cut -d: -f1)
           if [ -n "$cctk" ] && [ -n "$disk" ] && [ "$cctk" -lt "$disk" ]; then
@@ -242,7 +230,7 @@ jobs:
           fi
 
           echo ""
-          echo "=== 15. Unattend copy ordered: verify < unattend < bcdboot ==="
+          echo "=== 14. Unattend copy ordered: verify < unattend < bcdboot ==="
           verify=$(grep -n 'verifyPaths' $script | head -1 | cut -d: -f1)
           panther=$(grep -n 'pantherDir.*Panther' $script | head -1 | cut -d: -f1)
           bcdboot=$(grep -n 'Set-BootConfiguration' $script | grep -v 'function ' | head -1 | cut -d: -f1)

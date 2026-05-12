@@ -25,23 +25,22 @@ regression. You don't need to run them manually — but understanding
 what they cover helps interpret a red build.
 
 **Phase 1A — Doc consistency:**
-1. Version consistency (script version appears in CHANGELOG, CLAUDE.md, README.md, TROUBLESHOOTING.md)
+1. Version consistency (script version appears in CHANGELOG, CLAUDE.md, README.md)
 2. Cross-doc script coverage (all three scripts listed in every overview doc)
 3. No stray `E:\images` references
 4. Volume labels are `IMAGES` / `WinPE` / `Windows` only
-5. Every CHANGELOG `## [X.Y.Z]` has a matching `[X.Y.Z]:` link
-6. Three-programs diagram in `ARCHITECTURE.md` mentions driver / unattend / cctk
-7. README USB Drive Layout diagram lists `images/`, `cctk/`, `configs/`
-8. In-script `.EXAMPLE` blocks use `I:\images\` paths
+5. Three-programs diagram in `ARCHITECTURE.md` mentions driver / unattend / cctk
+6. README USB Drive Layout diagram lists `images/`, `cctk/`, `configs/`
+7. In-script `.EXAMPLE` blocks use `I:\images\` paths
 
 **Phase 1B — Code safety invariants:**
-9. `-Force` has anti-bypass guard for `DESTROY SYSTEM`
-10. `mountvol /d` guarded by `$env:SystemDrive`
-11. No `Stop-Computer` (must be `shutdown.exe` for WinPE reliability)
-12. Every `dism /Get-WimInfo` invocation uses `/English`
-13. `dism /apply-image` uses `/CheckIntegrity`
-14. `Invoke-CctkConfig` runs before `Select-TargetDisk` (positional)
-15. Unattend copy is ordered `verify < unattend < bcdboot` (positional)
+8. `-Force` has anti-bypass guard for `DESTROY SYSTEM`
+9. `mountvol /d` guarded by `$env:SystemDrive`
+10. No `Stop-Computer` (must be `shutdown.exe` for WinPE reliability)
+11. Every `dism /Get-WimInfo` invocation uses `/English`
+12. `dism /apply-image` uses `/CheckIntegrity`
+13. `Invoke-CctkConfig` runs before `Select-TargetDisk` (positional)
+14. Unattend copy is ordered `verify < unattend < bcdboot` (positional)
 
 **Adding a new mechanical check:** add it to the `masterize` job in
 `ci.yml`. Sanity-test it against a known-bad state first — break the
