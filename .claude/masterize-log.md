@@ -28,7 +28,7 @@ Format for new entries:
 
 ---
 
-## 2026-05-12 — CI Handoff (commit TBD on claude/masterize-improvements)
+## 2026-05-12 — CI Handoff (commit 2b4c2d5 on claude/masterize-improvements)
 
 **Process change. This log entry is meta, not a pass.**
 
