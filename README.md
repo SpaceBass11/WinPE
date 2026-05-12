@@ -87,9 +87,11 @@ What the flags do:
 Optional extras:
 - **Pre-bake drivers** (chipset, NVMe, NIC): add `-DriverPath 'C:\Drivers\Model'`
 - **Custom app whitelist**: add `-WhitelistFile 'C:\configs\whitelist.txt'`
-- **Unattend OOBE skip + autologon**: copy `configs/unattend.example.xml`
-  to your USB, edit the placeholders (time zone, username, password),
-  then pass `-UnattendFile <path>` to the deploy script in Step 4.
+- **Unattend OOBE skip + autologon + multiple accounts**: copy
+  `configs/unattend.example.xml` to your USB, follow the step-by-step
+  in **[docs/UNATTEND.md](docs/UNATTEND.md)** (includes a copy-pasteable
+  PowerShell helper for the base64 password encoding), then pass
+  `-UnattendFile <path>` to the deploy script in Step 4.
 
 > **Refreshing an existing USB?** If your USB is already set up and you
 > just want to drop a newer Windows ISO onto it, use the shortcut

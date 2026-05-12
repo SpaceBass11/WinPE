@@ -3,13 +3,16 @@
   ============================================================================
   Example unattend.xml — Windows 11 + WinPE deploy pipeline.
 
-  Usage:
+  Full workflow guide:  docs/UNATTEND.md   (start there if you've never
+                                            edited an unattend before)
+
+  Usage in brief:
     1. Copy this file (don't edit in place — keep the example clean).
     2. Replace placeholders:
-         - PLACEHOLDER_TIMEZONE
          - Account Names + DisplayNames if you want different ones than
            the LocalAdmin / TechL0 / TechL1 / TechL2 example below
          - BASE64_*_PASSWORD values (see "Password encoding" below)
+         - TimeZone — defaults to Central Standard Time
     3. Save to your USB IMAGES partition at e.g. I:\configs\unattend.xml.
     4. Run the deploy with:
          unified_winpe_deploy.ps1 -UnattendFile <path>
@@ -17,7 +20,7 @@
 
   What this template does:
     - Sets US English locale (change in the international-core component)
-    - Sets a TimeZone (placeholder)
+    - Sets a TimeZone (defaults to Central Standard Time; change if needed)
     - Skips the most annoying OOBE pages (EULA, OEM reg, online account,
       wireless setup, privacy settings)
     - Creates four local accounts: one Administrator + three standard
@@ -66,8 +69,9 @@
       <!-- "WIN-*" = Windows generates a random 6-char suffix. Replace with
            a fixed hostname if you image one machine at a time. -->
       <ComputerName>WIN-*</ComputerName>
-      <!-- TimeZone names: run `tzutil /l` on any Windows box to list. -->
-      <TimeZone>PLACEHOLDER_TIMEZONE</TimeZone>
+      <!-- Change this if you need a non-Central timezone. Run
+           `tzutil /l` on any Windows box to list valid names. -->
+      <TimeZone>Central Standard Time</TimeZone>
     </component>
   </settings>
 
