@@ -25,7 +25,7 @@ regression. You don't need to run them manually — but understanding
 what they cover helps interpret a red build.
 
 **Phase 1A — Doc consistency:**
-1. Version consistency (script version appears in CHANGELOG, CLAUDE.md, README.md, KNOWN_ISSUES.md)
+1. Version consistency (script version appears in CHANGELOG, CLAUDE.md, README.md, TROUBLESHOOTING.md)
 2. Cross-doc script coverage (all three scripts listed in every overview doc)
 3. No stray `E:\images` references
 4. Volume labels are `IMAGES` / `WinPE` / `Windows` only
@@ -83,32 +83,20 @@ deploy script header, compare its bullets against the prose section
 that describes the same flow. If the prose lists a step the diagram
 doesn't, fix the diagram.
 
-### C. Release coverage in KNOWN_ISSUES.md
+### C. Doc staleness
 
-Every release that adds a feature must have a corresponding entry under
-"Recently Fixed" in `docs/KNOWN_ISSUES.md`:
-
-```bash
-grep '^## \[' CHANGELOG.md | grep -oP '\d+\.\d+\.\d+'         # releases
-grep -oP 'v\d+\.\d+\.\d+' docs/KNOWN_ISSUES.md | sort -u      # covered
-# Every CHANGELOG version should appear at least once in KNOWN_ISSUES.
-```
-
-Past miss: v4.6.0 added `-DriverPath` and `-UnattendFile` but
-`docs/KNOWN_ISSUES.md` had no v4.6.0 entries.
-
-### D. Doc staleness
-
-Any doc with a date header — `DEEP_REVIEW.md`, audit files, anything
-in `docs/` that opens with `(YYYY-MM-DD)` — is suspect once more than
-~3 months old or once two releases have shipped past it.
+Any doc with a date header — audit files, anything in `docs/` that
+opens with `(YYYY-MM-DD)` — is suspect once more than ~3 months old
+or once two releases have shipped past it. Time-stamped review
+artifacts (e.g. previous `DEEP_REVIEW.md`) belong under
+`.claude/reviews/`, not in user-facing `docs/`.
 
 ```bash
 grep -l '^# .*([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\})' docs/
 # For each, compare against current CHANGELOG and current scripts list.
 ```
 
-### E. Self-improvement
+### D. Self-improvement
 
 If you found an issue this release, ask:
 
@@ -122,6 +110,6 @@ Sanity-test new CI checks against a known-bad state before adding them.
 
 ## Log
 
-[`.claude/masterize-log.md`](../.claude/masterize-log.md) records past
-passes and meta-changes. Future entries should be per-release (one per
-tagged version), not per-session.
+[`masterize-log.md`](./masterize-log.md) (alongside this file) records
+past passes and meta-changes. Future entries should be per-release
+(one per tagged version), not per-session.

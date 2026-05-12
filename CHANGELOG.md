@@ -14,6 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a single prompt for the boot-rebuild question, and pre-flight checks
   that fail early if the ADK environment is missing.
 
+### Changed
+- Documentation restructured to cut maintenance burden:
+  - `docs/KNOWN_ISSUES.md` merged into `docs/TROUBLESHOOTING.md` as a
+    new "Known Caveats" section. "Recently Fixed" entries removed in
+    favor of `CHANGELOG.md` as the single source of truth for release
+    history.
+  - `docs/MASTERIZE.md` moved to `.claude/MASTERIZE.md` — it's internal
+    release process, not user-facing documentation.
+  - `docs/DEEP_REVIEW.md` archived to `.claude/reviews/` with a
+    date-prefixed filename. Point-in-time review artifacts no longer
+    live as permanent docs.
+  - `CLAUDE.md` adds a "Stable Files" list (boilerplate that AI
+    sessions should skip by default to save context).
+  - CI version + script-coverage checks updated to reflect the new
+    file layout (TROUBLESHOOTING dropped from those lists; it's not
+    an overview doc).
+
 ## [4.6.0] - 2026-05-11
 
 ### Added

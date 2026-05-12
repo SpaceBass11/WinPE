@@ -58,17 +58,34 @@ USB Drive Layout:
 | `unified_winpe_deploy.ps1` | Main deployment script - the core deliverable |
 | `scripts/build_boot_wim.ps1` | Reproducible WinPE boot.wim builder (components + reg tweaks + embed deploy script) |
 | `scripts/prepare_wim.ps1` | Companion WIM prep: ISO -> debloated/customized install.wim ready to deploy |
+| `scripts/refresh_usb.ps1` | Thin workflow wrapper: new ISO -> prep + (optional) boot.wim rebuild |
 | `scripts/validate_script.ps1` | Static analysis checks for the deploy script |
-| `tests/test_parse.ps1` | PowerShell syntax validation (deploy + builder + prep) |
+| `tests/test_parse.ps1` | PowerShell syntax validation (all four scripts) |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule excludes used locally and in CI |
 | `docs/USB_SETUP.md` | USB drive preparation guide |
 | `docs/SCRIPT_REFERENCE.md` | Full parameter and function reference |
 | `docs/ARCHITECTURE.md` | Design rationale, data flow, non-goals |
-| `docs/TROUBLESHOOTING.md` | Common issues and fixes |
-| `docs/KNOWN_ISSUES.md` | Active caveats and recent fixes |
+| `docs/TROUBLESHOOTING.md` | Common issues, fixes, and known caveats |
 | `docs/CCTK.md` | Dell CCTK pre-apply BIOS configuration |
 | `docs/SIGNING.md` | Enterprise code-signing for the deploy script |
-| `docs/MASTERIZE.md` | Multi-phase release-audit playbook (greps + read pass) |
+| `.claude/MASTERIZE.md` | Internal release-audit playbook (greps + read pass) |
+
+## Stable Files (Skip by Default)
+
+These exist for open-source repo hygiene and rarely change. **Don't read
+them during a session unless the user is specifically asking about
+contribution policy, license terms, or security disclosure.** Reading
+them just to "be thorough" wastes context window:
+
+- `CODE_OF_CONDUCT.md`
+- `CONTRIBUTING.md`
+- `SECURITY.md`
+- `LICENSE`
+- `.editorconfig`
+- `.gitattributes`
+- `.gitignore`
+
+If they ever need to change, the user will say so explicitly.
 
 ## Review & Validation Workflows
 
@@ -152,7 +169,9 @@ push (the `masterize` job in `.github/workflows/ci.yml`). Treat a red
 build as the signal — there's nothing to run manually most of the time.
 
 Once per release, before tagging, do the Phase 2 read pass described in
-[`docs/MASTERIZE.md`](docs/MASTERIZE.md). That's the part CI can't do.
+[`.claude/MASTERIZE.md`](.claude/MASTERIZE.md). That's the part CI can't
+do. (The playbook lives under `.claude/` because it's internal release
+process, not user-facing documentation.)
 
 **Do not run masterize per session.** Earlier iterations did and it
 burned tokens for little gain. If the user says "masterize," check

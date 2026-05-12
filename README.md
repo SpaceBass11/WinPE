@@ -228,7 +228,7 @@ The script creates a standard UEFI/GPT partition layout:
 - [BIOS Configuration (CCTK)](docs/CCTK.md) - Pre-apply BIOS setup for Dell fleets
 - [Code Signing](docs/SIGNING.md) - Signing the script for enterprise use
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
-- [Known Issues](docs/KNOWN_ISSUES.md) - Current limitations and recent fixes
+- [Known Issues](docs/TROUBLESHOOTING.md#known-caveats) - Intentional design choices and environmental constraints
 - [Contributing](CONTRIBUTING.md) - How to contribute
 - [Code of Conduct](CODE_OF_CONDUCT.md) - Contributor Covenant v2.1
 - [Changelog](CHANGELOG.md) - Version history

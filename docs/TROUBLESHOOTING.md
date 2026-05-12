@@ -280,3 +280,56 @@ select disk 0
 list partition
 detail disk
 ```
+
+## Known Caveats
+
+These are intentional design choices or environmental constraints, not
+bugs. For a list of what's recently changed, see
+[CHANGELOG.md](../CHANGELOG.md).
+
+### PowerShell runtime required for validation
+`tests/test_parse.ps1` and `scripts/validate_script.ps1` require `pwsh`
+on PATH. Run them from WinPE/Windows or a runner with PowerShell
+installed.
+
+### USB disks are excluded from target selection
+External USB SSDs/HDDs are filtered out of the target-disk list and the
+multi-disk wipe stage. This is safety-first behavior: it prevents
+wiping the deployment USB itself. There is no flag to override this.
+
+### Tiny images (&lt;100MB) are hidden in auto-discovery
+WIM/ESD files under 100MB are skipped during the scan to avoid
+accidentally selecting boot/system artifacts. Pass the file directly
+with `-WimFile` if you need to deploy something smaller.
+
+### build_boot_wim.ps1 assumes the default ADK install path
+The builder defaults to
+`C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit`.
+If ADK is installed elsewhere, pass `-AdkPath` with the correct root.
+
+### CCTK passwords sit in plaintext on the IMAGES partition
+Anyone with physical access to the USB can read setup/system passwords
+from `<IMAGES>\cctk\*.ini`. This is inherent to unattended WinPE flows
+— no cryptographic protection is possible without runtime input.
+Mitigation is physical USB security and rotating BIOS passwords
+post-deploy. See [CCTK.md](CCTK.md).
+
+### CCTK is not redistributable
+Dell's EULA for Command | Configure does not allow shipping `cctk.exe`
+or HAPI driver in this repo. The repo never ships CCTK; users supply
+their own via the builder's `-CctkSource` parameter. `.gitignore`
+blocks accidental commits (`cctk.exe`, `hapint*.inf/.sys`, `/vendor/`,
+`/cctk-source/`).
+
+### USB_SETUP.md uses /Compress:max + /CheckIntegrity /verify for captures
+The `Dism /Capture-Image` examples use `/Compress:max` and
+`/CheckIntegrity /verify`. `/verify` re-reads every file — capture is
+slower but catches bad source reads at capture time. ESD-style
+`/compress:recovery` is intentionally not used for master images
+because it doesn't support `/CheckIntegrity`.
+
+### Get-WmiObject is used instead of Get-CimInstance
+Intentional for WinPE/PowerShell 5.1 compatibility. `Get-CimInstance`
+relies on WSMan, which isn't always available in stripped WinPE
+images. Do not "modernize" these calls.
+

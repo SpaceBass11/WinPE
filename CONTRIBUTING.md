@@ -8,9 +8,9 @@ contributions are held to a slightly higher bar than the usual script repo.
 1. Read [CLAUDE.md](CLAUDE.md) — it documents the safety conventions,
    hard-coded drive letters, and WinPE compatibility constraints.
 2. Read [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — many "bug
-   reports" are already documented workarounds.
-3. Check [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — the issue might
-   already be known or intentional.
+   reports" are already documented workarounds. The "Known Caveats"
+   section at the bottom lists intentional behavior that may look like
+   a bug but isn't.
 
 ## Development Environment
 

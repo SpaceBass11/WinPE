@@ -100,13 +100,13 @@ jobs:
           ver=$(grep -oP "ScriptVersion\s*=\s*'\K[0-9.]+" unified_winpe_deploy.ps1 | head -1)
           echo "Script version: $ver"
           if [ -z "$ver" ]; then echo "FAIL: could not extract version"; fail=1; fi
-          for f in CHANGELOG.md CLAUDE.md README.md docs/KNOWN_ISSUES.md; do
+          for f in CHANGELOG.md CLAUDE.md README.md; do
             if grep -q "$ver" "$f"; then echo "OK: $f"; else echo "FAIL: $f missing $ver"; fail=1; fi
           done
 
           echo ""
           echo "=== 2. Cross-doc script coverage ==="
-          for f in README.md docs/ARCHITECTURE.md CLAUDE.md docs/KNOWN_ISSUES.md; do
+          for f in README.md docs/ARCHITECTURE.md CLAUDE.md; do
             for s in prepare_wim build_boot_wim unified_winpe_deploy; do
               if grep -q "$s" "$f"; then
                 echo "OK: $f mentions $s"
@@ -120,7 +120,7 @@ jobs:
           echo ""
           echo "=== 3. Stray E:\\images references ==="
           # Exclude MASTERIZE.md (it documents the pattern legitimately)
-          stray=$(grep -rn 'E:\\images\|E:/images' docs/ scripts/ unified_winpe_deploy.ps1 2>/dev/null | grep -v 'docs/MASTERIZE.md:' || true)
+          stray=$(grep -rn 'E:\\images\|E:/images' docs/ scripts/ unified_winpe_deploy.ps1 .claude/MASTERIZE.md 2>/dev/null | grep -v 'MASTERIZE.md:' || true)
           if [ -n "$stray" ]; then echo "FAIL:"; echo "$stray"; fail=1; else echo "OK"; fi
 
           echo ""
