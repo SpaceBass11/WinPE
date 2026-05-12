@@ -217,8 +217,8 @@ The script creates a standard UEFI/GPT partition layout:
 | `unified_winpe_deploy.ps1` | The deploy tool. Wipes target, applies WIM, configures UEFI boot. | Inside WinPE (booted from USB) |
 | `scripts/build_boot_wim.ps1` | Builds the WinPE `boot.wim` with the right components, the `NtfsEnableDirCaseSensitivity` reg tweak, and optionally embedded Dell CCTK. | Admin Windows workstation (ADK installed) |
 | `scripts/prepare_wim.ps1` | Takes a stock Windows ISO, debloats provisioned AppX with a whitelist, optionally disables Copilot, exports a clean WIM ready to deploy. | Admin Windows workstation |
-| `scripts/validate_script.ps1` | Static-analysis checks for the deploy script. Used by CI. | Any host with PowerShell |
-| `tests/test_parse.ps1` | Syntax validation for all three scripts above. Used by CI. | Any host with PowerShell |
+| `scripts/refresh_usb.ps1` | Thin workflow wrapper: new ISO -> prep + (optional) boot.wim rebuild. | Admin Windows workstation |
+| `tests/test_parse.ps1` | Syntax validation for all scripts above. Used by CI. | Any host with PowerShell |
 
 ## Documentation
 
@@ -249,11 +249,12 @@ opening one, please:
 
 1. Read the safety conventions in [CLAUDE.md](CLAUDE.md) — in particular,
    never weaken the typed-confirmation chain.
-2. Run the local validators:
+2. Run the local syntax validator:
    ```powershell
    pwsh -NoProfile -File ./tests/test_parse.ps1
-   pwsh -NoProfile -File ./scripts/validate_script.ps1
    ```
+   CI runs PSScriptAnalyzer + the masterize doc / safety greps on push;
+   no need to replicate those locally.
 3. Describe manual test coverage in the PR template — CI only verifies
    syntax and static analysis, not real WinPE behavior.
 

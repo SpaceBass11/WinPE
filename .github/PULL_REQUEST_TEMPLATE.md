@@ -33,8 +33,7 @@ or the diskpart / DISM / BCDBoot path, confirm the following:
 ## Test plan
 
 - [ ] `pwsh -NoProfile -File ./tests/test_parse.ps1` passes locally
-- [ ] `pwsh -NoProfile -File ./scripts/validate_script.ps1` passes locally
-- [ ] CI is green
+- [ ] CI is green (syntax, PSSA, lychee, actionlint, masterize)
 - [ ] Manually tested the affected code path in WinPE (describe below)
 
 ### Manual test notes

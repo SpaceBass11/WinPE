@@ -59,7 +59,6 @@ USB Drive Layout:
 | `scripts/build_boot_wim.ps1` | Reproducible WinPE boot.wim builder (components + reg tweaks + embed deploy script) |
 | `scripts/prepare_wim.ps1` | Companion WIM prep: ISO -> debloated/customized install.wim ready to deploy |
 | `scripts/refresh_usb.ps1` | Thin workflow wrapper: new ISO -> prep + (optional) boot.wim rebuild |
-| `scripts/validate_script.ps1` | Static analysis checks for the deploy script |
 | `tests/test_parse.ps1` | PowerShell syntax validation (all four scripts) |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule excludes used locally and in CI |
 | `docs/USB_SETUP.md` | USB drive preparation guide |
@@ -103,12 +102,13 @@ Use `/review` to run a comprehensive check of the deployment script covering:
 
 ### Running Checks
 ```bash
-# Syntax validation only
+# Syntax validation
 pwsh -NoProfile -Command "& ./tests/test_parse.ps1"
-
-# Full static analysis
-pwsh -NoProfile -Command "& ./scripts/validate_script.ps1"
 ```
+
+The deeper safety/diskpart/BCDBoot greps that used to live in
+`validate_script.ps1` are now in the masterize CI job (Phase 1B,
+checks 8-19). They run on every push — no local replica needed.
 
 ## Code Conventions
 

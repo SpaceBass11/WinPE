@@ -31,6 +31,25 @@ tagged GitHub releases are published.
   - CI version + script-coverage checks updated to reflect the new
     file layout (TROUBLESHOOTING dropped from those lists; it's not
     an overview doc).
+- `scripts/validate_script.ps1` merged into the masterize CI job and
+  removed. Its unique checks (diskpart GPT layout, drive letters,
+  BCDBoot UEFI configuration, exit-code chain, safety confirmation
+  strings) are now Phase 1B checks 15-19. The dedicated
+  `static-analysis` CI job is removed; the same coverage runs on
+  Ubuntu in masterize.
+
+### Removed
+- `.github/CODEOWNERS` — single-owner ceremony with no co-owners; the
+  list of "safety-critical files require review by @spacebass11" was
+  enforcing review by the only person who'd ever review it.
+- Tag-release infrastructure: `.github/workflows/release.yml`, the
+  CHANGELOG footer reference links, the SemVer claim, and the
+  CI/lychee scaffolding that supported them. No tagged GitHub
+  releases are planned.
+- Overlapping slash commands in `.claude/commands/`:
+  `audit-safety.md`, `check-syntax.md`, `improve.md`. The remaining
+  three (`review`, `deep-review`, `strip-dead-code`) cover the same
+  ground without redundancy.
 
 ## 4.6.0 - 2026-05-11
 
@@ -119,7 +138,6 @@ tagged GitHub releases are published.
   `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1),
   `CHANGELOG.md`, `.gitignore`, `.editorconfig`, `.gitattributes`.
 - GitHub community files: `.github/CODEOWNERS`,
-  `.github/dependabot.yml` (weekly GitHub Actions bumps),
   `.github/ISSUE_TEMPLATE/` (bug report, feature request, config),
   `.github/PULL_REQUEST_TEMPLATE.md` with a mandatory safety
   checklist for deployment-path changes.

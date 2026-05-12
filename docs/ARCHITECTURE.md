@@ -154,7 +154,7 @@ Fail loud and early:
 | `unified_winpe_deploy.ps1` | The deploy script. Runs inside WinPE. |
 | `scripts/prepare_wim.ps1` | WIM prep tool. ISO → debloated/customized install.wim (admin Windows workstation). |
 | `scripts/build_boot_wim.ps1` | Build-time WinPE builder. Runs on Windows with ADK. |
-| `scripts/validate_script.ps1` | Static analysis of deploy script. Runs in CI. |
+| `scripts/refresh_usb.ps1` | Workflow wrapper: new ISO → prep + (optional) boot rebuild. |
 | `tests/test_parse.ps1` | PowerShell syntax validation. Runs in CI. |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule config. Used locally and in CI. |
 | `docs/USB_SETUP.md` | User-facing: how to prepare the boot USB. |
