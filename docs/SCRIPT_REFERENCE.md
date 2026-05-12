@@ -392,6 +392,30 @@ cycle for a bad path.
 ### -DisableCopilot [switch]
 Apply the offline registry tweak that disables Windows Copilot via
 policy (`HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot\TurnOffWindowsCopilot=1`).
+Single key, narrow scope. Use `-DisableExtraBloat` instead for the
+broader set.
+
+### -DisableExtraBloat [switch]
+Superset of `-DisableCopilot`. Applies all of the above plus seven
+additional HKLM policy tweaks via the same offline-hive mechanism:
+
+| Tweak | Key |
+|---|---|
+| Disable Recall (24H2+) | `Policies\Microsoft\Windows\WindowsAI\DisableAIDataAnalysis = 1` |
+| Disable Widgets / News & Interests | `Policies\Microsoft\Dsh\AllowNewsAndInterests = 0` |
+| Disable Bing in Start search | `Policies\Microsoft\Windows\Windows Search\DisableWebSearch = 1` and `ConnectedSearchUseWeb = 0` |
+| Disable telemetry | `Policies\Microsoft\Windows\DataCollection\AllowTelemetry = 0` (Enterprise floors at 0; Pro/Home cap at 1 regardless) |
+| Disable consumer feature auto-installs | `Policies\Microsoft\Windows\CloudContent\DisableWindowsConsumerFeatures = 1` |
+| Hide Edge first-run experience | `Policies\Microsoft\Edge\HideFirstRunExperience = 1` |
+| Disable Teams Consumer Chat auto-install | `Microsoft\Windows\CurrentVersion\Communications\ConfigureChatAutoInstall = 0` |
+
+Also stages `scripts/first-login.ps1` into the image at
+`C:\Windows\Setup\Scripts\first-login.ps1` so that an `unattend.xml`
+`FirstLogonCommands` entry can call it at first sign-in to apply
+per-user (HKCU) tweaks (file extensions on, suggested apps off,
+classic right-click menu, OneDrive uninstall, etc). See
+[`configs/unattend.example.xml`](../configs/unattend.example.xml) for
+the template.
 
 ### -NoCleanup [switch]
 Skip the dismount-discard cleanup paths. Mainly for debugging stuck

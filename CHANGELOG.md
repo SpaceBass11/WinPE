@@ -9,6 +9,41 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Added
+- **`-DisableExtraBloat` parameter on `prepare_wim.ps1`** — superset of
+  `-DisableCopilot`. Applies seven additional HKLM policy tweaks via the
+  same offline-hive mechanism: disable Recall, Widgets / News & Interests,
+  Bing in Start search (2 keys), telemetry, consumer feature auto-installs,
+  Edge first-run nag, and Teams Consumer Chat auto-install. All policies
+  are applied in a single hive load/unload cycle.
+- **`scripts/first-login.ps1`** — companion script staged into the image
+  at `C:\Windows\Setup\Scripts\first-login.ps1` when `-DisableExtraBloat`
+  is used. Runs once at first user sign-in (called from an `unattend.xml`
+  `FirstLogonCommands` entry) to apply per-user HKCU tweaks: show file
+  extensions, compact Explorer, hide Widgets/Chat taskbar icons, search
+  box → icon only, suggested apps off, classic right-click menu, OneDrive
+  uninstall. Applies each tweak to **two** locations in one pass:
+    1. The currently logged-in user (HKCU live hive) — covers whoever
+       AutoLogon brought in, typically the maintenance admin.
+    2. The Default User hive (`C:\Users\Default\NTUSER.DAT`) — so every
+       future user (Level0 / Level1 / Level2 / etc) inherits the same
+       tweaks the first time they log in, without re-running the script.
+  Each tweak is idempotent and logs to
+  `C:\Windows\Setup\Scripts\first-login.log`.
+- **`configs/unattend.example.xml`** — template `unattend.xml` with
+  sensible defaults: skip OOBE pages (EULA, OEM reg, online-account,
+  wireless setup), set en-US locale + Central Standard Time, demonstrate
+  multi-account creation (one Administrator + three Users in a tiered
+  pattern, each with its own base64-encoded password placeholder),
+  one-shot `<AutoLogon>` block for truly unattended first boot, default
+  ComputerName, and a `FirstLogonCommands` entry that calls the staged
+  `first-login.ps1`.
+- **`docs/UNATTEND.md`** — companion walkthrough for editing the
+  template. Includes a copy-pasteable PowerShell helper for the base64
+  password encoding (`<plaintext> + 'Password'` → UTF-16LE → base64),
+  rules for the `<AutoLogon>` block, TimeZone reference, parse-check
+  step, and a troubleshooting section covering the four most common
+  failure modes (wrong encoding, AutoLogon mismatch, missing
+  FirstLogonCommands script, specialize-pass skipped).
 - `scripts/refresh_usb.ps1` — thin workflow wrapper for the recurring
   "new Windows media, refresh the USB" loop. Sequences `prepare_wim.ps1`
   and (optionally) `build_boot_wim.ps1`, with auto-derived output names,

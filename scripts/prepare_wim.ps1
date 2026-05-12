@@ -64,6 +64,26 @@
     Apply the offline registry tweak to disable Windows Copilot via policy
     (`HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot\TurnOffWindowsCopilot=1`).
 
+.PARAMETER DisableExtraBloat
+    Apply the broader fleet-friendly debloat policies in addition to the
+    Copilot tweak. All are offline-registry edits to HKLM\SOFTWARE\Policies
+    (or HKLM\SOFTWARE for one) and have no per-user component:
+
+      - Recall (24H2+)  — DisableAIDataAnalysis = 1
+      - Widgets / News  — AllowNewsAndInterests = 0
+      - Start-menu web search (Bing) — DisableWebSearch = 1 +
+                                       ConnectedSearchUseWeb = 0
+      - Telemetry — AllowTelemetry = 0 (Enterprise floors at 0; Pro/Home
+                    are capped at 1 = "Required" regardless of this value)
+      - Consumer feature auto-installs (Spotify/TikTok/etc) — off
+      - Edge first-run experience — hidden
+      - Teams Consumer Chat auto-install — off
+
+    If `scripts/first-login.ps1` exists in this toolkit, it is also
+    staged into the image at `C:\Windows\Setup\Scripts\first-login.ps1`
+    so an unattend.xml `FirstLogonCommands` entry can call it for the
+    per-user (HKCU) tweaks that can't be done from the offline hive.
+
 .PARAMETER NoCleanup
     Skip dismount-discard on the cleanup paths. Mainly for debugging stuck
     mounts. Default off.
@@ -127,6 +147,7 @@ param(
     [string]$WhitelistFile,
     [string]$DriverPath,
     [switch]$DisableCopilot,
+    [switch]$DisableExtraBloat,
     [switch]$NoCleanup
 )
 
@@ -283,8 +304,8 @@ try {
     }
     Write-Ok "Debloat complete: $kept kept, $removed removed"
 
-    if ($DisableCopilot) {
-        Write-Step "Applying Copilot disable registry tweak"
+    if ($DisableCopilot -or $DisableExtraBloat) {
+        Write-Step "Applying offline-registry policy tweaks"
         $softwareHive = Join-Path $mountDir 'Windows\System32\config\SOFTWARE'
         if (-not (Test-Path $softwareHive)) {
             throw "Offline SOFTWARE hive not found at $softwareHive"
@@ -293,16 +314,62 @@ try {
         & reg.exe load $hiveKey $softwareHive | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "reg load failed (exit $LASTEXITCODE)" }
         try {
-            $copilotKey = "$hiveKey\Policies\Microsoft\Windows\WindowsCopilot"
-            & reg.exe add $copilotKey /f | Out-Null
-            & reg.exe add $copilotKey /v TurnOffWindowsCopilot /t REG_DWORD /d 1 /f | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "reg add TurnOffWindowsCopilot failed (exit $LASTEXITCODE)" }
-            Write-Ok "Copilot disabled via policy"
+            # Each entry: <subkey under hiveKey>, <value name>, <DWORD>, <human label>
+            $tweaks = @()
+
+            if ($DisableCopilot -or $DisableExtraBloat) {
+                $tweaks += ,@('Policies\Microsoft\Windows\WindowsCopilot', 'TurnOffWindowsCopilot', 1, 'Copilot (policy)')
+            }
+
+            if ($DisableExtraBloat) {
+                # Recall (24H2+) — AI screenshot / recall feature
+                $tweaks += ,@('Policies\Microsoft\Windows\WindowsAI', 'DisableAIDataAnalysis', 1, 'Recall')
+                # Widgets / News & Interests on the taskbar
+                $tweaks += ,@('Policies\Microsoft\Dsh', 'AllowNewsAndInterests', 0, 'Widgets / News & Interests')
+                # Bing / web results in Start-menu search (two values both required)
+                $tweaks += ,@('Policies\Microsoft\Windows\Windows Search', 'DisableWebSearch',      1, 'Start-menu web search (DisableWebSearch)')
+                $tweaks += ,@('Policies\Microsoft\Windows\Windows Search', 'ConnectedSearchUseWeb', 0, 'Start-menu web search (ConnectedSearchUseWeb)')
+                # Telemetry — Enterprise floors at 0, Pro/Home cap at 1 (Required) regardless
+                $tweaks += ,@('Policies\Microsoft\Windows\DataCollection', 'AllowTelemetry', 0, 'Telemetry (Enterprise: off; Pro/Home: capped at Required)')
+                # Consumer features — stops the "Get Microsoft 365 / Spotify / TikTok" auto-installs
+                $tweaks += ,@('Policies\Microsoft\Windows\CloudContent', 'DisableWindowsConsumerFeatures', 1, 'Consumer feature auto-installs')
+                # Edge first-run experience nag
+                $tweaks += ,@('Policies\Microsoft\Edge', 'HideFirstRunExperience', 1, 'Edge first-run experience')
+                # Teams Consumer Chat auto-install
+                $tweaks += ,@('Microsoft\Windows\CurrentVersion\Communications', 'ConfigureChatAutoInstall', 0, 'Teams Consumer Chat auto-install')
+            }
+
+            foreach ($t in $tweaks) {
+                $subkey, $name, $value, $label = $t
+                $full = "$hiveKey\$subkey"
+                & reg.exe add $full /f | Out-Null
+                & reg.exe add $full /v $name /t REG_DWORD /d $value /f | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw "reg add $name failed (exit $LASTEXITCODE)" }
+                Write-Ok "  $label"
+            }
         } finally {
             [gc]::Collect()
             [gc]::WaitForPendingFinalizers()
             & reg.exe unload $hiveKey | Out-Null
             if ($LASTEXITCODE -ne 0) { Write-Warn "reg unload returned $LASTEXITCODE - may need a reboot" }
+        }
+    }
+
+    # Stage first-login.ps1 into the image if -DisableExtraBloat is set and
+    # the toolkit ships one. Lands at C:\Windows\Setup\Scripts\ — a standard
+    # Microsoft path. An unattend.xml `FirstLogonCommands` entry can then
+    # call it to apply per-user (HKCU) tweaks at first sign-in.
+    if ($DisableExtraBloat) {
+        $firstLoginSrc = Join-Path $PSScriptRoot 'first-login.ps1'
+        if (Test-Path $firstLoginSrc -PathType Leaf) {
+            $setupScriptsDir = Join-Path $mountDir 'Windows\Setup\Scripts'
+            if (-not (Test-Path $setupScriptsDir)) {
+                New-Item -ItemType Directory -Path $setupScriptsDir -Force | Out-Null
+            }
+            Copy-Item -Path $firstLoginSrc -Destination (Join-Path $setupScriptsDir 'first-login.ps1') -Force
+            Write-Ok "Staged first-login.ps1 -> C:\Windows\Setup\Scripts\first-login.ps1"
+        } else {
+            Write-Warn "scripts/first-login.ps1 not found — skipping per-user tweaks staging"
         }
     }
 

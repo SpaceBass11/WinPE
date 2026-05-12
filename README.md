@@ -69,15 +69,29 @@ produces a debloated, customized `.wim` ready to deploy:
 .\scripts\prepare_wim.ps1 `
     -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
     -OutputWim 'I:\images\Win11_Enterprise.wim' `
-    -DisableCopilot
+    -DisableExtraBloat
 ```
 
 Skip this step if you already have a `.wim`/`.esd` — just copy it to
 `I:\images\` directly.
 
+What the flags do:
+- **`-DisableCopilot`** — single policy tweak: turn off Windows Copilot.
+- **`-DisableExtraBloat`** — superset of `-DisableCopilot`. Adds 7 more
+  HKLM policy tweaks (disables Recall, Widgets, Bing-in-Start, telemetry,
+  consumer-feature auto-installs, Edge first-run nag, Teams Consumer
+  Chat) and stages `first-login.ps1` into the image for per-user (HKCU)
+  tweaks at first sign-in. The first-login script runs only if your
+  `unattend.xml` references it — see [`configs/unattend.example.xml`](configs/unattend.example.xml).
+
 Optional extras:
 - **Pre-bake drivers** (chipset, NVMe, NIC): add `-DriverPath 'C:\Drivers\Model'`
 - **Custom app whitelist**: add `-WhitelistFile 'C:\configs\whitelist.txt'`
+- **Unattend OOBE skip + autologon + multiple accounts**: copy
+  `configs/unattend.example.xml` to your USB, follow the step-by-step
+  in **[docs/UNATTEND.md](docs/UNATTEND.md)** (includes a copy-pasteable
+  PowerShell helper for the base64 password encoding), then pass
+  `-UnattendFile <path>` to the deploy script in Step 4.
 
 > **Refreshing an existing USB?** If your USB is already set up and you
 > just want to drop a newer Windows ISO onto it, use the shortcut

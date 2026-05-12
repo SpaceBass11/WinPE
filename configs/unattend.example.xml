@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ============================================================================
+  Example unattend.xml — Windows 11 + WinPE deploy pipeline.
+
+  Full workflow guide:  docs/UNATTEND.md   (start there if you've never
+                                            edited an unattend before)
+
+  Usage in brief:
+    1. Copy this file (don't edit in place — keep the example clean).
+    2. Replace placeholders:
+         - Account Names + DisplayNames if you want different ones than
+           the LocalAdmin / TechL0 / TechL1 / TechL2 example below
+         - BASE64_*_PASSWORD values (see "Password encoding" below)
+         - TimeZone — defaults to Central Standard Time
+    3. Save to your USB IMAGES partition at e.g. I:\configs\unattend.xml.
+    4. Run the deploy with:
+         unified_winpe_deploy.ps1 -UnattendFile <path>
+       The script copies the file to C:\Windows\Panther\unattend.xml.
+
+  What this template does:
+    - Sets US English locale (change in the international-core component)
+    - Sets a TimeZone (defaults to Central Standard Time; change if needed)
+    - Skips the most annoying OOBE pages (EULA, OEM reg, online account,
+      wireless setup, privacy settings)
+    - Creates four local accounts: one Administrator + three standard
+      Users (a common tiered-tech pattern). Add/remove <LocalAccount>
+      blocks as needed.
+    - Configures AutoLogon (one-shot) for the admin account so the first
+      boot completes truly unattended and FirstLogonCommands run.
+    - Sets a default ComputerName ("WIN-*" = Windows generates a random
+      suffix; replace with a real name if you need a known hostname)
+    - Calls scripts\first-login.ps1 to apply per-user HKCU debloat tweaks
+
+  Password encoding:
+    Each <Password><Value> field expects a base64 of the UTF-16LE byte
+    sequence of: <plaintext password> + "Password".
+
+    In PowerShell:
+      $p = 'YourPasswordHere' + 'Password'
+      [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($p))
+
+    Compute one of these per account and paste into the matching
+    BASE64_*_PASSWORD slot. The AutoLogon block re-uses the same encoded
+    value as its target account — they must match exactly.
+
+    Set <PlainText>false</PlainText> if encoded, <PlainText>true</PlainText>
+    if you accept the security trade-off and want to inline the plaintext.
+
+  Adjusting for x86 / ARM64:
+    Replace processorArchitecture="amd64" with "x86" or "arm64" everywhere.
+
+  Microsoft's reference:
+    https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/
+  ============================================================================
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+
+  <!-- ====================================================================
+       specialize pass — runs after Sysprep, before first user login
+       ==================================================================== -->
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <!-- "WIN-*" = Windows generates a random 6-char suffix. Replace with
+           a fixed hostname if you image one machine at a time. -->
+      <ComputerName>WIN-*</ComputerName>
+      <!-- Change this if you need a non-Central timezone. Run
+           `tzutil /l` on any Windows box to list valid names. -->
+      <TimeZone>Central Standard Time</TimeZone>
+    </component>
+  </settings>
+
+  <!-- ====================================================================
+       oobeSystem pass — runs OOBE on first boot
+       ==================================================================== -->
+  <settings pass="oobeSystem">
+
+    <component name="Microsoft-Windows-International-Core"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS">
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <NetworkLocation>Work</NetworkLocation>
+        <ProtectYourPC>3</ProtectYourPC>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+
+      <!-- Local accounts. Repeat the <LocalAccount> block for as many
+           accounts as you need. Common pattern is tiered:
+             - One Administrators member (the maintenance account)
+             - Several Users members (tier-0/1/2 tech / end-user accounts)
+           Each password is base64 of UTF-16LE bytes of
+           (plaintext_password + "Password"). PowerShell one-liner:
+
+             $p = 'MyP@ssw0rd!' + 'Password'
+             [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($p))
+
+           Each account's password is computed independently — the suffix
+           is always literally the string "Password" for LocalAccount and
+           AutoLogon (it's "AdministratorPassword" only for the built-in
+           Administrator account, which we are NOT using here). -->
+      <UserAccounts>
+        <LocalAccounts>
+
+          <LocalAccount wcm:action="add">
+            <Name>LocalAdmin</Name>
+            <Group>Administrators</Group>
+            <DisplayName>Local Admin</DisplayName>
+            <Password>
+              <Value>BASE64_LOCALADMIN_PASSWORD</Value>
+              <PlainText>false</PlainText>
+            </Password>
+          </LocalAccount>
+
+          <LocalAccount wcm:action="add">
+            <Name>TechL0</Name>
+            <Group>Users</Group>
+            <DisplayName>Tech Level 0</DisplayName>
+            <Password>
+              <Value>BASE64_TECHL0_PASSWORD</Value>
+              <PlainText>false</PlainText>
+            </Password>
+          </LocalAccount>
+
+          <LocalAccount wcm:action="add">
+            <Name>TechL1</Name>
+            <Group>Users</Group>
+            <DisplayName>Tech Level 1</DisplayName>
+            <Password>
+              <Value>BASE64_TECHL1_PASSWORD</Value>
+              <PlainText>false</PlainText>
+            </Password>
+          </LocalAccount>
+
+          <LocalAccount wcm:action="add">
+            <Name>TechL2</Name>
+            <Group>Users</Group>
+            <DisplayName>Tech Level 2</DisplayName>
+            <Password>
+              <Value>BASE64_TECHL2_PASSWORD</Value>
+              <PlainText>false</PlainText>
+            </Password>
+          </LocalAccount>
+
+        </LocalAccounts>
+      </UserAccounts>
+
+      <!-- AutoLogon: required for a TRULY unattended first boot. Without
+           this block, OOBE creates the accounts above and then sits at
+           the lock screen waiting for someone to type a password.
+           LogonCount=1 means it auto-logs once (so FirstLogonCommands
+           can run), then reverts to normal lock-screen prompts.
+
+           The username here must match a Name above (typically the
+           Administrators member). The password is encoded the same
+           way as the LocalAccount password — must match exactly. -->
+      <AutoLogon>
+        <Username>LocalAdmin</Username>
+        <Password>
+          <Value>BASE64_LOCALADMIN_PASSWORD</Value>
+          <PlainText>false</PlainText>
+        </Password>
+        <Enabled>true</Enabled>
+        <LogonCount>1</LogonCount>
+      </AutoLogon>
+
+      <!-- Apply per-user debloat tweaks on first sign-in. The script is
+           staged by `prepare_wim.ps1 -DisableExtraBloat`. If you didn't
+           use that flag, comment this block out or the SynchronousCommand
+           will fail (non-blocking, but noisy in setupact.log).
+
+           Runs as whoever AutoLogon logs in — applies HKCU tweaks to
+           that account's profile. To make non-admin accounts (TechL0/1/2)
+           inherit the same tweaks, the script would need to also edit
+           the Default User hive (C:\Users\Default\NTUSER.DAT); ask if
+           you want that added. -->
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>Apply per-user (HKCU) debloat tweaks</Description>
+          <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\first-login.ps1</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+
+    </component>
+  </settings>
+</unattend>
