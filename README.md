@@ -131,6 +131,8 @@ USB Drive (32GB+ recommended)
     │   ├── Win11_Pro_24H2.wim
     │   ├── Win10_Enterprise_LTSC.wim
     │   └── (any .wim or .esd files)
+    ├── configs/                    (optional, unattend.xml answer files)
+    │   └── unattend.xml            (used with -UnattendFile)
     └── cctk/                       (optional, Dell BIOS configs)
         └── default.ini             (and/or per-tag, per-model overrides)
 ```

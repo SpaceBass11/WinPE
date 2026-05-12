@@ -28,6 +28,41 @@ Format for new entries:
 
 ---
 
+## 2026-05-12 — CI Handoff (commit TBD on claude/masterize-improvements)
+
+**Process change. This log entry is meta, not a pass.**
+
+All Phase 1 checks (both 1A doc-consistency and 1B code-safety) have
+been ported into the `masterize` job in `.github/workflows/ci.yml`.
+They run on every push and PR. There is no longer any reason to run
+them manually in a Claude session.
+
+`docs/MASTERIZE.md` was rewritten to be a per-release Phase 2 reference
+(read-driven checks only) plus a description of what CI covers for
+context. CLAUDE.md was trimmed to a 10-line summary with explicit
+guidance: **do not run masterize per session**.
+
+**Future cadence:**
+- CI red on a PR → fix it, re-push.
+- Tagging a release → do the Phase 2 read pass in `docs/MASTERIZE.md`,
+  update CHANGELOG, tag, append one log entry here per release.
+- Anything else → don't run masterize.
+
+**Why this matters:**
+The previous trajectory was elaborating the process per session, with
+each pass adding checks/logs that the next session had to read. The
+marginal value per session was decreasing while the per-session token
+cost was compounding. CI runs at zero session cost.
+
+**Sanity-tested locally before pushing:** all 15 CI checks pass on
+current code. Found two false-positive bugs in the design pass:
+check 3 was matching `MASTERIZE.md`'s own documentation of the bad
+pattern (fixed by excluding the file); check 7's `-A 12` window
+didn't reach `cctk/` after `configs/` was added (fixed to `-A 16`).
+Both would have been silent passes in a session; CI catches them.
+
+---
+
 ## 2026-05-12 — Process Restructure (commit c4848da on claude/masterize-improvements)
 
 Not a normal pass — this entry records a structural change to the

@@ -147,24 +147,16 @@ root cause behind the v4.3.x diskpart/DISM troubleshooting pass.
 
 ## Masterize Process
 
-A multi-phase audit run before significant releases or whenever the
-user says "masterize". The full playbook is in [`docs/MASTERIZE.md`](docs/MASTERIZE.md).
+Mechanical doc-consistency and code-safety checks run in CI on every
+push (the `masterize` job in `.github/workflows/ci.yml`). Treat a red
+build as the signal — there's nothing to run manually most of the time.
 
-**Quick reference:**
-- **Phase 1A** — grep checks on documentation (version consistency,
-  cross-doc coverage, diagram completeness).
-- **Phase 1B** — grep checks on `unified_winpe_deploy.ps1` for safety-
-  invariant regressions (`-Force` anti-bypass, mountvol guard, command
-  flags, positional ordering of CCTK / verify / unattend / bcdboot).
-- **Phase 2** — read-driven semantic checks (cross-reference accuracy,
-  diagram completeness, release coverage, doc staleness).
+Once per release, before tagging, do the Phase 2 read pass described in
+[`docs/MASTERIZE.md`](docs/MASTERIZE.md). That's the part CI can't do.
 
-**Before starting:** read [`.claude/masterize-log.md`](.claude/masterize-log.md)
-for prior catches and added checks.
-
-**After finishing:** append a new log entry. If a later phase caught
-something an earlier one missed, add a new check to
-`docs/MASTERIZE.md` (and sanity-test it against a known-bad state).
+**Do not run masterize per session.** Earlier iterations did and it
+burned tokens for little gain. If the user says "masterize," check
+whether they mean "run Phase 2 for a release" or "look at the doc."
 
 ---
 
