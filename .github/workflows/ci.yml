@@ -25,16 +25,6 @@ jobs:
         shell: pwsh
         run: ./tests/test_parse.ps1
 
-  static-analysis:
-    name: Static analysis
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run validate_script
-        shell: pwsh
-        run: ./scripts/validate_script.ps1
-
   pssa:
     name: PSScriptAnalyzer
     runs-on: windows-latest
@@ -241,5 +231,48 @@ jobs:
             echo "FAIL: wrong order, got verify=$verify panther=$panther bcdboot=$bcdboot"
             fail=1
           fi
+
+          echo ""
+          echo "=== 15. Diskpart GPT layout (EFI 300MB + MSR 16MB + NTFS Windows) ==="
+          ok=1
+          grep -q 'create partition efi size=300' $script || { echo "  missing: 'create partition efi size=300'"; ok=0; }
+          grep -q 'create partition msr size=16'  $script || { echo "  missing: 'create partition msr size=16'";  ok=0; }
+          grep -q 'format quick fs=ntfs label=Windows' $script || { echo "  missing: 'format quick fs=ntfs label=Windows'"; ok=0; }
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: diskpart layout drifted"; fail=1; fi
+
+          echo ""
+          echo "=== 16. Diskpart drive letters (S: for EFI, C: for primary) ==="
+          if grep -q 'assign letter S' $script && grep -q 'assign letter C' $script; then
+            echo "OK"
+          else
+            echo "FAIL: missing 'assign letter S' or 'assign letter C'"
+            fail=1
+          fi
+
+          echo ""
+          echo "=== 17. BCDBoot UEFI configuration (bcdboot ... /s S: ... /f UEFI) ==="
+          if grep -q 'bcdboot' $script && grep -qE '/s[[:space:]]+S:' $script && grep -qE '/f[[:space:]]+UEFI' $script; then
+            echo "OK"
+          else
+            echo "FAIL: bcdboot not configured for UEFI / S: target"
+            fail=1
+          fi
+
+          echo ""
+          echo "=== 18. Exit codes checked after destructive steps ==="
+          ok=1
+          for fn in 'Invoke-Diskpart' 'Apply-WindowsImage' 'Set-BootConfiguration'; do
+            grep -q "$fn" $script || { echo "  missing function: $fn"; ok=0; }
+          done
+          grep -q 'ExitCode' $script || { echo "  no ExitCode handling found anywhere"; ok=0; }
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: exit-code chain broken"; fail=1; fi
+
+          echo ""
+          echo "=== 19. Safety confirmation strings present (DELETE ALL DATA, DESTROY SYSTEM) ==="
+          ok=1
+          for s in 'DELETE ALL DATA' 'DESTROY SYSTEM'; do
+            grep -qF "$s" $script || { echo "  missing: '$s'"; ok=0; }
+          done
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: confirmation strings drifted"; fail=1; fi
 
           exit $fail

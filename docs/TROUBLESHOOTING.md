@@ -288,9 +288,8 @@ bugs. For a list of what's recently changed, see
 [CHANGELOG.md](../CHANGELOG.md).
 
 ### PowerShell runtime required for validation
-`tests/test_parse.ps1` and `scripts/validate_script.ps1` require `pwsh`
-on PATH. Run them from WinPE/Windows or a runner with PowerShell
-installed.
+`tests/test_parse.ps1` requires `pwsh` on PATH. Run it from
+WinPE/Windows or any runner with PowerShell installed.
 
 ### USB disks are excluded from target selection
 External USB SSDs/HDDs are filtered out of the target-disk list and the

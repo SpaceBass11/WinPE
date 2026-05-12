@@ -21,9 +21,6 @@ syntax and static analysis, any platform with PowerShell 7 works.
 # Syntax parse
 pwsh -NoProfile -File ./tests/test_parse.ps1
 
-# Static analysis
-pwsh -NoProfile -File ./scripts/validate_script.ps1
-
 # PSScriptAnalyzer (matches CI)
 Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
 Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
