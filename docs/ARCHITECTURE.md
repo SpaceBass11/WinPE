@@ -159,11 +159,11 @@ Fail loud and early:
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule config. Used locally and in CI. |
 | `docs/USB_SETUP.md` | User-facing: how to prepare the boot USB. |
 | `docs/SCRIPT_REFERENCE.md` | User-facing: parameters and functions. |
-| `docs/TROUBLESHOOTING.md` | User-facing: known failure modes and fixes. |
-| `docs/KNOWN_ISSUES.md` | Maintainer-facing: active caveats + recent fixes. |
+| `docs/TROUBLESHOOTING.md` | User-facing: failure modes, fixes, and known caveats. |
 | `docs/ARCHITECTURE.md` | This file. Design rationale. |
 | `docs/CCTK.md` | User-facing: Dell CCTK pre-apply BIOS configuration. |
 | `docs/SIGNING.md` | User-facing: enterprise code-signing of the deploy script. |
+| `.claude/MASTERIZE.md` | Internal: release-audit playbook (per-release, not per-session). |
 | `CLAUDE.md` | Contributor-facing: project conventions and safety rules. |
 | `CHANGELOG.md` | Release history (keepachangelog). |
 

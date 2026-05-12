@@ -438,3 +438,79 @@ mounts. Off by default.
     -DriverPath 'C:\Drivers\Dell_OptiPlex7090' `
     -DisableCopilot
 ```
+
+---
+
+# refresh_usb.ps1
+
+Thin wrapper for the recurring "Microsoft dropped new media, get it on
+my USB" workflow. Sequences `prepare_wim.ps1` and (optionally)
+`build_boot_wim.ps1`, with auto-derived output names and a prompt for
+the boot-rebuild step that's easy to forget. Adds no behavior — just
+defaults and ordering.
+
+## Parameters
+
+### -SourceIso [string] (Required)
+Path to the Windows ISO.
+
+### -OutputName [string]
+Basename for the resulting WIM (no extension, no path). Defaults to
+the ISO filename minus its extension.
+
+### -ImagesPath [string]
+Directory where the resulting WIM is placed. Default: `I:\images`.
+
+### -DriverPath [string]
+Passthrough to `prepare_wim.ps1 -DriverPath`. Optional folder of
+`.inf` driver packages to pre-bake into the image.
+
+### -WhitelistFile [string]
+Passthrough to `prepare_wim.ps1 -WhitelistFile`. Custom AppX
+whitelist text file.
+
+### -DisableCopilot [switch]
+Passthrough to `prepare_wim.ps1 -DisableCopilot`.
+
+### -RebuildBootWim [Yes|No|Ask]
+`Yes` to also rebuild WinPE boot.wim. `No` to skip. `Ask` (default)
+prompts interactively. Most refreshes are image-only — you don't
+need to rebuild WinPE every time Microsoft drops new install media.
+
+### -BootUsbDrive [string]
+Used only with `-RebuildBootWim Yes`. Default: `P:`.
+
+### -CctkSource [string]
+Used only with `-RebuildBootWim Yes`. Optional path to Dell CCTK to
+embed in boot.wim. See [docs/CCTK.md](CCTK.md).
+
+## Examples
+
+```powershell
+# Simplest case: new ISO, refresh just the image
+.\scripts\refresh_usb.ps1 -SourceIso 'D:\iso\Win11_24H2.iso'
+
+# Drivers + Copilot disabled
+.\scripts\refresh_usb.ps1 `
+    -SourceIso 'D:\iso\Win11_24H2.iso' `
+    -DriverPath 'C:\Drivers\Dell' `
+    -DisableCopilot
+
+# Refresh both image and WinPE boot.wim (run from ADK env)
+.\scripts\refresh_usb.ps1 `
+    -SourceIso 'D:\iso\Win11_24H2.iso' `
+    -RebuildBootWim Yes
+```
+
+## Pre-flight Checks
+
+Fails early on:
+- ISO path doesn't exist
+- `ImagesPath` doesn't exist (USB not mounted as expected)
+- `-RebuildBootWim Yes` but `copype` not on PATH (must run from ADK
+  "Deployment and Imaging Tools Environment" as admin)
+
+The pre-flight for `copype` runs before `prepare_wim.ps1` does, so
+you don't sit through a 20-minute image prep only to discover the
+boot rebuild can't proceed.
+

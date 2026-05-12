@@ -79,6 +79,16 @@ Optional extras:
 - **Pre-bake drivers** (chipset, NVMe, NIC): add `-DriverPath 'C:\Drivers\Model'`
 - **Custom app whitelist**: add `-WhitelistFile 'C:\configs\whitelist.txt'`
 
+> **Refreshing an existing USB?** If your USB is already set up and you
+> just want to drop a newer Windows ISO onto it, use the shortcut
+> wrapper instead. It auto-derives the output WIM name from the ISO
+> filename and prompts whether to also rebuild WinPE boot.wim:
+> ```powershell
+> .\scripts\refresh_usb.ps1 -SourceIso 'D:\iso\Win11_24H2.iso'
+> ```
+> See [docs/SCRIPT_REFERENCE.md](docs/SCRIPT_REFERENCE.md#refresh_usbps1)
+> for all parameters.
+
 ### Step 3 — Build the WinPE boot image
 
 Open **Deployment and Imaging Tools Environment** as Administrator (from the
@@ -131,6 +141,8 @@ USB Drive (32GB+ recommended)
     │   ├── Win11_Pro_24H2.wim
     │   ├── Win10_Enterprise_LTSC.wim
     │   └── (any .wim or .esd files)
+    ├── configs/                    (optional, unattend.xml answer files)
+    │   └── unattend.xml            (used with -UnattendFile)
     └── cctk/                       (optional, Dell BIOS configs)
         └── default.ini             (and/or per-tag, per-model overrides)
 ```
@@ -216,7 +228,7 @@ The script creates a standard UEFI/GPT partition layout:
 - [BIOS Configuration (CCTK)](docs/CCTK.md) - Pre-apply BIOS setup for Dell fleets
 - [Code Signing](docs/SIGNING.md) - Signing the script for enterprise use
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
-- [Known Issues](docs/KNOWN_ISSUES.md) - Current limitations and recent fixes
+- [Known Issues](docs/TROUBLESHOOTING.md#known-caveats) - Intentional design choices and environmental constraints
 - [Contributing](CONTRIBUTING.md) - How to contribute
 - [Code of Conduct](CODE_OF_CONDUCT.md) - Contributor Covenant v2.1
 - [Changelog](CHANGELOG.md) - Version history

@@ -28,6 +28,87 @@ Format for new entries:
 
 ---
 
+## 2026-05-12 — CI Handoff (commit 2b4c2d5 on claude/masterize-improvements)
+
+**Process change. This log entry is meta, not a pass.**
+
+All Phase 1 checks (both 1A doc-consistency and 1B code-safety) have
+been ported into the `masterize` job in `.github/workflows/ci.yml`.
+They run on every push and PR. There is no longer any reason to run
+them manually in a Claude session.
+
+`docs/MASTERIZE.md` was rewritten to be a per-release Phase 2 reference
+(read-driven checks only) plus a description of what CI covers for
+context. CLAUDE.md was trimmed to a 10-line summary with explicit
+guidance: **do not run masterize per session**.
+
+**Future cadence:**
+- CI red on a PR → fix it, re-push.
+- Tagging a release → do the Phase 2 read pass in `docs/MASTERIZE.md`,
+  update CHANGELOG, tag, append one log entry here per release.
+- Anything else → don't run masterize.
+
+**Why this matters:**
+The previous trajectory was elaborating the process per session, with
+each pass adding checks/logs that the next session had to read. The
+marginal value per session was decreasing while the per-session token
+cost was compounding. CI runs at zero session cost.
+
+**Sanity-tested locally before pushing:** all 15 CI checks pass on
+current code. Found two false-positive bugs in the design pass:
+check 3 was matching `MASTERIZE.md`'s own documentation of the bad
+pattern (fixed by excluding the file); check 7's `-A 12` window
+didn't reach `cctk/` after `configs/` was added (fixed to `-A 16`).
+Both would have been silent passes in a session; CI catches them.
+
+---
+
+## 2026-05-12 — Process Restructure (commit c4848da on claude/masterize-improvements)
+
+Not a normal pass — this entry records a structural change to the
+process itself, prompted by user request to critique and improve it.
+
+**What changed:**
+- Moved the masterize playbook out of `CLAUDE.md` into
+  `docs/MASTERIZE.md`. CLAUDE.md kept a 15-line summary + pointer.
+  CLAUDE.md dropped from 465 lines to ~200, reducing the per-session
+  context tax.
+- Added **Phase 1B: Code Safety Invariants** — 7 grep/positional checks
+  that run against `unified_winpe_deploy.ps1` to verify safety
+  properties haven't regressed:
+  - 12. `-Force` anti-bypass guard near `DESTROY SYSTEM`
+  - 13. `mountvol /d` guarded by `$env:SystemDrive`
+  - 14. No `Stop-Computer` (must use `shutdown.exe`)
+  - 15. All `dism /Get-WimInfo` invocations use `/English`
+  - 16. `dism /apply-image` uses `/CheckIntegrity`
+  - 17. CCTK runs before disk selection (positional)
+  - 18. Unattend copy ordered between System32 verify and bcdboot
+- Each Phase 1B check emits explicit `OK` / `FAIL` so a session can
+  tell at a glance whether it passed. Phase 1A checks still print
+  raw output — migrate as opportunity allows.
+- Added preamble note: **sanity-test new checks against a known-bad
+  state before adding them.** Prompted by Pass 4's discovery that
+  check 5 had been silently returning empty for 3 passes.
+- Folded Pass 4's check-5 grep fix and check-12 (README USB layout)
+  into the new playbook so this branch is a superset.
+
+**Why:**
+Previous critique flagged that masterize was overweighted toward docs
+and barely touched the script itself. The script is the actual
+product — destructive code that operators run with admin rights — and
+its safety invariants were enforced only by reviewer memory.
+Phase 1B mechanizes the safety contract.
+
+**Notes:**
+- Phase numbering: existing Pass 1–4 log entries use "Phase 1" /
+  "Phase 2". Going forward, sessions should report "Phase 1A" /
+  "Phase 1B" / "Phase 2" separately. Old entries stay as written.
+- The "concrete miss this caught" annotations were trimmed from
+  MASTERIZE.md (the log is the durable record; the playbook should be
+  evergreen instructions, not change history).
+
+---
+
 ## 2026-05-11 — Pass 3 (commit fad4b93 on claude/fix-disk-partitioning-VdGdp → main)
 
 **Phase 1 result:** clean (10/10 mechanical checks passed, plus new check 11 added)
