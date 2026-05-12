@@ -28,7 +28,7 @@ Format for new entries:
 
 ---
 
-## 2026-05-11 — Pass 3 (commit TBD on claude/fix-disk-partitioning-VdGdp)
+## 2026-05-11 — Pass 3 (commit fad4b93 on claude/fix-disk-partitioning-VdGdp → main)
 
 **Phase 1 result:** clean (10/10 mechanical checks passed, plus new check 11 added)
 **Phase 2 result:** 3 issues found and fixed
