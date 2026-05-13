@@ -1,121 +1,61 @@
-# USB Drive Setup Guide
+# Build the WinPE Deployment USB
 
-Complete guide for preparing a bootable WinPE USB drive with the image deployment tool.
+One-time procedure to turn a blank USB stick into a bootable Windows
+deployment USB. Once built, the USB is reusable indefinitely — you only
+have to redo this when you want a newer WinPE base (roughly once a
+year, when Microsoft ships a new Windows ADK).
 
-## Prerequisites
+**Where you do this:** any admin Windows 10 or 11 workstation with
+internet access. **Not** in WinPE.
 
-- USB drive (32GB+ recommended, 8GB minimum)
-- Windows ADK with WinPE add-on installed
-- Windows 10/11 machine with admin access
-- `.wim` or `.esd` image files to deploy
+**Time required:** about 60 minutes the first time, mostly waiting on
+ADK downloads. Subsequent rebuilds are ~15 minutes.
 
-## Step 0: (Optional) Prep your Windows image
+---
 
-Use `scripts/prepare_wim.ps1` to produce a debloated, customized WIM from
-a stock Windows ISO. Run on your **admin workstation** (not in WinPE):
+## Step 0 — What You Need
 
-```powershell
-# Minimal: debloat default whitelist + disable Copilot
-.\scripts\prepare_wim.ps1 `
-    -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
-    -OutputWim 'I:\images\Win11_Enterprise.wim' `
-    -DisableCopilot
+- Admin Windows 10/11 workstation
+- USB drive, 32 GB or larger (8 GB minimum — won't fit many images)
+- A Windows ISO (download from
+  [Microsoft](https://www.microsoft.com/software-download/windows11) or
+  your VLSC/Visual Studio subscription)
 
-# With pre-baked drivers (chipset, NVMe, NIC — inject at WIM prep time)
-.\scripts\prepare_wim.ps1 `
-    -SourceIso 'D:\iso\Win11_24H2_English_x64.iso' `
-    -OutputWim 'I:\images\Win11_Enterprise.wim' `
-    -DriverPath 'C:\Drivers\Dell_OptiPlex7090' `
-    -DisableCopilot
-```
+---
 
-**What it does:** mounts the ISO, picks the requested edition, removes
-provisioned AppX packages not on the whitelist, optionally injects drivers
-and applies registry tweaks, then re-exports a `Compress:max` WIM.
+## Step 1 — Install the Windows ADK
 
-You can skip this step and copy an unmodified `.wim`/`.esd` directly from
-the ISO — just drop it in `I:\images\` in Step 5.
+The ADK is Microsoft's free deployment toolkit. You need two installers:
 
-For full options, see [Script Reference](SCRIPT_REFERENCE.md#prepare_wimps1).
+1. **Windows ADK** — download from Microsoft's
+   [ADK page](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install).
+   During install, **only check "Deployment Tools"**. You don't need
+   the other features.
+2. **Windows PE add-on for the ADK** — same page, downloaded
+   separately. Install it after the ADK finishes.
 
-## Step 1: Install Windows ADK + WinPE Add-on
+When both are installed, you'll have a new Start menu shortcut:
+**"Deployment and Imaging Tools Environment"** (under "Windows Kits").
+That's a Command Prompt with all the ADK tools on PATH. We'll use it
+in Step 4.
 
-Download and install from Microsoft:
-1. [Windows ADK](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install)
-2. Windows PE add-on for the ADK
+---
 
-Only the **Deployment Tools** feature is required from the ADK.
+## Step 2 — Partition the USB
 
-## Step 2: Build a Customized boot.wim
-
-Open **Deployment and Imaging Tools Environment** as Administrator, then run
-the builder from this repo:
-
-```powershell
-.\scripts\build_boot_wim.ps1
-```
-
-This runs `copype`, mounts the template `boot.wim`, adds all required
-optional components (PowerShell, WMI, DISM cmdlets, StorageWMI,
-EnhancedStorage, FMAPI), applies the `NtfsEnableDirCaseSensitivity`
-registry tweak (critical for Windows Containers layer images — without
-it, DISM apply fails at ~19% with "Incorrect function"), embeds
-`unified_winpe_deploy.ps1` at `X:\scripts\`, and writes a `startnet.cmd`
-that auto-launches it.
-
-Output: `C:\WinPE_Build\media\` (or wherever `-WorkDir` points).
-
-See `docs/SCRIPT_REFERENCE.md` for all parameters, including `-UsbDrive`
-and `-ReleaseUsbLetter` which combine Steps 2 and 4 below.
-
-### Why not `MakeWinPEMedia /UFD`?
-
-The script's build output is the `media\` tree, not an ISO. We xcopy it onto
-an already-partitioned USB (Steps 3-4) because `MakeWinPEMedia /UFD` wipes
-the whole USB and destroys the dual-partition layout this tool relies on.
-
-### Manual alternative (if you can't run the builder)
-
-If you must build manually, the `startnet.cmd` should match this pattern
-(the volume-label lookup lets the deploy script skip a full scan):
-
-```cmd
-@echo off
-wpeinit
-setlocal enabledelayedexpansion
-ping -n 4 127.0.0.1 >nul
-set DEPLOY_IMAGE_DRIVE=
-for %%d in (D E F G H I J K L M N O P Q R S T U V W Y Z) do (
-    vol %%d: 2>nul | find /i "IMAGES" >nul 2>&1
-    if !ERRORLEVEL! equ 0 (
-        set "DEPLOY_IMAGE_DRIVE=%%d:"
-        goto :found
-    )
-)
-echo No drive with label "IMAGES" found - script will scan all drives.
-goto :launch
-:found
-echo Found image drive: %DEPLOY_IMAGE_DRIVE%
-:launch
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
-```
-
-And the offline registry tweak (inside the mounted `boot.wim`):
-
-```cmd
-reg load HKLM\WinPE_OFFLINE C:\WinPE_amd64\mount\Windows\System32\config\SYSTEM
-reg add "HKLM\WinPE_OFFLINE\ControlSet001\Control\FileSystem" /v NtfsEnableDirCaseSensitivity /t REG_DWORD /d 1 /f
-reg unload HKLM\WinPE_OFFLINE
-```
-
-## Step 3: Partition the USB Drive
-
-Open **diskpart** as Administrator:
+Plug the USB into your admin workstation. Open Command Prompt **as
+Administrator**. Run `diskpart`:
 
 ```
 diskpart
 list disk
-select disk <USB_DISK_NUMBER>
+```
+
+Find your USB by size. **Triple-check the disk number.** Picking the
+wrong disk here will wipe your workstation's drive. Then:
+
+```
+select disk <USB_NUMBER>
 clean
 create partition primary size=2048
 format quick fs=fat32 label="WinPE"
@@ -126,166 +66,284 @@ assign letter=I
 exit
 ```
 
-> **WARNING:** Double-check the disk number! This erases the entire USB drive.
+You now have:
 
-## Step 4: Make USB Bootable with WinPE
+- `P:` — 2 GB FAT32 (will hold WinPE boot files)
+- `I:` — remaining space, NTFS (will hold Windows images)
 
-Copy the built WinPE media to the boot partition:
+> Why FAT32 for the boot partition? UEFI firmware can only boot from
+> FAT32. Why NTFS for the data partition? WIM files are routinely
+> larger than the 4 GB single-file limit on FAT32.
+
+---
+
+## Step 3 — Copy WinPE to a Working Folder
+
+Open **Deployment and Imaging Tools Environment** as Administrator
+(Start menu → Windows Kits). At the prompt:
+
+```
+copype amd64 C:\WinPE_Build
+```
+
+This creates `C:\WinPE_Build` with a `media\` subfolder (the WinPE
+file tree) and a fresh `boot.wim` you'll customize next.
+
+---
+
+## Step 4 — Mount boot.wim and Add Components
+
+Stay in the **Deployment and Imaging Tools Environment** prompt.
+
+### 4a. Mount the image
+
+```
+dism /Mount-Image /ImageFile:C:\WinPE_Build\media\sources\boot.wim /Index:1 /MountDir:C:\WinPE_Build\mount
+```
+
+### 4b. Add the required optional components
+
+Run these one at a time. Each takes ~30 seconds. **Order matters** —
+some components depend on `WinPE-WMI` being installed first.
+
+```
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\WinPE-WMI.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\en-us\WinPE-WMI_en-us.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\WinPE-NetFx.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\en-us\WinPE-NetFx_en-us.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\WinPE-Scripting.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\en-us\WinPE-Scripting_en-us.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\WinPE-StorageWMI.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\en-us\WinPE-StorageWMI_en-us.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\WinPE-EnhancedStorage.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\en-us\WinPE-EnhancedStorage_en-us.cab"
+
+dism /Image:C:\WinPE_Build\mount /Add-Package /PackagePath:"C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs\WinPE-FMAPI.cab"
+```
+
+(If your ADK is installed somewhere other than the default location,
+replace the path prefix.)
+
+### 4c. Apply the NTFS case-sensitivity fix
+
+Some Windows images (especially anything that has the Containers or
+Hyper-V feature installed) include files with the NTFS
+`CASE_SENSITIVE_DIR` flag. Without this registry tweak, DISM apply
+will fail at ~19% with "Incorrect function (exit 1)".
+
+```
+reg load HKLM\WinPE_SYSTEM C:\WinPE_Build\mount\Windows\System32\config\SYSTEM
+reg add "HKLM\WinPE_SYSTEM\ControlSet001\Control\FileSystem" /v NtfsEnableDirCaseSensitivity /t REG_DWORD /d 1 /f
+reg unload HKLM\WinPE_SYSTEM
+```
+
+### 4d. Replace startnet.cmd so the prompt opens with helpful info
+
+```
+notepad C:\WinPE_Build\mount\Windows\System32\startnet.cmd
+```
+
+Replace the contents with:
 
 ```cmd
+@echo off
+wpeinit
+echo.
+echo =============================================================
+echo  Windows Deployment USB - WinPE Command Prompt
+echo =============================================================
+echo.
+echo  See README.md on the IMAGES partition for the deploy recipe.
+echo  Quick reference:
+echo    wmic logicaldisk get caption,volumename   (find IMAGES partition)
+echo    diskpart                                  (list and partition disks)
+echo    dism /Apply-Image ...                     (apply WIM)
+echo    bcdboot C:\Windows /s S: /f UEFI          (configure boot)
+echo    wpeutil reboot
+echo.
+```
+
+Save and close Notepad.
+
+### 4e. Unmount and commit
+
+```
+dism /Unmount-Image /MountDir:C:\WinPE_Build\mount /Commit
+```
+
+This takes 2-5 minutes. When it finishes you have a customized
+`boot.wim` in `C:\WinPE_Build\media\sources\`.
+
+---
+
+## Step 5 — Copy WinPE to the USB
+
+Back in any Command Prompt (admin not strictly required for this part,
+but doesn't hurt):
+
+```
 xcopy /s /e /y C:\WinPE_Build\media\*.* P:\
 ```
 
-> **Note:** Do NOT use `MakeWinPEMedia /UFD` here — it reformats the entire USB
-> and destroys the dual-partition layout created in Step 3.
+> **Do not use `MakeWinPEMedia /UFD`.** It reformats the whole USB and
+> destroys the dual-partition layout from Step 2.
 
-### Release the P: drive letter (optional but recommended)
+After it finishes, verify these exist:
 
-Once the media is copied, you don't need the FAT32 boot partition mounted
-in your working Windows anymore — the machine you're deploying to will see
-it as part of USB boot. Free the letter to keep Explorer tidy:
+- `P:\bootmgr`
+- `P:\sources\boot.wim`
+- `P:\EFI\Boot\bootx64.efi`
 
-```cmd
-mountvol P: /d
+If any are missing, repeat the xcopy.
+
+---
+
+## Step 6 — Add Windows Images
+
+Copy the `.wim` or `.esd` file(s) you want to deploy onto the data
+partition under `\images\`:
+
 ```
-
-The partition stays bootable; only the drive letter assignment in your
-current Windows session is removed. Plug the USB in elsewhere and it'll
-still boot.
-
-> **Tip:** `build_boot_wim.ps1 -UsbDrive P: -ReleaseUsbLetter` does Steps 2,
-> 4, and this release in one shot.
-
-## Step 5: Add Windows Images to Data Partition
-
-Copy your `.wim` or `.esd` files to the data partition:
-
-```cmd
 mkdir I:\images
-copy D:\sources\install.wim I:\images\Win11_Pro.wim
+copy <path-to-iso>\sources\install.wim I:\images\Win11.wim
 ```
 
-**Optional — Unattend.xml for first-boot configuration:** if you want
-Windows Setup to auto-configure on first boot (skip OOBE, set computer
-name, join a domain, configure autologon), create an `unattend.xml` and
-keep it on your admin machine. Pass it to the deploy script at runtime
-via `-UnattendFile` — it is copied to `C:\Windows\Panther\` after apply,
-before the machine reboots:
+> [!TIP]
+> Naming the WIM after the edition (`Win11_Pro_24H2.wim`,
+> `Win10_LTSC.wim`) helps the tech pick the right file during deploy.
 
-```powershell
-.\unified_winpe_deploy.ps1 `
-    -WimFile "D:\images\Win11.wim" `
-    -UnattendFile "D:\configs\unattend.xml"
+### Where to get WIM files
+
+- **From a Windows ISO** — mount the ISO (right-click → Mount), then
+  copy `sources\install.wim` or `sources\install.esd` from the mounted
+  drive to `I:\images\`. That's it for most use cases.
+- **Captured from a reference machine** — boot the reference into
+  WinPE, then:
+  ```
+  Dism /Capture-Image /ImageFile:I:\images\MyCapture.wim ^
+       /CaptureDir:C:\ /Name:"My Build" ^
+       /CheckIntegrity /verify /Compress:max
+  ```
+  `/CheckIntegrity` embeds SHA1 hashes so you can detect corruption
+  later. `/verify` re-reads every file at capture time to catch bad
+  source reads early.
+
+### Pulling one edition out of a multi-edition install.wim
+
+A retail install.wim contains Home, Pro, Education, Enterprise, etc.
+You can deploy any of them directly with `/Index:N` at deploy time
+(see README.md step 4). Or, if you'd rather ship a smaller USB with
+only one edition:
+
+```
+Dism /Get-WimInfo /WimFile:E:\sources\install.wim
+:: note the Index of the edition you want, e.g. Index:6 = Pro
+
+Dism /Export-Image /SourceImageFile:E:\sources\install.wim /SourceIndex:6 ^
+     /DestinationImageFile:I:\images\Win11_Pro.wim ^
+     /Compress:max /CheckIntegrity
 ```
 
-The unattend file does **not** need to be on the USB — it can live anywhere
-accessible from the machine running the script (typically from the USB
-IMAGES partition for convenience):
+---
 
-```cmd
+## Step 7 — (Optional) Add unattend.xml
+
+Skip this if you're OK clicking through Windows OOBE manually.
+
+See [UNATTEND.md](UNATTEND.md) for how to fill out the answer file. The
+short version: copy the template and edit it, then drop it on the
+IMAGES partition:
+
+```
 mkdir I:\configs
-copy admin-machine:\configs\unattend.xml I:\configs\unattend.xml
+copy <your-edited-unattend.xml> I:\configs\unattend.xml
 ```
 
-**Optional — Dell BIOS configs:** if you built `boot.wim` with
-`-CctkSource`, also create a `cctk\` folder on this same data partition
-and drop your `.ini` configs there. The deploy script picks the right
-config per machine (service tag → model → `default.ini`). See
-[CCTK.md](CCTK.md) for setup and config format.
+The deploy procedure (README step 8) copies this to
+`C:\Windows\Panther\unattend.xml` on the target.
 
-```cmd
-mkdir I:\cctk
-copy admin-machine:\configs\default.ini I:\cctk\default.ini
-```
+---
 
-### Getting WIM Files
+## Step 8 — (Optional, Dell Only) Add CCTK
 
-**From a Windows ISO:**
-```cmd
-:: Mount the ISO, then copy install.wim from sources/
-copy E:\sources\install.esd I:\images\
-```
+Skip this if your fleet isn't Dell.
 
-**From a running Windows installation (capture):**
+See [CCTK.md](CCTK.md) for the full procedure. The short version:
 
-Always capture with `/CheckIntegrity` and `/verify` — `/CheckIntegrity`
-embeds SHA1 hashes so integrity can be verified later, and `/verify`
-re-reads every file after writing to catch bad source reads at capture
-time rather than at deploy time.
+1. Download Dell Command | Configure to your admin workstation.
+2. Re-mount boot.wim, copy `cctk.exe` + the HAPI folder to
+   `C:\WinPE_Build\mount\cctk\`, install the HAPI `.inf` driver, unmount
+   /Commit, re-xcopy media to USB.
+3. Drop your `.ini` BIOS configs into `I:\cctk\` on the IMAGES
+   partition.
 
-```cmd
-:: Boot into WinPE, then capture (directly onto the USB Images partition)
-Dism /Capture-Image /ImageFile:I:\images\MyCapture.wim /CaptureDir:C:\ /Name:"My Windows Build" /CheckIntegrity /verify /Compress:max
-```
+---
 
-If the captured image contains Windows Containers or Hyper-V layers (dense
-reparse points + hard-link storms under `C:\ProgramData\Microsoft\Windows\Containers\Layers`),
-the boot.wim must be built with the builder script (Step 2) — the
-`NtfsEnableDirCaseSensitivity` reg tweak there is required for DISM apply
-to succeed. To skip the layer cache entirely at capture time, use a
-`/configfile` with an ExclusionList:
+## Step 9 — Test the USB
 
-```ini
-; exclude.ini - layer cache is rebuilt on first container use
-[ExclusionList]
-\ProgramData\Microsoft\Windows\Containers\Layers
-```
-
-```cmd
-Dism /Capture-Image /ImageFile:I:\images\MyCapture.wim /CaptureDir:C:\ /Name:"My Windows Build" /ConfigFile:exclude.ini /CheckIntegrity /verify /Compress:max
-```
-
-**Export a specific edition from a multi-index WIM:**
-```cmd
-Dism /Get-WimInfo /WimFile:E:\sources\install.esd
-Dism /Export-Image /SourceImageFile:E:\sources\install.esd /SourceIndex:7 /DestinationImageFile:I:\images\Win11_Pro.wim /Compress:max /CheckIntegrity
-```
-
-## Step 6: Test
-
-1. Plug USB into target machine
-2. Enter UEFI/BIOS boot menu (usually F12, F2, or Del at POST)
-3. Select the USB drive (UEFI mode)
-4. WinPE boots → script auto-launches
-5. Select your image from the TUI menu
-6. Select target disk and confirm
-7. Wait for deployment to complete
-8. Remove USB and reboot
-
-## Directory Structure When Complete
+Boot a non-production machine from the USB to confirm WinPE loads. You
+should see:
 
 ```
-USB Drive:
-├── [Partition 1: FAT32 "WinPE" ~2GB]
-│   ├── Boot/
-│   ├── EFI/
-│   └── sources/
-│       └── boot.wim  (contains unified_winpe_deploy.ps1, optionally CCTK)
-│
-└── [Partition 2: NTFS "IMAGES" remaining space]
-    ├── images/
-    │   ├── Win11_Enterprise_Custom.wim    ← output of prepare_wim.ps1
-    │   ├── Win10_Enterprise_LTSC.wim
-    │   └── (more .wim/.esd files)
-    ├── configs/                           (optional, unattend.xml answer files)
-    │   ├── unattend.xml                   ← used with -UnattendFile
-    │   └── unattend_domain.xml
-    └── cctk/                             (optional, Dell BIOS configs)
-        ├── default.ini                   (catch-all)
-        ├── OptiPlex7090.ini              (per-model override, optional)
-        └── 1A2B3C4.ini                   (per-service-tag override, optional)
+=============================================================
+ Windows Deployment USB - WinPE Command Prompt
+=============================================================
 ```
 
-- The `configs\` folder is a convention; `-UnattendFile` accepts any
-  path accessible during the WinPE session.
-- The `cctk\` folder is only used if your boot.wim was built with
-  `-CctkSource` (so `cctk.exe` is embedded in the image). See
-  [CCTK.md](CCTK.md) for the config-file format and selection rules.
+Followed by `X:\Windows\System32>`. From here you can follow
+[the daily deploy steps in README.md](../README.md#daily-deploy--step-by-step).
 
-## Tips
+If WinPE doesn't boot, see
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md#usb-doesnt-boot-from-uefi-menu).
 
-- **Use NTFS for the data partition** - FAT32 has a 4GB file limit, and WIM files are often larger
-- **Label your WIM files clearly** - the script shows filenames in the selection menu
-- **Keep WIM files in an `images/` directory** - it's searched first and avoids slow full-drive scans
-- **32GB+ USB recommended** - a single Windows WIM is typically 4-6GB
-- **USB 3.0+ strongly recommended** - image deployment is I/O heavy
+---
+
+## Refreshing the USB (yearly)
+
+When a new ADK ships or you want a newer Windows ISO:
+
+- **New images only?** Just replace files in `I:\images\`. Skip
+  everything else.
+- **New ADK / new WinPE base?** Repeat steps 3-5. Steps 1, 2, 6
+  don't need to be redone.
+
+---
+
+## Final Layout
+
+```
+USB Drive
++-- P:\ (FAT32 "WinPE", ~2 GB)
+|   +-- bootmgr
+|   +-- EFI\Boot\bootx64.efi
+|   `-- sources\boot.wim       <- the customized WinPE
+|
+`-- I:\ (NTFS "IMAGES", remaining)
+    +-- images\
+    |   +-- Win11_Pro.wim
+    |   `-- Win10_LTSC.wim
+    +-- configs\               (optional - unattend.xml)
+    |   `-- unattend.xml
+    `-- cctk\                  (optional - Dell BIOS configs)
+        `-- default.ini
+```
+
+When you're done, you can free the drive letters in your admin
+workstation so Explorer isn't cluttered:
+
+```
+mountvol P: /d
+mountvol I: /d
+```
+
+The USB stays bootable — only the letters assigned in your current
+Windows session are released.

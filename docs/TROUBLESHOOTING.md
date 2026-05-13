@@ -1,334 +1,342 @@
-# Troubleshooting Guide
+# Troubleshooting
 
-## Common Issues
+Common problems and fixes for both USB-build time and deploy time.
 
-### Script doesn't auto-start when WinPE boots
+---
 
-**Cause:** `startnet.cmd` not configured or PowerShell not available in WinPE.
+## USB Doesn't Boot from UEFI Menu
 
-**Fix:** Use `scripts/build_boot_wim.ps1` (configures everything correctly
-in one shot). If you must fix an existing boot.wim manually, verify
-`startnet.cmd` ends with:
-```cmd
-wpeinit
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
+**Check the boot mode in BIOS.** The USB must be selected in **UEFI**
+mode, not Legacy/CSM. The boot-menu entry should be prefixed
+`UEFI:` or `UEFI USB`. If only a plain `USB:` entry shows up, enable
+UEFI booting in BIOS setup (and disable Legacy/CSM if both are on).
+
+**Check the boot partition is FAT32.** UEFI firmware only boots from
+FAT32. If you accidentally formatted the boot partition NTFS, redo
+[USB_SETUP.md step 2](USB_SETUP.md#step-2--partition-the-usb).
+
+**Check the EFI boot loader exists:**
+
 ```
-The script must exist at `X:\scripts\unified_winpe_deploy.ps1` and the
-`WinPE-PowerShell` package must be installed in the image.
+dir P:\EFI\Boot\bootx64.efi
+```
 
+If missing, re-run [USB_SETUP step 5](USB_SETUP.md#step-5--copy-winpe-to-the-usb).
 
-### "'timeout' is not recognized" at boot
+**Try a different USB port.** Some machines only boot from rear or
+specific ports. USB 3 typically works fine; USB-C may not on older
+hardware.
 
-**Cause:** Some WinPE images do not include `timeout.exe`, but `startnet.cmd`
-contains `timeout /t ...`.
+**If Secure Boot is on**, the WinPE image needs to be signed. The
+Microsoft-signed stock boot.wim that comes out of `copype` is fine for
+Secure Boot. If you ever swap to a custom unsigned boot.wim, disable
+Secure Boot in BIOS or sign the image.
 
-**Fix:** Replace the timeout call with a ping-based delay:
+---
+
+## WinPE Boots but Doesn't Land at a Prompt
+
+If WinPE hangs at "Press any key to boot from CD" or sits on a black
+screen, the auto-launch via `startnet.cmd` may have failed.
+
+Press **Shift+F10** (works in some WinPE builds) or wait for the
+default startnet to time out — you should get a command prompt. From
+there you can run the deploy procedure manually.
+
+If `startnet.cmd` has a `timeout /t N` and you see
+`'timeout' is not recognized`, you skipped `WinPE-WMI` or
+`WinPE-Scripting` when building the image. Either rebuild the USB with
+those components added (see USB_SETUP.md step 4b) or replace the
+`timeout` line in `startnet.cmd` with:
+
 ```cmd
 ping -n 4 127.0.0.1 >nul
 ```
 
-Also remove any trailing `pause` in `startnet.cmd` for fully unattended boots.
+---
 
-### "No Windows image files found!"
+## "wmic" or "diskpart" Not Recognized
 
-**Cause:** Script can't find any `.wim`/`.esd` files on attached drives.
+You missed required ADK components when building boot.wim. Rebuild the
+USB with all the packages from
+[USB_SETUP.md step 4b](USB_SETUP.md#4b-add-the-required-optional-components),
+particularly `WinPE-WMI` and `WinPE-StorageWMI`.
 
-**Fix:**
-- Ensure images are on the USB data partition (not the WinPE boot partition)
-- Place images in an `images/` subdirectory for fastest discovery
-- Verify files are > 100MB (smaller files are filtered out)
-- Use `-ImagePath` or `-WimFile` to point directly:
-  ```powershell
-  .\unified_winpe_deploy.ps1 -ImagePath "D:\images"
-  ```
-- Check if the NTFS data partition is mounting. In WinPE command prompt:
-  ```cmd
-  diskpart
-  list volume
-  ```
+---
 
-### "No suitable disks found"
+## "No drive letter for IMAGES partition"
 
-**Cause:** Script filters for fixed (non-USB) disks. If the target disk is
-seen as USB or removable, it won't appear.
+`wmic logicaldisk get caption,volumename` doesn't show an `IMAGES`
+volume.
 
-**Fix:**
-- Some NVMe/SSD drives may not report as "fixed" in WinPE. Check:
-  ```powershell
-  Get-WmiObject Win32_DiskDrive | Select Model, MediaType, InterfaceType
-  ```
-- If needed, the `Get-SystemDisks` function filter can be adjusted to include
-  the target interface type
+**Most likely cause:** the data partition didn't auto-mount. Manually
+assign a letter:
 
-### Disk menu shows "No partitions" on a disk that clearly has data (e.g. Linux/RHEL)
-
-**Cause:** Prior to v4.4.0, `Win32_DiskPartition` was used as the source of
-truth for partition detection — but it only enumerates partitions Windows
-recognizes, so Linux (ext4/xfs/LVM) partitions were silently reported as
-"No partitions". A disk with data could appear as a safe empty target.
-
-**Fix:** v4.4.0+ uses `Win32_DiskDrive.Partitions` (the raw partition-table
-count) as the source of truth. Disks with Linux partitions now display
-as `N partition(s) (non-Windows - e.g. Linux/LVM)` and correctly trigger
-the `[HAS DATA - WILL BE ERASED!]` warning. Update to v4.4.0+ if you're
-still seeing the old behavior.
-
-### DISM fails with error code
-
-**Common DISM errors:**
-
-| Error | Meaning | Fix |
-|-------|---------|-----|
-| 1 | Incorrect function | See next section — usually Containers/Layers metadata or WIM corruption |
-| 2 | File not found | Verify WIM path exists and is accessible |
-| 11 | Invalid image index | Check available indexes with `Dism /Get-WimInfo /WimFile:path.wim` |
-| 87 | Invalid parameter | Check WIM file integrity |
-| 1392 | Corrupted WIM | Re-download or re-capture the image |
-| 112 | Disk full | Target disk too small for the image |
-| 1168 | Element not found | WIM may be corrupted or index doesn't exist |
-
-### DISM apply fails at ~19% with "Incorrect function" (exit 1)
-
-**Cause:** The captured image contains Windows Containers / Hyper-V layer
-files under `C:\ProgramData\Microsoft\Windows\Containers\Layers\...`. These
-set the NTFS `CASE_SENSITIVE_DIR` flag, which the WinPE kernel rejects
-unless `NtfsEnableDirCaseSensitivity` is set in the WinPE registry.
-`dism.log` typically shows `RestoreFileNodeList`, `RestoreFilesCallback`,
-or `EnumImageDataEntries` returning "Incorrect function" on files inside
-`Containers\Layers\`.
-
-**Fix (preferred):** Rebuild your WinPE boot.wim with the provided builder,
-which sets the reg tweak automatically:
-
-```powershell
-.\scripts\build_boot_wim.ps1 -Clean -UsbDrive P: -ReleaseUsbLetter
+```
+diskpart
+list volume
 ```
 
-**Fix (quick test in a running WinPE session):**
-```cmd
+Find the volume labeled `IMAGES`. Note its `Volume ###`, then:
+
+```
+select volume <number>
+assign letter=I
+exit
+```
+
+`I:` should now exist. Continue with [README step 3](../README.md#3-dell-only-apply-bios-config).
+
+**Less likely:** the USB only had one partition created. Reformat the
+USB per [USB_SETUP.md step 2](USB_SETUP.md#step-2--partition-the-usb).
+
+---
+
+## DISM Apply Fails
+
+### Exit code 1 "Incorrect function" at ~19%
+
+The image contains Windows Containers / Hyper-V layer files with
+NTFS `CASE_SENSITIVE_DIR` flags. WinPE can't write those without the
+registry tweak from [USB_SETUP step 4c](USB_SETUP.md#4c-apply-the-ntfs-case-sensitivity-fix).
+
+**Quick test in the current WinPE session** (lost on reboot):
+
+```
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v NtfsEnableDirCaseSensitivity /t REG_DWORD /d 1 /f
 ```
-Then retry the apply. This is lost on reboot — bake it into the boot.wim
-permanently per the preferred fix.
 
-**Fallback (keep current boot.wim, strip the layer cache from the WIM):**
-Mount the WIM, delete `\ProgramData\Microsoft\Windows\Containers\Layers`,
-unmount /commit. The Containers feature stays installed; the layer cache
-rebuilds on first use.
+Then retry the `dism /Apply-Image` command. If it succeeds, **rebuild
+boot.wim with the reg tweak baked in** so you don't have to do this
+every time.
 
-If the image has no Containers feature and you still see this error, the
-WIM is probably corrupted on disk. Re-capture with `/CheckIntegrity /verify`
-or re-copy the WIM from the master.
+**Alternative:** strip the layer cache from the WIM. Mount the WIM on
+your admin workstation, delete `\ProgramData\Microsoft\Windows\Containers\Layers`,
+unmount with `/Commit`. The Containers feature stays installed; the
+layer cache rebuilds on first use.
 
-### Diskpart fails with exit code -2147211247 ("failed to clear disk attributes")
+### Other DISM exit codes
 
-**Cause:** The target disk is flagged read-only (Storage Spaces leftovers,
-BIOS write-protect, SED lock, HBA setting, or a physical write-protect
-switch) and `attributes disk clear readonly` can't clear it.
+| Code | Meaning             | Fix                                                  |
+|------|---------------------|------------------------------------------------------|
+| 2    | File not found      | Check the WIM path; `dir I:\images` first.           |
+| 11   | Invalid image index | Run `dism /Get-WimInfo /WimFile:...` and pick a valid Index. |
+| 87   | Invalid parameter   | Re-check syntax; copy-paste from README.md.          |
+| 112  | Disk full           | Target disk is too small for the image.              |
+| 1168 | Element not found   | WIM is missing the requested index, or corrupted.    |
+| 1392 | Corrupted WIM       | Re-copy the WIM from the source ISO.                 |
 
-The deploy script runs this command with `noerr` since v4.4.0, so diskpart
-now proceeds to `clean` even if the clear fails — which often succeeds on
-its own. If you still see this exit code, `clean` itself is failing.
+If a WIM was captured with `/CheckIntegrity`, verify it:
 
-**Fix:**
-1. Physical: check for write-protect switches on the drive
-2. Firmware: clear vendor security locks in BIOS/UEFI or the vendor tool
-3. SED-locked drive: unlock via vendor tool or PSID-revert
-4. Manual retry: `diskpart` → `select disk N` → `attributes disk clear readonly` → `clean`
-5. If `clean` still fails, the protection is below the OS — resolve in firmware or swap hardware
-
-### BCDBoot fails
-
-**Cause:** Boot configuration can't be written to the EFI partition.
-
-**Fix:**
-1. Verify the EFI partition was created and assigned letter S:
-   ```cmd
-   diskpart
-   list volume
-   ```
-2. Verify `C:\Windows` exists after DISM apply
-3. Manually run: `bcdboot C:\Windows /s S: /f UEFI`
-
-### Drive letter conflicts (C: or S: already in use)
-
-**Cause:** In WinPE, drive letters may already be assigned to existing partitions.
-
-**Fix:**
-- Before running the script, clear letter assignments in diskpart:
-  ```
-  diskpart
-  list volume
-  select volume <number>
-  remove letter=C
-  ```
-- Or modify the diskpart template in the script to use different letters
-
-### Low memory warning
-
-**Cause:** System has less than 8GB RAM. DISM can struggle with large images
-on low-memory systems.
-
-**Fix:**
-- 4GB RAM is the practical minimum; 8GB+ recommended
-- Use compressed WIMs (smaller memory footprint)
-- If DISM fails with out-of-memory, try running it manually with `/ScratchDir:`
-  pointing to a directory on a drive with free space:
-  `dism /apply-image /imagefile:D:\images\install.wim /index:1 /applydir:C:\ /ScratchDir:D:\scratch`
-
-### Script errors: "Cannot load System.Windows.Forms"
-
-**Cause:** Normal in WinPE - the Windows Forms assembly isn't always available.
-
-**Impact:** Minimal. The script falls back to console output for all dialogs.
-The warning at startup can be ignored.
-
-### USB drive not showing in UEFI boot menu
-
-**Fix:**
-1. Ensure the WinPE partition is FAT32 (required for UEFI boot)
-2. Disable Secure Boot temporarily if the WinPE image isn't signed
-3. Check USB is plugged into a USB port that supports boot (some rear ports only)
-4. Verify the USB has a valid EFI boot structure:
-   ```
-   P:\EFI\Boot\bootx64.efi  (must exist)
-   ```
-
-### Deployment succeeds but Windows won't boot
-
-**Possible causes:**
-1. **Secure Boot:** The deployed Windows version may need Secure Boot disabled
-2. **Wrong boot mode:** Ensure UEFI mode (not Legacy/CSM) in BIOS
-3. **Missing drivers:** The target hardware may need storage drivers injected into the WIM
-4. **BCDBoot didn't run:** Check the script output for BCDBoot errors
-
-**Manual recovery:**
-Boot back into WinPE and run:
-```cmd
-bcdboot C:\Windows /s S: /f UEFI
+```
+dism /Get-WimInfo /WimFile:I:\images\Win11.wim /CheckIntegrity
 ```
 
-### startnet.cmd can't find image drive
+A clean exit means the embedded hashes match. A failure means the file
+was corrupted in transit — re-copy it.
 
-**Cause:** USB data partition volume label doesn't match the label in `startnet.cmd`.
+---
 
-**Fix:** Either label the data partition `IMAGES` (matches USB_SETUP.md Step 3)
-or edit the `find /i "IMAGES"` string in `startnet.cmd` to match your label.
-If no label match is found, the script falls back to scanning all drives.
+## Diskpart Fails
 
-### CCTK: "CCTK returned exit code N - aborting deploy"
+### "Failed to clear disk attributes" (-2147211247)
 
-CCTK only runs when `X:\cctk\cctk.exe` is embedded in `boot.wim` (via the
-builder's `-CctkSource` parameter) AND a config matches in
-`%DEPLOY_IMAGE_DRIVE%\cctk\`. Common exit codes:
+The target disk is flagged read-only. Causes: Storage Spaces leftovers,
+a hardware write-protect switch, an SED lock, or a vendor RAID setting.
 
-| Exit | Meaning | Fix |
-|------|---------|-----|
-| 0    | Success | — |
-| 116  | HAPI driver load error | Rebuild boot.wim with `-CctkSource` pointing at a tree that contains `HAPI\hapint64.inf` (or similar). The builder logs a warning if it can't find a HAPI inf during the build. |
-| 149  | Setup password mismatch | Add `--valsetuppwd=<current>` to the .ini so CCTK can authenticate with the existing BIOS password before changing it. |
-| 197  | Setting not supported on this model | Check `cctk --help` against the actual hardware. Some settings are model-specific. |
+**Try clearing it manually:**
 
-If CCTK silently skips (`No CCTK config matched`), check that:
-- The IMAGES partition has a `cctk\` subdirectory
-- The directory contains at least one of `<SERVICETAG>.ini`,
-  `<MODEL>.ini`, or `default.ini`
-- `Win32_BIOS.SerialNumber` (your service tag) and `Win32_ComputerSystem.Model`
-  match what you expect — run `wmic bios get serialnumber` and
-  `wmic computersystem get model` from a WinPE shell to verify.
-
-See `docs/CCTK.md` for full configuration details.
-
-### "No additional disks selected" but I expected to see disk N
-
-The additional-wipe menu only shows disks that:
-- Are not the primary target (you already confirmed wiping that)
-- Are not USB / removable / optical (filtered by `Get-SystemDisks`)
-
-If you need to wipe a USB-attached drive, the deploy script intentionally
-won't let you — pull it from the menu via `diskpart` manually:
-
-```cmd
+```
 diskpart
-list disk
-select disk N
+select disk <N>
+attributes disk clear readonly
 clean
 ```
 
+If `attributes disk clear readonly` errors, append `noerr` and try
+`clean` anyway:
+
+```
+attributes disk clear readonly noerr
+clean
+```
+
+If `clean` still fails:
+
+1. Check for a physical write-protect switch on the drive.
+2. Clear vendor security locks in BIOS/UEFI or the drive vendor's
+   tool.
+3. SED-locked drive: unlock via vendor tool or PSID-revert.
+4. If nothing works, the protection is below the OS. Swap hardware or
+   resolve in firmware.
+
+### "Disk 0 is not initialized" after `clean`
+
+Normal after `clean`. The next line in your partition script should be
+`convert gpt`, which initializes the disk. If you skipped that line,
+add it.
+
+---
+
+## BCDBoot Fails
+
+**"Failure when attempting to copy boot files"**: the EFI partition
+isn't assigned letter `S:`. Verify:
+
+```
+diskpart
+list volume
+exit
+```
+
+Look for the FAT32 volume labeled `System` (300 MB). If it has a
+different letter (or no letter), assign `S:` and re-run bcdboot:
+
+```
+diskpart
+select volume <number>
+assign letter=S
+exit
+
+bcdboot C:\Windows /s S: /f UEFI
+```
+
+**"Failure when initializing library system volume"**: usually means
+`C:\Windows` doesn't actually exist (DISM apply failed silently).
+Verify:
+
+```
+dir C:\Windows\System32
+```
+
+If empty, your DISM step didn't actually succeed — re-read the DISM
+output for errors and retry.
+
+---
+
+## Drive Letter Conflicts
+
+If `C:` or `S:` is already in use when you run the partition script
+(rare, but happens if you re-run the procedure without rebooting WinPE),
+the `assign letter=` command fails.
+
+Clear it first:
+
+```
+diskpart
+list volume
+select volume <number-currently-using-C>
+remove letter=C
+exit
+```
+
+Then re-run your partition script.
+
+---
+
+## Deployment Succeeds but Windows Won't Boot
+
+1. **Boot mode:** make sure the target BIOS is set to UEFI mode, not
+   Legacy. The procedure creates a GPT/UEFI layout; Legacy boot can't
+   read it.
+2. **Secure Boot:** some Windows versions / WIMs require Secure Boot to
+   be enabled for the bootloader to load.
+3. **Missing storage drivers:** if the machine has an exotic NVMe
+   controller or RAID, Windows may not have drivers for it. Either
+   inject drivers into the WIM ahead of time (DISM
+   `/Add-Driver` to a mounted WIM on your admin workstation) or change
+   to AHCI in BIOS (Dell: see [CCTK.md](CCTK.md) for automating this).
+4. **BCDBoot wasn't actually run:** boot back into WinPE, repeat step
+   9 from README.md.
+
+If you suspect BCDBoot is the problem, recovery is a one-liner from
+WinPE:
+
+```
+bcdboot C:\Windows /s S: /f UEFI
+```
+
+(After re-assigning `S:` to the EFI partition first if needed.)
+
+---
+
+## "No additional disks were wiped" (When You Have Multiple Drives)
+
+The procedure only wipes the disk you select. If a machine has a
+second drive with leftover data you also want wiped, do it manually
+**before** the main partition script:
+
+```
+diskpart
+select disk <other-disk-number>
+clean
+exit
+```
+
+Then proceed with the normal partition script targeting your primary
+disk.
+
+> [!CAUTION]
+> Don't `clean` the USB. Confirm size and `list disk` output before
+> every `select` + `clean` pair.
+
+---
+
+## CCTK Fails (Dell)
+
+See [CCTK.md → Troubleshooting](CCTK.md#troubleshooting) for the full
+exit-code table. Most common:
+
+- **Exit 116**: HAPI driver missing. Rebuild boot.wim per CCTK.md.
+- **Exit 149**: Setup password mismatch. Add
+  `--valsetuppwd=<current>` to the ini.
+
+---
+
 ## Getting Debug Info
 
-Run the script manually to see full output:
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
-```
+**What disks does WinPE see?**
 
-Check available images:
-```powershell
-.\unified_winpe_deploy.ps1 -ListOnly
 ```
-
-Check DISM image info:
-```cmd
-Dism /Get-WimInfo /WimFile:D:\images\install.wim
-```
-
-Check disk state:
-```cmd
 diskpart
 list disk
-select disk 0
+list volume
+select disk <N>
 list partition
 detail disk
+exit
 ```
 
-## Known Caveats
+**What's in this WIM?**
 
-These are intentional design choices or environmental constraints, not
-bugs. For a list of what's recently changed, see
-[CHANGELOG.md](../CHANGELOG.md).
+```
+dism /Get-WimInfo /WimFile:I:\images\Win11.wim
+```
 
-### PowerShell runtime required for validation
-`tests/test_parse.ps1` requires `pwsh` on PATH. Run it from
-WinPE/Windows or any runner with PowerShell installed.
+**DISM detailed log** (after a failed apply):
 
-### USB disks are excluded from target selection
-External USB SSDs/HDDs are filtered out of the target-disk list and the
-multi-disk wipe stage. This is safety-first behavior: it prevents
-wiping the deployment USB itself. There is no flag to override this.
+```
+type X:\Windows\Logs\DISM\dism.log
+```
 
-### Tiny images (&lt;100MB) are hidden in auto-discovery
-WIM/ESD files under 100MB are skipped during the scan to avoid
-accidentally selecting boot/system artifacts. Pass the file directly
-with `-WimFile` if you need to deploy something smaller.
+(Use `more` instead of `type` for a paged view.)
 
-### build_boot_wim.ps1 assumes the default ADK install path
-The builder defaults to
-`C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit`.
-If ADK is installed elsewhere, pass `-AdkPath` with the correct root.
+**Network in WinPE** (if you need to grab a tool):
 
-### CCTK passwords sit in plaintext on the IMAGES partition
-Anyone with physical access to the USB can read setup/system passwords
-from `<IMAGES>\cctk\*.ini`. This is inherent to unattended WinPE flows
-— no cryptographic protection is possible without runtime input.
-Mitigation is physical USB security and rotating BIOS passwords
-post-deploy. See [CCTK.md](CCTK.md).
+```
+ipconfig
+ping 8.8.8.8
+```
 
-### CCTK is not redistributable
-Dell's EULA for Command | Configure does not allow shipping `cctk.exe`
-or HAPI driver in this repo. The repo never ships CCTK; users supply
-their own via the builder's `-CctkSource` parameter. `.gitignore`
-blocks accidental commits (`cctk.exe`, `hapint*.inf/.sys`, `/vendor/`,
-`/cctk-source/`).
+If networking isn't working, `WinPE-WMI` and a NIC driver may be
+missing. Some onboard NICs need driver injection at boot.wim build
+time — outside the scope of this procedure.
 
-### USB_SETUP.md uses /Compress:max + /CheckIntegrity /verify for captures
-The `Dism /Capture-Image` examples use `/Compress:max` and
-`/CheckIntegrity /verify`. `/verify` re-reads every file — capture is
-slower but catches bad source reads at capture time. ESD-style
-`/compress:recovery` is intentionally not used for master images
-because it doesn't support `/CheckIntegrity`.
+---
 
-### Get-WmiObject is used instead of Get-CimInstance
-Intentional for WinPE/PowerShell 5.1 compatibility. `Get-CimInstance`
-relies on WSMan, which isn't always available in stripped WinPE
-images. Do not "modernize" these calls.
+## When in Doubt
 
+The procedure in [README.md](../README.md) is the source of truth.
+If something doesn't match what's documented there, re-read the step
+slowly. The most common mistake is typing the wrong disk number in
+`select disk N`.
