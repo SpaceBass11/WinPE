@@ -12,15 +12,44 @@ a WinPE command prompt.
 
 ---
 
-## What's in the Box
+## Start Here — Pick Your Path
 
-| File / Folder              | Purpose                                              |
-|----------------------------|------------------------------------------------------|
-| `docs/USB_SETUP.md`        | Build the USB from scratch (one-time, yearly)        |
-| `docs/UNATTEND.md`         | Optional: skip OOBE, create accounts, set hostname   |
-| `docs/CCTK.md`             | Optional (Dell only): apply BIOS config before Windows |
-| `docs/TROUBLESHOOTING.md`  | Common errors and fixes                              |
-| `configs/unattend.example.xml` | Template answer file for first-boot setup        |
+| Your situation                              | Go to                                                |
+|---------------------------------------------|------------------------------------------------------|
+| **First time. I just downloaded this ZIP.** | [docs/USB_SETUP.md](docs/USB_SETUP.md) — build the USB once, then come back. |
+| **I have a USB already. I want to deploy Windows on a machine.** | [Daily Deploy](#daily-deploy--step-by-step) below. |
+| **I have a USB. I just want to add new images.** | Copy your `.wim`/`.esd` files to `I:\images\` on the USB's IMAGES partition. Done. |
+| **Something broke.**                        | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)  |
+
+---
+
+## What's in This Repo
+
+This is a **documentation-only** repo. Nothing here is software you
+run. You unzip it on your admin Windows workstation and read the
+instructions. **No file from this repo gets copied onto the USB**
+except optionally `configs/unattend.example.xml` (only if you want
+automated first-boot setup — see UNATTEND.md).
+
+| File / Folder              | What it is                                              |
+|----------------------------|----------------------------------------------------------|
+| `README.md` (this file)    | Overview + the deploy recipe you run on every machine.  |
+| `docs/USB_SETUP.md`        | Build the USB from scratch (one-time, yearly).          |
+| `docs/UNATTEND.md`         | Optional: skip OOBE, create accounts, set hostname.     |
+| `docs/CCTK.md`             | Optional (Dell only): apply BIOS config before Windows. |
+| `docs/TROUBLESHOOTING.md`  | Common errors and fixes.                                |
+| `configs/unattend.example.xml` | Template answer file. Copy + edit per UNATTEND.md.  |
+
+> [!TIP]
+> **Make the deploy recipe available offline.** WinPE has no web
+> browser, so when you're standing in front of a target machine
+> running the deploy steps below, you can't open this README from
+> inside WinPE. Three options:
+> - Print this README and keep it with the USB.
+> - Read it on your phone or a second laptop while you deploy.
+> - Copy `README.md` to `I:\README.md` on the USB's IMAGES partition.
+>   You can then read it from another Windows machine, or open it in
+>   Notepad from WinPE itself with `notepad I:\README.md`.
 
 ---
 
