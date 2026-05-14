@@ -4,11 +4,15 @@
     Prepare a customized Windows install.wim for deployment.
 
 .DESCRIPTION
-    Companion to unified_winpe_deploy.ps1. Takes a stock Windows ISO,
-    extracts install.wim, picks the requested edition, debloats provisioned
-    AppX packages using a whitelist, optionally applies offline registry
-    tweaks, and re-exports the result as a clean WIM ready to drop on the
-    USB IMAGES partition.
+    Companion to unified_winpe_deploy.ps1. Takes either:
+      - a stock Windows ISO (via -SourceIso, the original use case), or
+      - an already-captured WIM (via -SourceWim, e.g. one you made with
+        `Dism /Capture-Image` from a reference machine)
+    and produces a debloated, customized WIM ready to drop on the USB
+    IMAGES partition. The post-source flow is identical in both modes:
+    pick the index, mount the WIM, remove non-whitelisted provisioned
+    AppX packages, optionally apply registry tweaks, optionally inject
+    drivers, and re-export with /Compress:max + /CheckIntegrity.
 
     Whitelist-based debloat is intentional - blacklist approaches miss new
     bloat that Microsoft adds in each release. Edit -Whitelist (or pass
@@ -18,16 +22,31 @@
     than leaving an orphaned mount.
 
 .PARAMETER SourceIso
-    Path to the Windows installation ISO (the one with sources\install.wim).
-    Required.
+    Path to the Windows installation ISO (the one with sources\install.wim
+    or sources\install.esd). Use this OR -SourceWim, not both.
+
+.PARAMETER SourceWim
+    Path to an already-captured `.wim` file. Use this when your starting
+    point is a captured reference image (e.g. you ran
+    `Dism /Capture-Image /CaptureDir:C:\ /ImageFile:golden.wim ...`).
+    Use this OR -SourceIso, not both. The source file is copied to a
+    working location, never modified in place.
 
 .PARAMETER OutputWim
     Where to write the customized WIM. Required.
 
 .PARAMETER Edition
-    Edition name as DISM reports it - e.g. 'Windows 11 Enterprise',
-    'Windows 11 Pro'. Default: 'Windows 11 Enterprise'. Run
-    `Get-WindowsImage -ImagePath <install.wim>` to see available names.
+    Edition name to pick from the source — as DISM reports it, e.g.
+    'Windows 11 Enterprise', 'Windows 11 Pro'. Default:
+    'Windows 11 Enterprise'. Only relevant if the source has multiple
+    indexes with named editions. Run `Get-WindowsImage -ImagePath <wim>`
+    to see available names. Ignored if -Index is given.
+
+.PARAMETER Index
+    Numeric index to pick from the source WIM (overrides -Edition).
+    Useful for captured WIMs that don't use standard edition names, or
+    when you want to be explicit. If neither -Edition nor -Index is
+    given and the source is a captured WIM, defaults to index 1.
 
 .PARAMETER WorkDir
     Temporary working directory for ISO mount, WIM mount, and scratch.
@@ -96,6 +115,14 @@
         -DisableCopilot
 
 .EXAMPLE
+    # Prep a captured WIM (e.g. from `Dism /Capture-Image` on a reference box)
+    .\scripts\prepare_wim.ps1 `
+        -SourceWim 'C:\captures\golden-image.wim' `
+        -OutputWim 'I:\images\Win11_Golden.wim' `
+        -Index 1 `
+        -DisableExtraBloat
+
+.EXAMPLE
     # Prep with custom whitelist file
     .\scripts\prepare_wim.ps1 `
         -SourceIso 'D:\iso\Win11.iso' `
@@ -110,11 +137,13 @@
         -DriverPath 'C:\Drivers\Dell_OptiPlex7090' `
         -DisableCopilot
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName='FromIso')]
 param(
-    [Parameter(Mandatory)] [string]$SourceIso,
+    [Parameter(Mandatory, ParameterSetName='FromIso')] [string]$SourceIso,
+    [Parameter(Mandatory, ParameterSetName='FromWim')] [string]$SourceWim,
     [Parameter(Mandatory)] [string]$OutputWim,
     [string]$Edition = 'Windows 11 Enterprise',
+    [int]$Index,
     [string]$WorkDir = 'C:\WimPrep',
     [string[]]$Whitelist = @(
         # Codecs and image/video extensions (apps without these break on consumer hardware)
@@ -129,23 +158,20 @@ param(
         'Microsoft.WebpImageExtension'
         # Core utilities most users actually use
         'Microsoft.DesktopAppInstaller'
-        'Microsoft.MicrosoftStickyNotes'
-        'Microsoft.Paint'
+        'Microsoft.GetHelp'
         'Microsoft.ScreenSketch'
         'Microsoft.SecHealthUI'
         'Microsoft.StorePurchaseApp'
         'Microsoft.Windows.Photos'
+        'Microsoft.WindowsAlarms'
         'Microsoft.WindowsCalculator'
         'Microsoft.WindowsCamera'
         'Microsoft.WindowsNotepad'
+        'Microsoft.WindowsSoundRecorder'
         'Microsoft.WindowsStore'
         'Microsoft.WindowsTerminal'
         'Microsoft.ApplicationCompatibilityEnhancements'
-        # Archive
-        #'Microsoft.GetHelp'
-        #'Microsoft.WindowsAlarms'
-        #'Microsoft.WindowsSoundRecorder'
-        #'MicrosoftWindows.Client.WebExperience'
+        'MicrosoftWindows.Client.WebExperience'
     ),
     [string]$WhitelistFile,
     [string]$DriverPath,
@@ -160,11 +186,22 @@ function Write-Step { param([string]$m) Write-Host "[prep] $m" -ForegroundColor 
 function Write-Ok   { param([string]$m) Write-Host "[ ok ] $m" -ForegroundColor Green }
 function Write-Warn { param([string]$m) Write-Host "[warn] $m" -ForegroundColor Yellow }
 
-# Validate inputs
-if (-not (Test-Path $SourceIso -PathType Leaf)) {
-    throw "SourceIso not found: $SourceIso"
+# Validate inputs (source is one of -SourceIso or -SourceWim; parameter
+# sets guarantee exactly one is bound)
+if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
+    if (-not (Test-Path $SourceIso -PathType Leaf)) {
+        throw "SourceIso not found: $SourceIso"
+    }
+    $SourceIso = (Resolve-Path $SourceIso).Path
+} else {
+    if (-not (Test-Path $SourceWim -PathType Leaf)) {
+        throw "SourceWim not found: $SourceWim"
+    }
+    $SourceWim = (Resolve-Path $SourceWim).Path
+    if ([IO.Path]::GetExtension($SourceWim) -notin '.wim','.esd') {
+        throw "SourceWim must have a .wim or .esd extension (got: $SourceWim)"
+    }
 }
-$SourceIso = (Resolve-Path $SourceIso).Path
 
 if ($DriverPath) {
     if (-not (Test-Path $DriverPath -PathType Container)) {
@@ -216,62 +253,93 @@ try {
     Write-Warn "Could not check for stale mounts ($($_.Exception.Message)) - continuing anyway"
 }
 
-# Step 1: mount ISO, extract install.wim, dismount ISO (try/finally)
-Write-Step "Mounting ISO: $SourceIso"
-$isoMounted = $false
-try {
-    Mount-DiskImage -ImagePath $SourceIso | Out-Null
-    $isoMounted = $true
-    Start-Sleep -Seconds 2  # Give the volume time to surface
-    $isoVolume = Get-DiskImage -ImagePath $SourceIso | Get-Volume
-    if (-not $isoVolume.DriveLetter) {
-        throw "ISO mounted but no drive letter assigned"
-    }
-    $isoDrive = "$($isoVolume.DriveLetter):"
-    Write-Ok "ISO mounted at $isoDrive"
-
-    $isoWim = Join-Path $isoDrive 'sources\install.wim'
-    $isoEsd = Join-Path $isoDrive 'sources\install.esd'
-
-    if (Test-Path $isoWim) {
-        Copy-Item -Path $isoWim -Destination $baseWim -Force
-        Write-Ok "Copied install.wim to $baseWim"
-    } elseif (Test-Path $isoEsd) {
-        # Some retail ISOs ship an ESD - export the requested edition out
-        Write-Step "ISO has install.esd (not .wim) - converting via Export-WindowsImage"
-        $esdImages = Get-WindowsImage -ImagePath $isoEsd
-        $esdMatch = $esdImages | Where-Object { $_.ImageName -eq $Edition } | Select-Object -First 1
-        if (-not $esdMatch) {
-            $available = ($esdImages.ImageName -join ', ')
-            throw "Edition '$Edition' not found in install.esd. Available: $available"
+# Step 1: produce $baseWim — either by extracting it from an ISO or by
+# copying a captured WIM. From here on, the workflow is identical.
+if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
+    Write-Step "Mounting ISO: $SourceIso"
+    $isoMounted = $false
+    try {
+        Mount-DiskImage -ImagePath $SourceIso | Out-Null
+        $isoMounted = $true
+        Start-Sleep -Seconds 2  # Give the volume time to surface
+        $isoVolume = Get-DiskImage -ImagePath $SourceIso | Get-Volume
+        if (-not $isoVolume.DriveLetter) {
+            throw "ISO mounted but no drive letter assigned"
         }
-        Export-WindowsImage -SourceImagePath $isoEsd -SourceIndex $esdMatch.ImageIndex `
-            -DestinationImagePath $baseWim -DestinationName $Edition `
-            -ScratchDirectory $scratchDir -CheckIntegrity | Out-Null
-        Write-Ok "Exported $Edition from install.esd"
-    } else {
-        throw "Neither sources\install.wim nor install.esd found on ISO"
-    }
-} finally {
-    if ($isoMounted) {
-        try {
-            Dismount-DiskImage -ImagePath $SourceIso | Out-Null
-            Write-Ok "ISO dismounted"
-        } catch {
-            Write-Warn "ISO dismount failed (non-fatal): $($_.Exception.Message)"
+        $isoDrive = "$($isoVolume.DriveLetter):"
+        Write-Ok "ISO mounted at $isoDrive"
+
+        $isoWim = Join-Path $isoDrive 'sources\install.wim'
+        $isoEsd = Join-Path $isoDrive 'sources\install.esd'
+
+        if (Test-Path $isoWim) {
+            Copy-Item -Path $isoWim -Destination $baseWim -Force
+            Write-Ok "Copied install.wim to $baseWim"
+        } elseif (Test-Path $isoEsd) {
+            # Some retail ISOs ship an ESD - export the requested edition out
+            Write-Step "ISO has install.esd (not .wim) - converting via Export-WindowsImage"
+            $esdImages = Get-WindowsImage -ImagePath $isoEsd
+            $esdMatch = $esdImages | Where-Object { $_.ImageName -eq $Edition } | Select-Object -First 1
+            if (-not $esdMatch) {
+                $available = ($esdImages.ImageName -join ', ')
+                throw "Edition '$Edition' not found in install.esd. Available: $available"
+            }
+            Export-WindowsImage -SourceImagePath $isoEsd -SourceIndex $esdMatch.ImageIndex `
+                -DestinationImagePath $baseWim -DestinationName $Edition `
+                -ScratchDirectory $scratchDir -CheckIntegrity | Out-Null
+            Write-Ok "Exported $Edition from install.esd"
+        } else {
+            throw "Neither sources\install.wim nor install.esd found on ISO"
+        }
+    } finally {
+        if ($isoMounted) {
+            try {
+                Dismount-DiskImage -ImagePath $SourceIso | Out-Null
+                Write-Ok "ISO dismounted"
+            } catch {
+                Write-Warn "ISO dismount failed (non-fatal): $($_.Exception.Message)"
+            }
         }
     }
+} else {
+    # FromWim: copy the user's WIM to the working location. We never modify
+    # the source in place — keeps re-runs cheap and the original safe.
+    Write-Step "Copying source WIM to working location"
+    Write-Step "  source: $SourceWim"
+    Write-Step "  dest:   $baseWim"
+    Copy-Item -Path $SourceWim -Destination $baseWim -Force
+    Write-Ok "Source WIM copied (size: $([math]::Round((Get-Item $baseWim).Length / 1GB, 1)) GB)"
 }
 
-# Step 2: identify the edition index in the base WIM
+# Step 2: identify which index in the base WIM to customize. Precedence:
+#   1. -Index, if given (overrides everything else)
+#   2. -Edition name match, if explicit or the source is an ISO
+#   3. For captured WIMs without explicit selection: default to index 1
 Write-Step "Inspecting $baseWim"
 $baseImages = Get-WindowsImage -ImagePath $baseWim
-$target = $baseImages | Where-Object { $_.ImageName -eq $Edition } | Select-Object -First 1
-if (-not $target) {
-    $available = ($baseImages.ImageName -join ', ')
-    throw "Edition '$Edition' not found in $baseWim. Available: $available"
+$indexGiven   = $PSBoundParameters.ContainsKey('Index')
+$editionGiven = $PSBoundParameters.ContainsKey('Edition')
+
+if ($indexGiven) {
+    $target = $baseImages | Where-Object { $_.ImageIndex -eq $Index } | Select-Object -First 1
+    if (-not $target) {
+        $available = ($baseImages | ForEach-Object { "  $($_.ImageIndex): $($_.ImageName)" }) -join "`n"
+        throw "Index $Index not found in $baseWim. Available:`n$available"
+    }
+    Write-Ok "Selected index $($target.ImageIndex): '$($target.ImageName)'"
+} elseif ($editionGiven -or $PSCmdlet.ParameterSetName -eq 'FromIso') {
+    $target = $baseImages | Where-Object { $_.ImageName -eq $Edition } | Select-Object -First 1
+    if (-not $target) {
+        $available = ($baseImages.ImageName -join ', ')
+        throw "Edition '$Edition' not found in $baseWim. Available: $available"
+    }
+    Write-Ok "Found '$Edition' at index $($target.ImageIndex)"
+} else {
+    # FromWim, neither -Index nor -Edition explicitly given — most captures
+    # are single-image, default to index 1.
+    $target = $baseImages | Select-Object -First 1
+    Write-Ok "Using first index: $($target.ImageIndex) ($($target.ImageName))"
 }
-Write-Ok "Found '$Edition' at index $($target.ImageIndex)"
 
 # Step 3: mount the WIM, debloat, optionally tweak registry, dismount /save (try/finally)
 Write-Step "Mounting WIM index $($target.ImageIndex) at $mountDir"
@@ -409,7 +477,8 @@ Write-Ok "Wrote $OutputWim ($finalSizeGB GB)"
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
-Write-Host "  Input:   $SourceIso"
+$inputPath = if ($PSCmdlet.ParameterSetName -eq 'FromIso') { $SourceIso } else { $SourceWim }
+Write-Host "  Input:   $inputPath"
 Write-Host "  Output:  $OutputWim"
 if ($DriverPath) { Write-Host "  Drivers: $DriverPath" }
 Write-Host ""
