@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Added
+- **`-SourceWim` parameter on `prepare_wim.ps1`** — alternative starting
+  point for when the source is an already-captured WIM (e.g. from
+  `Dism /Capture-Image` of a reference machine) instead of a stock
+  Windows ISO. Parameter sets enforce "one or the other, not both."
+  After the source step the workflow is identical: pick the index,
+  mount, debloat / tweak / inject drivers, re-export. The source file
+  is copied to a working location and never modified in place.
+- **`-Index` parameter on `prepare_wim.ps1`** — numeric image-index
+  override for picking which image inside a multi-index WIM to
+  customize. Useful for captured WIMs that don't use standard edition
+  names. Falls back to `-Edition` name match, or index 1 for captured
+  WIMs with no explicit selection.
 - **`-DisableExtraBloat` parameter on `prepare_wim.ps1`** — superset of
   `-DisableCopilot`. Applies seven additional HKLM policy tweaks via the
   same offline-hive mechanism: disable Recall, Widgets / News & Interests,

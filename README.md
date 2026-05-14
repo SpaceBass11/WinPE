@@ -61,9 +61,9 @@ Full details and warnings: [docs/USB_SETUP.md](docs/USB_SETUP.md).
 
 ### Step 2 — Prepare your Windows image (optional but recommended)
 
-Run on your **admin workstation** (not in WinPE). Takes a stock ISO and
-produces a debloated, customized `.wim` ready to deploy:
+Run on your **admin workstation** (not in WinPE). Two starting points:
 
+**A. From a stock Windows ISO** — most common:
 ```powershell
 # Requires admin. Run from the repo root.
 .\scripts\prepare_wim.ps1 `
@@ -71,6 +71,19 @@ produces a debloated, customized `.wim` ready to deploy:
     -OutputWim 'I:\images\Win11_Enterprise.wim' `
     -DisableExtraBloat
 ```
+
+**B. From a captured WIM** (e.g. `Dism /Capture-Image` of a reference machine):
+```powershell
+.\scripts\prepare_wim.ps1 `
+    -SourceWim 'C:\captures\golden-image.wim' `
+    -OutputWim 'I:\images\Win11_Golden.wim' `
+    -Index 1 `
+    -DisableExtraBloat
+```
+
+Both produce a debloated, customized `.wim` ready to deploy. After the
+source step (ISO mount / WIM copy), the flow is identical — pick the
+index, debloat, optionally tweak, re-export.
 
 Skip this step if you already have a `.wim`/`.esd` — just copy it to
 `I:\images\` directly.

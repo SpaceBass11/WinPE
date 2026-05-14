@@ -342,9 +342,16 @@ admin Windows workstation (not in WinPE).
 
 ## Parameters
 
-### -SourceIso [string] (Required)
+### -SourceIso [string] (Required if -SourceWim not given)
 Path to the Windows installation ISO (must contain
-`sources\install.wim` or `sources\install.esd`).
+`sources\install.wim` or `sources\install.esd`). Use this **or**
+`-SourceWim`, not both.
+
+### -SourceWim [string] (Required if -SourceIso not given)
+Path to an already-captured `.wim`/`.esd` file (e.g. one produced by
+`Dism /Capture-Image` on a reference machine). Use this **or**
+`-SourceIso`, not both. The source is copied to a working location
+before modification — the original file is never touched in place.
 
 ### -OutputWim [string] (Required)
 Where to write the customized WIM. Parent directory is created if missing.
@@ -352,6 +359,13 @@ Where to write the customized WIM. Parent directory is created if missing.
 ### -Edition [string]
 Edition name as DISM reports it. Default: `'Windows 11 Enterprise'`.
 Run `Get-WindowsImage -ImagePath <install.wim>` to list available names.
+Ignored if `-Index` is given.
+
+### -Index [int]
+Numeric image index to pick from the source. Overrides `-Edition`.
+Useful for captured WIMs that don't use the standard edition names, or
+when you want to be explicit. If neither `-Edition` nor `-Index` is
+given and the source is a captured WIM, defaults to index 1.
 
 ### -WorkDir [string]
 Temporary working directory for ISO mount, WIM mount, and DISM scratch.
