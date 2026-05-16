@@ -1518,10 +1518,18 @@ function Start-Deployment {
 try {
     $success = Start-Deployment
     if (-not $success) {
+        # Surface log path so the operator doesn't have to scroll past a long
+        # DISM/diskpart trace to find it
+        if ($Script:SystemPaths.LogFile) {
+            Write-Log "Full log: $($Script:SystemPaths.LogFile)" -Level Info
+        }
         exit 1
     }
 } catch {
     Write-Log "Critical error: $($_.Exception.Message)" -Level Error
+    if ($Script:SystemPaths.LogFile) {
+        Write-Log "Full log: $($Script:SystemPaths.LogFile)" -Level Info
+    }
     if (-not $Silent) {
         Read-Host "Press Enter to exit"
     }
