@@ -273,6 +273,56 @@ script was lagging behind the docs.
   similar small expansion (the common BCDBoot failures are EFI partition
   not S:, target not bootable, and `bcdboot.exe` missing from PATH) would
   bring it to parity with the DISM block.
+---
+
+## 2026-05-16 — WIM index parser regression test
+
+**Investigated:** The deep-review's "next recommended improvement" list
+flagged the absence of a structural smoke test for `Get-WimImageInfo`,
+the function that parses `dism /Get-WimInfo /English` output into the
+edition-selection menu. A silent regex failure here would either abort
+the deploy (best case) or — if regex shape changed in a way that still
+matched but mis-attributed fields — let the operator pick the wrong
+edition to deploy. No existing test covered the parser; `test_parse.ps1`
+only validates script-level syntax and structure.
+
+**Changed:**
+
+- `tests/test_wim_parser.ps1` — new fixture test. Defines three
+  realistic DISM `/Get-WimInfo /English` outputs (multi-index, single-
+  index, error/empty), runs them through a parser that mirrors
+  `Get-WimImageInfo`, and asserts index count, name, description, size,
+  and integer index numbers. Includes a drift guard that confirms the
+  four parser regex patterns still live verbatim in
+  `unified_winpe_deploy.ps1`; if either side changes without the other,
+  the guard fails and forces the test to be updated.
+- `.github/workflows/ci.yml` — wired the new test into the `syntax` job
+  as a follow-on step. Runs on every push and PR to `main`.
+
+**Verification:** PowerShell (`pwsh`) is not present in the Linux
+session, so the test cannot run locally — same constraint flagged by
+the deep-review's Validation Notes and the previous routine entry. The
+file was reviewed by hand for: balanced braces, regex patterns matching
+the deploy script verbatim, return semantics (`return ,$indexes` to
+preserve empty / single-element arrays through PowerShell's output
+unwrapping), and PSSA-friendly explicit-parameter passing rather than
+dynamic-scope lookup inside the helper. CI's Windows runner will
+execute the real `pwsh ./tests/test_wim_parser.ps1`.
+
+**Risks:** Test-only addition. No production code touched. Only CI
+risk: if my drift-guard regex patterns somehow don't match the script
+even though they should, CI fails — caught on the first push.
+
+**Next recommended improvement:**
+
+- Consider whether `Apply-WindowsImage`'s DISM exit-code → recovery
+  message table covers the other common WinPE failure modes (50, 87,
+  1392). Today only exit code 1 has bespoke guidance.
+- A similar fixture test could be added for `Get-SystemDisks` /
+  `Win32_DiskDrive` enumeration to guard against partition-count
+  regression on Linux/LVM disks. Less urgent — the current behavior is
+  documented in the deep-review as a mitigated risk.
+
 
 ---
 

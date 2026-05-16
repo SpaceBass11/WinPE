@@ -25,6 +25,10 @@ jobs:
         shell: pwsh
         run: ./tests/test_parse.ps1
 
+      - name: Run WIM index parser tests
+        shell: pwsh
+        run: ./tests/test_wim_parser.ps1
+
   pssa:
     name: PSScriptAnalyzer
     runs-on: windows-latest
