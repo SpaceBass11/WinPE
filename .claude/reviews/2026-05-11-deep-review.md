@@ -88,10 +88,11 @@ safety, operator ergonomics, and resilience in WinPE.
 3. **Recovery guidance log-location reminder.**
    - The script logs extensively to a timestamped file in the WinPE temp
      dir, but not every fatal exit re-prints the log file path.
-   - **Status:** Partial. DISM failure paths print "RECOVERY GUIDANCE" with
-     specific steps. BCDBoot failure prints the manual bcdboot command.
-     Future improvement: add `Write-Log "Full log: $($Script:SystemPaths.LogFile)"`
-     to all fatal return paths.
+   - **Status:** Resolved (2026-05-16). The outer `try/catch` at the
+     bottom of `unified_winpe_deploy.ps1` now writes
+     `Full log: $($Script:SystemPaths.LogFile)` on every fatal exit —
+     both the `Start-Deployment` failed-return branch and the critical-
+     exception `catch` block — guarded on `LogFile` being set.
 
 ## Ongoing Review Checklist
 
