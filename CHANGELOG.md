@@ -8,6 +8,15 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- `prepare_wim.ps1` now names the exported WIM after the selected source
+  image (`$target.ImageName`) instead of the default `$Edition` literal.
+  Before: `-SourceWim foo.wim -Index 1` always produced a WIM labeled
+  `Windows 11 Enterprise (Custom)` regardless of what the source was,
+  which then surfaced as the wrong edition name in the deploy script's
+  `Select-ImageIndex` menu. Falls back to `$Edition` only when the source
+  image has no name set.
+
 ### Added
 - **`-SourceWim` parameter on `prepare_wim.ps1`** — alternative starting
   point for when the source is an already-captured WIM (e.g. from
