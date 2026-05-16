@@ -82,6 +82,7 @@ still seeing the old behavior.
 | 1 | Incorrect function | See next section — usually Containers/Layers metadata or WIM corruption |
 | 2 | File not found | Verify WIM path exists and is accessible |
 | 11 | Invalid image index | Check available indexes with `Dism /Get-WimInfo /WimFile:path.wim` |
+| 50 | Request not supported | WIM architecture / target volume / feature-pack mismatch — see `dism.log` for the specific operation |
 | 87 | Invalid parameter | Check WIM file integrity |
 | 1392 | Corrupted WIM | Re-download or re-capture the image |
 | 112 | Disk full | Target disk too small for the image |

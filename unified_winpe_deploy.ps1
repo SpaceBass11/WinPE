@@ -1053,19 +1053,64 @@ function Apply-WindowsImage {
 
         Write-Log "DISM failed with exit code $($process.ExitCode)" -Level Error
 
-        # Exit code 1 = ERROR_INVALID_FUNCTION. Almost always means the WIM has damaged
-        # metadata (often surfacing on Windows Containers layer files, which use huge
-        # hard-link storms) or the source drive is returning bad reads mid-apply.
-        if ($process.ExitCode -eq 1) {
-            $dismLog = 'X:\Windows\Logs\DISM\dism.log'
-            Write-Log "Exit code 1 ('Incorrect function') usually means WIM corruption or a flaky source-drive read." -Level Warning
-            Write-Log "Check $dismLog for the exact failing file/operation." -Level Info
-            Write-Log "Recovery steps to try:" -Level Info
-            Write-Log "  1. Verify WIM integrity:  dism /Get-WimInfo /WimFile:""$WimPath"" /Index:$ImageIndex /CheckIntegrity" -Level Info
-            Write-Log "  2. Re-copy the WIM to the USB drive - the on-disk copy may have bit-rot" -Level Info
-            Write-Log "  3. Try a different USB port or a USB 2.0 port (some USB 3.x controllers drop reads)" -Level Info
-            Write-Log "  4. If the image includes Windows Containers/Hyper-V layers, try a different edition" -Level Info
-            Write-Log "  5. Last resort: retry with /NoRpFix manually: dism /apply-image /imagefile:""$WimPath"" /index:$ImageIndex /applydir:C:\ /NoRpFix" -Level Info
+        # Operator-facing recovery guidance for known DISM apply failures.
+        # The full lookup table lives in docs/TROUBLESHOOTING.md; this block
+        # surfaces the most common one-liners inline so the operator doesn't
+        # have to scroll past the trace or open another doc.
+        $dismLog = 'X:\Windows\Logs\DISM\dism.log'
+        switch ($process.ExitCode) {
+            1 {
+                # ERROR_INVALID_FUNCTION. Almost always means the WIM has damaged
+                # metadata (often surfacing on Windows Containers layer files, which
+                # use huge hard-link storms) or the source drive is returning bad
+                # reads mid-apply.
+                Write-Log "Exit code 1 ('Incorrect function') usually means WIM corruption or a flaky source-drive read." -Level Warning
+                Write-Log "Check $dismLog for the exact failing file/operation." -Level Info
+                Write-Log "Recovery steps to try:" -Level Info
+                Write-Log "  1. Verify WIM integrity:  dism /Get-WimInfo /WimFile:""$WimPath"" /Index:$ImageIndex /CheckIntegrity" -Level Info
+                Write-Log "  2. Re-copy the WIM to the USB drive - the on-disk copy may have bit-rot" -Level Info
+                Write-Log "  3. Try a different USB port or a USB 2.0 port (some USB 3.x controllers drop reads)" -Level Info
+                Write-Log "  4. If the image includes Windows Containers/Hyper-V layers, try a different edition" -Level Info
+                Write-Log "  5. Last resort: retry with /NoRpFix manually: dism /apply-image /imagefile:""$WimPath"" /index:$ImageIndex /applydir:C:\ /NoRpFix" -Level Info
+            }
+            2 {
+                Write-Log "Exit code 2 ('File not found') means DISM lost access to the WIM mid-apply." -Level Warning
+                Write-Log "Check that '$WimPath' is still readable - the USB drive may have been disconnected." -Level Info
+            }
+            11 {
+                Write-Log "Exit code 11 ('Invalid image index') means index $ImageIndex doesn't exist in this WIM." -Level Warning
+                Write-Log "List available indexes:  dism /Get-WimInfo /WimFile:""$WimPath""" -Level Info
+            }
+            50 {
+                Write-Log "Exit code 50 ('Request not supported') usually means the target volume or WIM features aren't compatible with this WinPE/hardware combo." -Level Warning
+                Write-Log "Common causes: WIM architecture mismatch (x64 vs x86 vs ARM64), target volume not NTFS, or unmet feature-pack requirements." -Level Info
+                Write-Log "Check $dismLog for the specific operation that triggered the failure." -Level Info
+            }
+            87 {
+                Write-Log "Exit code 87 ('Invalid parameter') means DISM rejected its arguments." -Level Warning
+                Write-Log "Most often: WIM file is corrupted or unreadable. Try:  dism /Get-WimInfo /WimFile:""$WimPath"" /CheckIntegrity" -Level Info
+                Write-Log "If the WIM checks clean, capture $dismLog and the console output for triage - this is likely a script bug." -Level Info
+            }
+            112 {
+                Write-Log "Exit code 112 ('Disk full') means C: ran out of space mid-apply." -Level Warning
+                Write-Log "The pre-deploy size check uses the WIM's on-disk size; the applied image expands larger than that." -Level Info
+                Write-Log "Recovery: re-run on a larger target disk, or shrink the source by exporting only the needed index." -Level Info
+            }
+            1168 {
+                Write-Log "Exit code 1168 ('Element not found') usually means the WIM or its selected index is corrupted/missing." -Level Warning
+                Write-Log "Verify the WIM:  dism /Get-WimInfo /WimFile:""$WimPath"" /CheckIntegrity" -Level Info
+            }
+            1392 {
+                Write-Log "Exit code 1392 ('File or directory is corrupted and unreadable') points at filesystem-level corruption on the WIM source." -Level Warning
+                Write-Log "Recovery steps to try:" -Level Info
+                Write-Log "  1. Re-copy the WIM to the USB drive - the on-disk copy may have bit-rot" -Level Info
+                Write-Log "  2. Run chkdsk on the source partition (from a working OS, not WinPE)" -Level Info
+                Write-Log "  3. If the USB itself is failing, swap to a different drive" -Level Info
+            }
+            default {
+                Write-Log "See docs/TROUBLESHOOTING.md ('DISM fails with error code') for the meaning of exit code $($process.ExitCode)." -Level Info
+                Write-Log "Check $dismLog for details." -Level Info
+            }
         }
 
         return $false
