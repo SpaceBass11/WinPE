@@ -141,6 +141,23 @@ its own. If you still see this exit code, `clean` itself is failing.
 
 **Cause:** Boot configuration can't be written to the EFI partition.
 
+**What the script now surfaces:** On a non-zero `bcdboot.exe` exit the deploy
+script prints bcdboot's own stderr line (e.g. "Failure when attempting to copy
+boot files"), then a diagnostics block with:
+
+- whether `C:\Windows\Boot\EFI\bootmgfw.efi` exists (bcdboot's source file)
+- whether `S:` is mounted and how much free space it has
+- the three common-cause reminders below
+
+**Common causes:**
+
+| Symptom | Likely cause |
+|---------|--------------|
+| `C:\Windows\Boot\EFI\bootmgfw.efi` not found | WIM is non-bootable / capture-only, or wrong CPU architecture (x86 vs x64 vs ARM64) |
+| `S:` not mounted | EFI partition lost its letter; re-assign in diskpart |
+| `S:` very low on free space | EFI partition was reformatted as too-small or non-FAT32 |
+| `/f UEFI` rejected | Firmware is in Legacy/CSM mode — switch to UEFI, or use BIOS-mode tooling instead (this script is UEFI-only) |
+
 **Fix:**
 1. Verify the EFI partition was created and assigned letter S:
    ```cmd

@@ -1079,15 +1079,52 @@ function Set-BootConfiguration {
     Write-Log "Configuring UEFI boot..." -Level Info
 
     try {
-        $process = Start-Process -FilePath 'bcdboot.exe' -ArgumentList 'C:\Windows', '/s', 'S:', '/f', 'UEFI' -Wait -PassThru -WindowStyle Hidden
+        # -NoNewWindow (matches dism/diskpart invocations above) so bcdboot's own
+        # diagnostic line ("Failure when attempting to copy boot files" or BFSVC
+        # text) reaches the console instead of being swallowed by Hidden.
+        $process = Start-Process -FilePath 'bcdboot.exe' -ArgumentList 'C:\Windows', '/s', 'S:', '/f', 'UEFI' -Wait -PassThru -NoNewWindow
 
         if ($process.ExitCode -eq 0) {
             Write-Log "Boot configuration completed" -Level Success
             return $true
-        } else {
-            Write-Log "BCDBoot failed with exit code $($process.ExitCode)" -Level Error
-            return $false
         }
+
+        Write-Log "BCDBoot failed with exit code $($process.ExitCode)" -Level Error
+        Write-Log "Diagnostics:" -Level Info
+
+        # UEFI boot-manager source presence on the applied image. C:\Windows
+        # itself is already checked post-DISM-apply at $verifyPaths, so we only
+        # look at the EFI bit here: bcdboot copies bootmgfw.efi from this exact
+        # path onto S: - if it's missing, bcdboot fails before touching S:.
+        $bootmgfwEfi = 'C:\Windows\Boot\EFI\bootmgfw.efi'
+        if (Test-Path $bootmgfwEfi) {
+            Write-Log "  $bootmgfwEfi present" -Level Info
+        } else {
+            Write-Log "  $bootmgfwEfi NOT found - applied image is missing the UEFI boot manager (non-bootable WIM or wrong arch)" -Level Warning
+        }
+
+        # S: drive state. Post-diskpart already verifies S: exists, but it can be
+        # remounted/lost between then and now (rare but worth surfacing). Also
+        # checks free space - the FAT32 EFI partition is 300 MB and a fresh
+        # BCD/EFI tree fits in a few MB, so anything under ~30 MB free is a
+        # red flag.
+        $sVol = Get-PSDrive -Name 'S' -ErrorAction SilentlyContinue
+        if ($sVol) {
+            $sFreeMB = [math]::Round($sVol.Free / 1MB, 1)
+            Write-Log "  S: mounted, free: $sFreeMB MB" -Level Info
+            if ($sFreeMB -lt 30) {
+                Write-Log "  S: free space looks tight for BCD/EFI files (< 30 MB)" -Level Warning
+            }
+        } else {
+            Write-Log "  S: NOT mounted - re-assign letter S to the EFI partition via diskpart and retry" -Level Warning
+        }
+
+        Write-Log "Common causes:" -Level Info
+        Write-Log "  1. EFI partition is not letter S: or was reformatted as non-FAT32" -Level Info
+        Write-Log "  2. Applied image has no UEFI boot manager (bootmgfw.efi) - re-check the WIM source or arch" -Level Info
+        Write-Log "  3. Firmware is in Legacy/CSM mode - this script targets pure UEFI (/f UEFI)" -Level Info
+        Write-Log "  4. See bcdboot output above for the exact failure point" -Level Info
+        return $false
     } catch {
         Write-Log "Boot configuration error: $($_.Exception.Message)" -Level Error
         return $false
