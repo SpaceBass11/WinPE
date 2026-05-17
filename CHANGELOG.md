@@ -63,6 +63,12 @@ tagged GitHub releases are published.
   that fail early if the ADK environment is missing.
 
 ### Changed
+- `-UnattendFile` validation now parses the file as XML up front, in
+  addition to the existing `Test-Path` check. A malformed unattend.xml
+  is silently ignored by Windows Setup at first boot (falls through to
+  manual OOBE) — failing here, before any disk wipe, saves the operator
+  a full re-deploy. Matches the manual `[xml](Get-Content ...)` sanity
+  check documented in `docs/UNATTEND.md` section 6.
 - Documentation restructured to cut maintenance burden:
   - `docs/KNOWN_ISSUES.md` merged into `docs/TROUBLESHOOTING.md` as a
     new "Known Caveats" section. "Recently Fixed" entries removed in
