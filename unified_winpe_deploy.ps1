@@ -1330,10 +1330,23 @@ function Start-Deployment {
         }
     }
 
-    # Validate -UnattendFile if provided (fail before anything destructive happens)
+    # Validate -UnattendFile if provided (fail before anything destructive happens).
+    # Well-formedness check matches the manual sanity check in docs/UNATTEND.md
+    # section 6: Windows Setup silently ignores a malformed unattend.xml and
+    # falls through to manual OOBE, so failing here saves the operator a wipe
+    # and re-deploy when they discover OOBE prompted them on first boot.
     if ($UnattendFile) {
         if (-not (Test-Path $UnattendFile -PathType Leaf)) {
             Write-Log "UnattendFile not found: $UnattendFile" -Level Error
+            return $false
+        }
+        try {
+            [xml](Get-Content -Path $UnattendFile -Raw) | Out-Null
+        } catch {
+            Write-Log "UnattendFile is not well-formed XML: $UnattendFile" -Level Error
+            Write-Log "  Parse error: $($_.Exception.Message)" -Level Error
+            Write-Log "  Windows Setup silently ignores a malformed unattend.xml and falls through to manual OOBE." -Level Error
+            Write-Log "  Sanity-check manually: [xml](Get-Content '$UnattendFile')  (see docs/UNATTEND.md section 6)" -Level Info
             return $false
         }
         Write-Log "Unattend file: $UnattendFile" -Level Info
