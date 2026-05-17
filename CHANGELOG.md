@@ -106,6 +106,14 @@ tagged GitHub releases are published.
   strings) are now Phase 1B checks 15-19. The dedicated
   `static-analysis` CI job is removed; the same coverage runs on
   Ubuntu in masterize.
+- `tests/test_parse.ps1` "Required functions" list extended to cover
+  four functions added since v4.5.0 that were silently uncovered:
+  `Invoke-CctkConfig` (Dell BIOS pre-apply gate),
+  `Select-AdditionalWipeDisks` (multi-disk wipe stage),
+  `Test-FinalWipeConfirmation` (the typed-confirmation parser shared by
+  both wipe paths), and `Show-ImageList` (backs the public `-ListOnly`
+  flag). A regression that removed or renamed any of these would have
+  passed the syntax test before this change.
 
 ### Removed
 - `.github/CODEOWNERS` — single-owner ceremony with no co-owners; the
