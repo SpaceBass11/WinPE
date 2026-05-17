@@ -5,52 +5,6 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
-## 2026-05-16 — prepare_wim.ps1 destination-name fix
-
-**Investigated:** `prepare_wim.ps1` export step, in particular how the
-`-SourceWim` / `-Index` parameter set introduced in PR #22 interacts with
-the `-DestinationName` argument on `Export-WindowsImage`.
-
-**Found:** Line 472 hard-coded `"$Edition (Custom)"` as the destination
-name. `$Edition` defaults to `'Windows 11 Enterprise'` and is *not*
-required when `-SourceWim` or `-Index` is given. So
-`prepare_wim.ps1 -SourceWim golden.wim -Index 1` produced a WIM labeled
-`Windows 11 Enterprise (Custom)` regardless of what the source actually
-was. The mislabel then surfaced as the wrong edition name in the deploy
-script's `Select-ImageIndex` menu (`unified_winpe_deploy.ps1` line 837),
-where the operator picks which edition to install.
-
-**Changed:**
-- `scripts/prepare_wim.ps1` — derive the destination name from
-  `$target.ImageName` (the actual selected image) with a fallback to
-  `$Edition` for empty-name captures. Comment explains why.
-- `CHANGELOG.md` — added a `### Fixed` entry under `## Unreleased`.
-
-**Verification:** `pwsh` isn't available in this Linux session so
-`tests/test_parse.ps1` can't run locally — same constraint flagged in
-open PRs #23/#24/#25. The change is mechanical: replaces one string
-literal with a variable derived from already-validated state.
-Pre-existing structural assertions still pass:
-- The Export-WindowsImage call is unchanged in shape (same parameters,
-  same line continuations).
-- No new mounts, no destructive code paths touched.
-
-CI's `syntax` job on `windows-latest` runs the real
-`PSParser::Tokenize` check on push.
-
-**Next recommended improvement:** PRs #23/#24/#25 all add this log file;
-whichever PR merges second/third needs a trivial rebase keeping entries
-in time order. After that backlog clears, candidates worth looking at:
-- `Show-ImageList` / `Show-ImageSelection` in the deploy script share
-  ~30 lines of listing code that could be factored out.
-- `Set-BootConfiguration` exit-code branch logs only the bare number —
-  could mirror the DISM exit-code expansion proposed in PR #25.
-- No fixture test exists for `prepare_wim.ps1`'s parameter-set
-  validation; a small test would catch future regressions in the
-  `-SourceWim` vs `-SourceIso` branch logic.
-
----
-
 ## 2026-05-17 — `-UnattendFile` well-formedness validation
 
 **Investigated:** the deploy script's pre-flight validation for the
@@ -155,6 +109,109 @@ or partition-handling changes.
 - `scripts/refresh_usb.ps1` is a thin wrapper around `prepare_wim.ps1`
   but only supports `-SourceIso`, not the `-SourceWim` flow added by
   PR #22. Closing that gap would restore wrapper-script parity.
+
+---
+
+## 2026-05-17 — `refresh_usb.ps1` `-SourceWim` parity
+
+**Investigated:** open Claude routine PRs (#23–#27) and their stated
+follow-ups. Three candidates were called out: (a) `Get-SystemDisks`
+fixture test, (b) `Show-ImageList` / `Show-ImageSelection` code
+factoring, (c) `refresh_usb.ps1` lacking `-SourceWim` support added by
+PR #22 to `prepare_wim.ps1`. Picked (c) — smallest blast radius, no
+touch to destructive code paths, restores documented wrapper-script
+parity.
+
+**Changed:**
+- `scripts/refresh_usb.ps1` — converted `-SourceIso` from a plain
+  mandatory parameter to a member of a `FromIso` / `FromWim`
+  parameter set, mirroring `prepare_wim.ps1`. Added `-SourceWim`,
+  `-Index`, `-Edition`, and `-DisableExtraBloat`; source-existence
+  check and output-name derivation now use whichever of the two source
+  parameters is bound. Pass-through hashtable in step 1 picks
+  `SourceIso`/`SourceWim` and forwards `-Index`/`-Edition`/
+  `-DisableExtraBloat` only when bound. Synopsis, parameter help, and
+  a new `-SourceWim` example added.
+- `docs/SCRIPT_REFERENCE.md` — refresh_usb.ps1 parameters and Examples
+  section updated to cover both flows.
+- `CHANGELOG.md` — entry added under `## Unreleased / ### Added`.
+
+**Verification:**
+- Brace / paren / bracket balance on `scripts/refresh_usb.ps1`:
+  29/29, 38/38, 22/22 (after string and comment stripping).
+- Visual structural review of pass-through block: `-Index` /
+  `-Edition` only bound via `$PSBoundParameters.ContainsKey(...)`, so
+  `prepare_wim.ps1` defaults still apply when the caller doesn't supply
+  them. The wrapper's `[string]$Edition` has no default, so we don't
+  accidentally clobber `prepare_wim.ps1`'s `'Windows 11 Enterprise'`
+  default by forwarding an empty string.
+- `pwsh` is not installed in this Linux session, so
+  `tests/test_parse.ps1` cannot run locally (same constraint flagged in
+  PRs #23–#27 and in `.claude/reviews/2026-05-11-deep-review.md`).
+  CI's `syntax` job on `windows-latest` runs `PSParser::Tokenize` on
+  push and is the source of truth.
+
+**Risks / follow-ups:**
+- Minimal. No destructive code paths (diskpart, DISM apply, BCDBoot)
+  touched. Worst case is a help-text typo or a parameter-set rule that
+  surfaces only at parameter-binding time on Windows; both caught by
+  CI's `PSParser::Tokenize` and the masterize Phase 1 invariants.
+- Outstanding follow-ups from the open routine PRs that I didn't take
+  this pass:
+  - `Get-SystemDisks` fixture test paralleling PR #24's WIM parser test
+    (last untested parser in the deploy script).
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of listing
+    code that could be factored out — cleanup-only and risks subtle
+    UX changes.
+
+---
+
+
+---
+
+## 2026-05-16 — prepare_wim.ps1 destination-name fix
+
+**Investigated:** `prepare_wim.ps1` export step, in particular how the
+`-SourceWim` / `-Index` parameter set introduced in PR #22 interacts with
+the `-DestinationName` argument on `Export-WindowsImage`.
+
+**Found:** Line 472 hard-coded `"$Edition (Custom)"` as the destination
+name. `$Edition` defaults to `'Windows 11 Enterprise'` and is *not*
+required when `-SourceWim` or `-Index` is given. So
+`prepare_wim.ps1 -SourceWim golden.wim -Index 1` produced a WIM labeled
+`Windows 11 Enterprise (Custom)` regardless of what the source actually
+was. The mislabel then surfaced as the wrong edition name in the deploy
+script's `Select-ImageIndex` menu (`unified_winpe_deploy.ps1` line 837),
+where the operator picks which edition to install.
+
+**Changed:**
+- `scripts/prepare_wim.ps1` — derive the destination name from
+  `$target.ImageName` (the actual selected image) with a fallback to
+  `$Edition` for empty-name captures. Comment explains why.
+- `CHANGELOG.md` — added a `### Fixed` entry under `## Unreleased`.
+
+**Verification:** `pwsh` isn't available in this Linux session so
+`tests/test_parse.ps1` can't run locally — same constraint flagged in
+open PRs #23/#24/#25. The change is mechanical: replaces one string
+literal with a variable derived from already-validated state.
+Pre-existing structural assertions still pass:
+- The Export-WindowsImage call is unchanged in shape (same parameters,
+  same line continuations).
+- No new mounts, no destructive code paths touched.
+
+CI's `syntax` job on `windows-latest` runs the real
+`PSParser::Tokenize` check on push.
+
+**Next recommended improvement:** PRs #23/#24/#25 all add this log file;
+whichever PR merges second/third needs a trivial rebase keeping entries
+in time order. After that backlog clears, candidates worth looking at:
+- `Show-ImageList` / `Show-ImageSelection` in the deploy script share
+  ~30 lines of listing code that could be factored out.
+- `Set-BootConfiguration` exit-code branch logs only the bare number —
+  could mirror the DISM exit-code expansion proposed in PR #25.
+- No fixture test exists for `prepare_wim.ps1`'s parameter-set
+  validation; a small test would catch future regressions in the
+  `-SourceWim` vs `-SourceIso` branch logic.
 
 ---
 

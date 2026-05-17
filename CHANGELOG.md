@@ -70,6 +70,13 @@ tagged GitHub releases are published.
   and (optionally) `build_boot_wim.ps1`, with auto-derived output names,
   a single prompt for the boot-rebuild question, and pre-flight checks
   that fail early if the ADK environment is missing.
+- **`-SourceWim`, `-Index`, `-Edition`, `-DisableExtraBloat` on
+  `scripts/refresh_usb.ps1`** — wrapper-script parity with `prepare_wim.ps1`.
+  `refresh_usb.ps1` previously only exposed the `-SourceIso` flow; the
+  captured-WIM path added by `prepare_wim.ps1 -SourceWim` had no wrapper
+  entry point. `-SourceIso` and `-SourceWim` are now in mutually
+  exclusive parameter sets (`FromIso` / `FromWim`); auto-derived output
+  name uses whichever source is bound.
 
 ### Changed
 - `-UnattendFile` validation now parses the file as XML up front, in

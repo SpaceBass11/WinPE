@@ -22,11 +22,26 @@
     script checks and warns if copype isn't on PATH).
 
 .PARAMETER SourceIso
-    Path to the Windows ISO. Required.
+    Path to the Windows ISO. Use this OR -SourceWim, not both.
+
+.PARAMETER SourceWim
+    Path to an already-captured `.wim` (or `.esd`) file. Use this when
+    your starting point is a captured reference image rather than a
+    stock Windows ISO. Passthrough to `prepare_wim.ps1 -SourceWim`.
+
+.PARAMETER Index
+    Numeric image-index to pick from the source. Passthrough to
+    `prepare_wim.ps1 -Index`. Useful for captured WIMs that don't use
+    standard edition names. Overrides -Edition.
+
+.PARAMETER Edition
+    Edition name (as DISM reports it) to pick from the source.
+    Passthrough to `prepare_wim.ps1 -Edition`. Default in the underlying
+    script is 'Windows 11 Enterprise'.
 
 .PARAMETER OutputName
     Basename for the resulting WIM (no extension, no path). Defaults
-    to the ISO filename minus its extension, e.g.
+    to the source filename minus its extension, e.g.
     'Win11_24H2_English_x64.iso' becomes 'Win11_24H2_English_x64.wim'.
 
 .PARAMETER ImagesPath
@@ -42,6 +57,11 @@
 
 .PARAMETER DisableCopilot
     Passthrough to prepare_wim.ps1 -DisableCopilot.
+
+.PARAMETER DisableExtraBloat
+    Passthrough to prepare_wim.ps1 -DisableExtraBloat. Superset of
+    -DisableCopilot; applies the broader fleet-friendly debloat
+    policies.
 
 .PARAMETER RebuildBootWim
     'Yes' to also rebuild WinPE boot.wim on the boot partition.
@@ -73,14 +93,27 @@
         -SourceIso 'D:\iso\Win11_24H2.iso' `
         -RebuildBootWim Yes
 
+.EXAMPLE
+    # Refresh from a captured reference WIM (instead of a stock ISO)
+    .\scripts\refresh_usb.ps1 `
+        -SourceWim 'C:\captures\golden-image.wim' `
+        -Index 1 `
+        -DisableExtraBloat
+
 .NOTES
     Lives alongside prepare_wim.ps1 and build_boot_wim.ps1 in scripts/.
     Adds no new behavior — just sequences and defaults.
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName='FromIso')]
 param(
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, ParameterSetName='FromIso')]
     [string]$SourceIso,
+
+    [Parameter(Mandatory, ParameterSetName='FromWim')]
+    [string]$SourceWim,
+
+    [int]$Index,
+    [string]$Edition,
 
     [string]$OutputName,
 
@@ -89,6 +122,7 @@ param(
     [string]$DriverPath,
     [string]$WhitelistFile,
     [switch]$DisableCopilot,
+    [switch]$DisableExtraBloat,
 
     [ValidateSet('Yes','No','Ask')]
     [string]$RebuildBootWim = 'Ask',
@@ -103,18 +137,24 @@ function Write-Step { param([string]$m) Write-Host "[refresh] $m" -ForegroundCol
 function Write-Ok   { param([string]$m) Write-Host "[  ok   ] $m" -ForegroundColor Green }
 function Write-Warn { param([string]$m) Write-Host "[ warn  ] $m" -ForegroundColor Yellow }
 
+# Resolve which source the operator gave us. Parameter sets guarantee
+# exactly one of -SourceIso / -SourceWim is bound.
+$fromIso    = $PSCmdlet.ParameterSetName -eq 'FromIso'
+$sourcePath = if ($fromIso) { $SourceIso } else { $SourceWim }
+$sourceKind = if ($fromIso) { 'ISO' } else { 'WIM' }
+
 # Inputs
-if (-not (Test-Path $SourceIso)) {
-    throw "ISO not found: $SourceIso"
+if (-not (Test-Path $sourcePath)) {
+    throw "$sourceKind not found: $sourcePath"
 }
 if (-not (Test-Path $ImagesPath)) {
     throw "ImagesPath not found: $ImagesPath (is the USB IMAGES partition mounted as $ImagesPath ?)"
 }
 
-# Derive output name from ISO if not given
+# Derive output name from the source filename if not given
 if (-not $OutputName) {
-    $OutputName = [System.IO.Path]::GetFileNameWithoutExtension($SourceIso)
-    Write-Step "Output name derived from ISO: $OutputName"
+    $OutputName = [System.IO.Path]::GetFileNameWithoutExtension($sourcePath)
+    Write-Step "Output name derived from $sourceKind`: $OutputName"
 }
 $outputWim = Join-Path $ImagesPath "$OutputName.wim"
 Write-Step "Output WIM: $outputWim"
@@ -140,12 +180,15 @@ if ($RebuildBootWim -eq 'Yes') {
 
 # Step 1: image prep
 $prepArgs = @{
-    SourceIso = $SourceIso
     OutputWim = $outputWim
 }
-if ($DriverPath)    { $prepArgs.DriverPath    = $DriverPath }
-if ($WhitelistFile) { $prepArgs.WhitelistFile = $WhitelistFile }
-if ($DisableCopilot){ $prepArgs.DisableCopilot = $true }
+if ($fromIso) { $prepArgs.SourceIso = $SourceIso } else { $prepArgs.SourceWim = $SourceWim }
+if ($PSBoundParameters.ContainsKey('Index'))   { $prepArgs.Index   = $Index }
+if ($PSBoundParameters.ContainsKey('Edition')) { $prepArgs.Edition = $Edition }
+if ($DriverPath)        { $prepArgs.DriverPath        = $DriverPath }
+if ($WhitelistFile)     { $prepArgs.WhitelistFile     = $WhitelistFile }
+if ($DisableCopilot)    { $prepArgs.DisableCopilot    = $true }
+if ($DisableExtraBloat) { $prepArgs.DisableExtraBloat = $true }
 
 Write-Step "Invoking prepare_wim.ps1..."
 $prepScript = Join-Path $PSScriptRoot 'prepare_wim.ps1'
