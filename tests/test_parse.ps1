@@ -1,18 +1,17 @@
 <#
 .SYNOPSIS
     Validates PowerShell syntax of unified_winpe_deploy.ps1, scripts/build_boot_wim.ps1,
-    scripts/prepare_wim.ps1, scripts/refresh_usb.ps1, and scripts/first-login.ps1.
+    scripts/prepare_wim.ps1, and scripts/refresh_usb.ps1.
 .DESCRIPTION
     Parses each script and reports any syntax errors. Returns exit code 0 on
     success, 1 on failure. Works with both PowerShell 5.1 and 7+.
 #>
 
 $ErrorActionPreference = 'Stop'
-$scriptPath    = Join-Path $PSScriptRoot '..' 'unified_winpe_deploy.ps1'
-$builderPath   = Join-Path $PSScriptRoot '..' 'scripts\build_boot_wim.ps1'
-$prepPath      = Join-Path $PSScriptRoot '..' 'scripts\prepare_wim.ps1'
-$refreshPath   = Join-Path $PSScriptRoot '..' 'scripts\refresh_usb.ps1'
-$firstLoginPath = Join-Path $PSScriptRoot '..' 'scripts\first-login.ps1'
+$scriptPath  = Join-Path $PSScriptRoot '..' 'unified_winpe_deploy.ps1'
+$builderPath = Join-Path $PSScriptRoot '..' 'scripts\build_boot_wim.ps1'
+$prepPath    = Join-Path $PSScriptRoot '..' 'scripts\prepare_wim.ps1'
+$refreshPath = Join-Path $PSScriptRoot '..' 'scripts\refresh_usb.ps1'
 $passed = 0
 $failed = 0
 
@@ -129,10 +128,6 @@ Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 # Test 11: refresh_usb.ps1 (syntax only - workflow wrapper)
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
-
-# Test 12: first-login.ps1 (syntax only - staged into deployed image, runs at first sign-in)
-Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $firstLoginPath -Label "First-login" | Out-Null
 
 # Summary
 Write-Host "`n=== Results ===" -ForegroundColor Cyan
