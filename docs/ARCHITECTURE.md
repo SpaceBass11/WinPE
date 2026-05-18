@@ -1,5 +1,26 @@
 # Architecture
 
+## MDT Standalone Media Layer (primary)
+
+MDT wraps the WinPE deployment engine in a build-time workflow. The admin uses three scripts to produce a self-contained ISO; everything below (the WinPE pipeline) runs inside that ISO when it boots on the target machine.
+
+```
+Admin workstation
+  scripts/mdt/Initialize-MDTDeploymentShare.ps1  → deployment share + task sequences
+  scripts/mdt/Import-WimImages.ps1               → OS library
+  scripts/mdt/New-MDTMedia.ps1                   → LiteTouchMedia_x64.iso
+                    ↓
+  Operator: Rufus → USB → boot → LiteTouch WinPE runs:
+    Format and Partition Disk (same GPT layout as below)
+    Apply Operating System Image (same DISM call)
+    Setup Windows
+    → Reboot → Windows OOBE/unattend
+```
+
+## WinPE Tool Layer (underlying)
+
+The three scripts below are the engine MDT's task sequence calls at deploy time. They also work standalone for direct USB deployments without MDT.
+
 High-level design notes for `unified_winpe_deploy.ps1`,
 `scripts/build_boot_wim.ps1`, and `scripts/prepare_wim.ps1`. For
 parameter / function reference, see

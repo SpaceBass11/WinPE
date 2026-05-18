@@ -75,6 +75,12 @@ function Set-UEFIPartitionScheme {
             EFI  300 MB  FAT32  S:
             MSR   16 MB  (no letter)
             Windows  remainder  NTFS  C:
+
+        MDT ts.xml stores partition config as individual indexed scalar variables
+        (OSDPartitions0Type, OSDPartitions1Size, etc.) — not as a blob array.
+        Do NOT edit the task sequence in MDT Workbench after running this script;
+        Workbench regenerates ts.xml from its internal representation and will
+        overwrite these variables. Re-run this script after any Workbench edits.
     #>
     param([string]$TsXmlPath)
     if (-not (Test-Path $TsXmlPath)) { return }
@@ -83,41 +89,53 @@ function Set-UEFIPartitionScheme {
     $step = $xml.SelectSingleNode("//step[@type='BDD_FormatDisk']")
     if (-not $step) { return }
 
-    $styleNode = $step.SelectSingleNode("defaultVarList/variable[@name='OSDPartitionStyle']")
-    if ($styleNode) { $styleNode.InnerText = 'GPT' }
-
-    $partsNode = $step.SelectSingleNode("defaultVarList/variable[@name='OSDPartitions']")
-    if ($partsNode) {
-        $partsNode.InnerText = @'
-<array>
-  <object>
-    <property name="OSDPartitionsBootable">true</property>
-    <property name="OSDPartitionsDriveLetter">S:</property>
-    <property name="OSDPartitionsFileSystem">FAT32</property>
-    <property name="OSDPartitionsQuickFormat">true</property>
-    <property name="OSDPartitionsSize">300</property>
-    <property name="OSDPartitionsSizeUnits">MB</property>
-    <property name="OSDPartitionsType">EFI</property>
-    <property name="OSDPartitionsVolumeName">EFI</property>
-  </object>
-  <object>
-    <property name="OSDPartitionsSize">16</property>
-    <property name="OSDPartitionsSizeUnits">MB</property>
-    <property name="OSDPartitionsType">MSR</property>
-  </object>
-  <object>
-    <property name="OSDPartitionsBootable">true</property>
-    <property name="OSDPartitionsDriveLetter">C:</property>
-    <property name="OSDPartitionsFileSystem">NTFS</property>
-    <property name="OSDPartitionsQuickFormat">true</property>
-    <property name="OSDPartitionsSize">100</property>
-    <property name="OSDPartitionsSizeUnits">%</property>
-    <property name="OSDPartitionsType">Primary</property>
-    <property name="OSDPartitionsVolumeName">Windows</property>
-  </object>
-</array>
-'@
+    $varList = $step.SelectSingleNode('defaultVarList')
+    if (-not $varList) {
+        $varList = $xml.CreateElement('defaultVarList')
+        [void]$step.AppendChild($varList)
     }
+
+    # Helper: set or create a <variable name="..."> node in $varList
+    $setVar = {
+        param([string]$VarName, [string]$VarValue)
+        $node = $varList.SelectSingleNode("variable[@name='$VarName']")
+        if (-not $node) {
+            $node = $xml.CreateElement('variable')
+            $node.SetAttribute('name', $VarName)
+            $node.SetAttribute('property', $VarName)
+            [void]$varList.AppendChild($node)
+        }
+        $node.InnerText = $VarValue
+    }
+
+    & $setVar 'OSDPartitionStyle'  'GPT'
+    & $setVar 'OSDPartitionsCount' '3'
+
+    # Partition 0 — EFI (300 MB, FAT32, S:)
+    & $setVar 'OSDPartitions0Type'        'EFI'
+    & $setVar 'OSDPartitions0Bootable'    'TRUE'
+    & $setVar 'OSDPartitions0DriveLetter' 'S:'
+    & $setVar 'OSDPartitions0FileSystem'  'FAT32'
+    & $setVar 'OSDPartitions0QuickFormat' 'TRUE'
+    & $setVar 'OSDPartitions0Size'        '300'
+    & $setVar 'OSDPartitions0SizeUnits'   'MB'
+    & $setVar 'OSDPartitions0VolumeName'  'EFI'
+
+    # Partition 1 — MSR (16 MB, no drive letter)
+    & $setVar 'OSDPartitions1Type'      'MSR'
+    & $setVar 'OSDPartitions1Size'      '16'
+    & $setVar 'OSDPartitions1SizeUnits' 'MB'
+
+    # Partition 2 — Windows (remainder, NTFS, C:)
+    & $setVar 'OSDPartitions2Type'        'Primary'
+    & $setVar 'OSDPartitions2Bootable'    'TRUE'
+    & $setVar 'OSDPartitions2DriveLetter' 'C:'
+    & $setVar 'OSDPartitions2FileSystem'  'NTFS'
+    & $setVar 'OSDPartitions2QuickFormat' 'TRUE'
+    & $setVar 'OSDPartitions2Size'        '100'
+    & $setVar 'OSDPartitions2SizeUnits'   '%'
+    & $setVar 'OSDPartitions2VolumeName'  'Windows'
+
     $xml.Save($TsXmlPath)
 }
 
@@ -182,6 +200,8 @@ foreach ($wimPath in $WimPaths) {
 
     Write-Host "  $edition  ->  Operating Systems\$folderName"
 
+    # -SourceFile is undocumented on Import-MDTOperatingSystem but empirically
+    # works on MDT 8456 to import a single .wim without pulling the whole folder.
     Import-MDTOperatingSystem -Path "${drive}:\Operating Systems" `
         -SourceFile $wimPath `
         -DestinationFolder $folderName `
@@ -267,6 +287,7 @@ SkipPackageDisplay=YES
 SkipRoles=YES
 SkipBitLocker=YES
 SkipSummary=YES
+SkipFinalSummary=YES
 
 ; Target disk 0 (first physical disk)
 OSDDiskIndex=0

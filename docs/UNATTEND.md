@@ -1,148 +1,47 @@
-> This guide covers `unattend.xml` for both the MDT task sequence
-> (linked via MDT Workbench → task sequence → OS Info) and the
-> underlying WinPE deploy tool (`-UnattendFile` parameter).
-> The file format is identical; only how it gets staged differs.
+# Unattend.xml Answer File
 
-# Unattend.xml Quick Reference
-
-Step-by-step for turning [`configs/unattend.example.xml`](../configs/unattend.example.xml)
-into a real, deployable unattend file. The example template ships with
-sensible defaults; this doc walks you through filling in the placeholders.
-
-If you don't need truly unattended OOBE (i.e. it's OK to click through a
-couple of screens at first boot), you can skip this whole flow — just
-don't pass `-UnattendFile` to the deploy script.
+Windows Setup reads `unattend.xml` on first boot to skip OOBE prompts, create
+local accounts, set the computer name and time zone, configure AutoLogon, and
+run first-boot scripts. MDT links the file to the task sequence; the WinPE tool
+stages it at deploy time. The file format is identical — only how it gets there
+differs.
 
 ---
 
-## 1. Copy the template
+## MDT Method (primary)
 
-Never edit `configs/unattend.example.xml` directly — keep it clean for
-forks and future templates. Copy to your USB IMAGES partition:
+Two ways to attach an unattend.xml to an MDT task sequence:
 
-```powershell
-Copy-Item configs/unattend.example.xml I:\configs\unattend.xml
-```
+### Option A — MDT Workbench GUI
 
-(The deploy script will copy `I:\configs\unattend.xml` to
-`C:\Windows\Panther\unattend.xml` on the target during deployment.)
+1. Open MDT Workbench and expand **Task Sequences**.
+2. Right-click your task sequence → **Properties** → **OS Info** tab.
+3. Click **Edit Unattend.xml** — this opens Windows System Image Manager (SIM).
+4. In SIM, import `configs/unattend.example.xml` (File → Open Answer File),
+   fill in your values, and save. MDT records the path.
+5. Run **Update Deployment Share** to rebuild the boot media.
 
----
+MDT stages the linked unattend.xml to `C:\Windows\Panther\unattend.xml`
+automatically during the Apply OS step.
 
-## 2. Encode each account password
+> **No Windows SIM?** Use Option B — SIM is only required for the GUI workflow.
 
-Every `<Password><Value>` field in the unattend file expects a base64
-of the UTF-16LE bytes of `<plaintext> + "Password"`. Run this in
-PowerShell once per account:
+### Option B — File-drop method
 
-```powershell
-function Get-UnattendPassword {
-    param([Parameter(Mandatory)][string]$Plaintext)
-    $bytes = [Text.Encoding]::Unicode.GetBytes($Plaintext + 'Password')
-    [Convert]::ToBase64String($bytes)
-}
-
-# Examples — replace with your real passwords
-Get-UnattendPassword -Plaintext 'L0-Tech-P@ss!'      # Level 0
-Get-UnattendPassword -Plaintext 'L1-Tech-P@ss!'      # Level 1
-Get-UnattendPassword -Plaintext 'L2-Tech-P@ss!'      # Level 2
-Get-UnattendPassword -Plaintext 'Admin-P@ss-2025!'   # DERP_Admin
-```
-
-Each call prints one base64 string. Copy each output into the matching
-`BASE64_*_PASSWORD` slot in your `unattend.xml`.
-
-**Important:** the suffix is literally the string `Password` — not the
-account name. The same suffix applies to all `<LocalAccount>` entries
-**and** to the `<AutoLogon>` block.
+1. Copy and edit the template (see [Template](#template) below).
+2. Save the finished file to:
+   ```
+   DeploymentShare\Control\<TaskSequenceID>\unattend.xml
+   ```
+3. Run **Update Deployment Share**. MDT auto-discovers any `unattend.xml`
+   placed here and uses it for that task sequence — no Workbench GUI needed.
 
 ---
 
-## 3. Fill in the account block
+## WinPE Tool Method (alternative)
 
-The template has four example accounts (`LocalAdmin` + 3 standard users).
-Edit `<Name>` and `<DisplayName>` to match your fleet:
-
-```xml
-<LocalAccount wcm:action="add">
-  <Name>DERP_Admin</Name>
-  <Group>Administrators</Group>
-  <DisplayName>DERP Admin</DisplayName>
-  <Password>
-    <Value>PASTE_BASE64_HERE</Value>
-    <PlainText>false</PlainText>
-  </Password>
-</LocalAccount>
-```
-
-Add or remove `<LocalAccount>` blocks as needed. Two rules:
-- Exactly one account should be in the `Administrators` group (the
-  others go in `Users`).
-- The Administrator-group account is the one you'll use for AutoLogon
-  in the next step.
-
----
-
-## 4. Set AutoLogon
-
-AutoLogon is **required** for truly unattended OOBE. Without it,
-Windows creates the accounts and then sits at the lock screen waiting
-for a password. With it, the admin auto-logs in once so the
-FirstLogonCommands can run, then reverts to normal lock-screen prompts.
-
-```xml
-<AutoLogon>
-  <Username>DERP_Admin</Username>
-  <Password>
-    <Value>SAME_BASE64_AS_THE_ACCOUNT_ABOVE</Value>
-    <PlainText>false</PlainText>
-  </Password>
-  <Enabled>true</Enabled>
-  <LogonCount>1</LogonCount>
-</AutoLogon>
-```
-
-Two gotchas:
-- `<Username>` must match the `<Name>` of a `<LocalAccount>` above.
-- `<Password><Value>` must be the **same** encoded value you computed
-  for that account. They have to match exactly — Windows treats a
-  mismatch as a bad password and OOBE stalls.
-
----
-
-## 5. TimeZone
-
-The template ships with `Central Standard Time`. To use a different
-zone, change the `<TimeZone>` element in the `specialize` pass.
-
-To list valid zone names on a running Windows box:
-
-```cmd
-tzutil /l
-```
-
-Common values: `Eastern Standard Time`, `Mountain Standard Time`,
-`Pacific Standard Time`, `UTC`.
-
----
-
-## 6. Verify it parses
-
-Quick sanity-check before deploying:
-
-```powershell
-[xml](Get-Content I:\configs\unattend.xml)
-```
-
-If that throws, you have a syntax error (usually an unclosed tag or a
-bad attribute). Fix it before going further — Windows Setup will reject
-a malformed unattend silently and fall through to the normal OOBE flow.
-
----
-
-## 7. Deploy
-
-Boot the target into WinPE and run with the file:
+When using `unified_winpe_deploy.ps1` directly (without MDT), pass the file
+via `-UnattendFile`:
 
 ```powershell
 .\unified_winpe_deploy.ps1 `
@@ -152,36 +51,97 @@ Boot the target into WinPE and run with the file:
     -Force -Silent
 ```
 
-The script copies `unattend.xml` to `C:\Windows\Panther\` during deploy.
+The script copies the file to `C:\Windows\Panther\unattend.xml` on the target.
 Windows Setup picks it up on the very next boot.
+
+If you don't need truly unattended OOBE (it's OK to click through a couple of
+screens at first boot), skip this — just omit `-UnattendFile`.
+
+---
+
+## Template
+
+Start from [`configs/unattend.example.xml`](../configs/unattend.example.xml).
+Never edit it in place — keep the example clean for future reference.
+
+```powershell
+Copy-Item configs/unattend.example.xml I:\configs\unattend.xml
+```
+
+### Placeholders to fill in
+
+| Placeholder | What to put there |
+|---|---|
+| `BASE64_LOCALADMIN_PASSWORD` | Encoded admin account password (see below) |
+| `BASE64_TECHL0_PASSWORD` | Encoded TechL0 password |
+| `BASE64_TECHL1_PASSWORD` | Encoded TechL1 password |
+| `BASE64_TECHL2_PASSWORD` | Encoded TechL2 password |
+| `WIN-*` | Fixed hostname, or leave as-is for a random suffix |
+| `Central Standard Time` | Your time zone (`tzutil /l` to list valid names) |
+| Account `<Name>` / `<DisplayName>` | Rename the four example accounts as needed |
+
+---
+
+## Password Encoding
+
+Each `<Password><Value>` field expects a base64 of the UTF-16LE bytes of
+`<plaintext> + "Password"`. Run this in PowerShell once per account:
+
+```powershell
+function Get-UnattendPassword {
+    param([Parameter(Mandatory)][string]$Plaintext)
+    $bytes = [Text.Encoding]::Unicode.GetBytes($Plaintext + 'Password')
+    [Convert]::ToBase64String($bytes)
+}
+
+# Examples — replace with your real passwords
+Get-UnattendPassword -Plaintext 'L0-Tech-P@ss!'      # TechL0
+Get-UnattendPassword -Plaintext 'L1-Tech-P@ss!'      # TechL1
+Get-UnattendPassword -Plaintext 'L2-Tech-P@ss!'      # TechL2
+Get-UnattendPassword -Plaintext 'Admin-P@ss-2025!'   # LocalAdmin
+```
+
+Each call prints one base64 string. Paste each output into the matching
+`BASE64_*_PASSWORD` slot in your `unattend.xml`.
+
+**Important:** the suffix is literally the string `Password` — not the account
+name. The same suffix applies to all `<LocalAccount>` entries **and** to the
+`<AutoLogon>` block. The `<AutoLogon><Password>` value must be the **same**
+encoded value as the matching `<LocalAccount>` — a mismatch causes OOBE to stall
+at the lock screen.
+
+Set `<PlainText>false</PlainText>` if encoded (recommended),
+`<PlainText>true</PlainText>` if you accept the security trade-off of
+inlining plaintext.
+
+---
+
+## Passes
+
+The template uses two Windows Setup passes:
+
+**`specialize`** — runs after the OS is laid down (and after any Sysprep
+generalize pass), before the first user login. This is where `ComputerName`
+and `TimeZone` are set. These settings require a sysprepped (generalized) WIM;
+if you captured an already-configured machine without running
+`sysprep /generalize`, the specialize pass never fires.
+
+**`oobeSystem`** — runs during OOBE on first boot. This is where locale,
+account creation, AutoLogon, and FirstLogonCommands are processed. These
+settings apply regardless of whether the WIM was sysprepped.
 
 ---
 
 ## Troubleshooting
 
-### "OOBE prompted me for an account / lock screen at first boot"
-Either AutoLogon is missing/wrong, or the password encoding is bad.
-Boot in safe mode, check `C:\Windows\Panther\setupact.log` — search
-for `unattend` and look for parse errors or "password did not match".
-
-### "FirstLogonCommands didn't run"
-Confirm `C:\Windows\Setup\Scripts\first-login.ps1` exists on the target.
-If not, you forgot `-DisableExtraBloat` when prepping the WIM (that's
-the flag that stages the script).
-
-### "I can't log in as Admin / Level0 / etc. after first boot"
-Re-encode the password — most common failure is forgetting the
-"Password" suffix in the encoding. Confirm:
-```powershell
-$expected = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('YourPass' + 'Password'))
-# Compare $expected with what's in unattend.xml
-```
-
-### "ComputerName / TimeZone / locale didn't apply"
-These settings live in the `specialize` pass, which only runs on a
-sysprepped image. If your WIM wasn't sysprepped (i.e. you captured a
-fully-set-up machine without running `sysprep /generalize` first),
-specialize never fires. Re-capture with sysprep.
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| OOBE prompted for account / lock screen at first boot | AutoLogon missing or password mismatch | Check `C:\Windows\Panther\setupact.log` for `unattend` errors; re-encode passwords |
+| FirstLogonCommands didn't run | `first-login.ps1` not present on target | Prep the WIM with `-DisableExtraBloat`, or add the script as an MDT Application |
+| Can't log in after first boot | Password encoding is wrong | Re-run `Get-UnattendPassword`; confirm the `Password` suffix is included |
+| ComputerName / TimeZone didn't apply | WIM wasn't sysprepped; specialize pass skipped | Recapture with `sysprep /generalize /oobe /shutdown` |
+| MDT ignored the unattend.xml | File not in the right Control subfolder | Path must be `Control\<TaskSequenceID>\unattend.xml`; re-run Update Deployment Share |
+| Windows SIM validation errors | Schema mismatch or typo | Quick check: `[xml](Get-Content unattend.xml)` in PowerShell — throws on bad XML |
 
 ---
 

@@ -6,79 +6,127 @@
 > commit `cctk.exe`, the HAPI driver, or any CCTK DLL to this repo or
 > a fork. Download Dell Command | Configure directly from Dell's
 > support site onto your admin workstation and reference it by path
-> via `-CctkSource` when running `scripts/build_boot_wim.ps1`.
+> when adding the MDT Application.
 > `.gitignore` is set up to block `/vendor/`, `/cctk-source/`,
 > `cctk.exe`, and `hapint*.inf/.sys` as a safety net.
 
-The deploy tool can optionally apply BIOS configuration via Dell's
+The MDT deployment can optionally apply BIOS configuration via Dell's
 [Client Configuration Toolkit (CCTK)](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure)
-**before** the Windows image is applied. This is aimed at new Dell
-hardware that ships with RAID enabled in BIOS (DISM can see the disk,
-but Windows won't boot post-apply without the RAID driver) — you want
-AHCI, passwords, boot order, etc. set once per machine during the same
+**before** the Windows image is applied. This targets new Dell hardware
+that ships with RAID enabled in BIOS — DISM can see the disk, but
+Windows won't boot post-apply without the RAID driver, so you want
+AHCI, passwords, and boot order set once per machine during the same
 run that deploys Windows.
 
 ## Why Pre-Apply (Not Post-Apply)
 
 CCTK changes queue in BIOS and activate on the **next POST**. The
-normal end-of-deploy reboot is that POST. So we apply CCTK during the
-WinPE session, finish the DISM + BCDBoot work with the current BIOS
-state, reboot, and Windows first-boots with the intended BIOS already
-in place — one reboot, not two.
+normal end-of-deploy reboot is that POST. So CCTK runs during the WinPE
+session, the rest of the task sequence finishes with the current BIOS
+state, the machine reboots, and Windows first-boots with the intended
+BIOS already in place — one reboot, not two.
 
 If CCTK fails (bad config, password mismatch, HAPI driver missing),
-the deploy aborts before any disks are touched.
+the task sequence aborts. When the step runs before "Format and Partition
+Disk", no disks have been touched yet — safe to abort and retry.
 
-## Setup
+## MDT Method (primary)
 
-### 1. Embed CCTK in boot.wim
+### 1. Create the CCTK Application in MDT
 
-Download Dell Command | Configure, extract the installer (or point
-at an already-installed copy — usually `C:\Program Files (x86)\Dell\Command Configure\`).
-Pass the path to the builder:
+**Using MDT Workbench (GUI):**
+
+1. Open Deployment Workbench and expand your deployment share.
+2. Right-click **Applications** → **New Application**.
+3. Choose **Application with source files**.
+4. Set the source directory to your local Dell Command | Configure
+   `X86_64` folder (contains `cctk.exe` and the HAPI subdirectory).
+5. Set the command line to:
+   ```
+   cctk.exe --infile="%DEPLOYROOT%\Applications\Dell-CCTK\configs\default.ini"
+   ```
+6. Set the working directory to `.\Applications\Dell-CCTK\bin`.
+7. Complete the wizard. MDT copies the source tree into the deployment share.
+
+**Using PowerShell (scriptable):**
 
 ```powershell
-.\scripts\build_boot_wim.ps1 -Clean -UsbDrive P: -ReleaseUsbLetter `
-    -CctkSource 'C:\Program Files (x86)\Dell\Command Configure\X86_64'
+Import-Module 'C:\Program Files\Microsoft Deployment Toolkit\bin\MicrosoftDeploymentToolkit.psd1'
+New-PSDrive -Name 'DS001' -PSProvider MDTProvider -Root 'C:\MDTDeploymentShare' -Verbose:$false
+
+Import-MDTApplication -Path 'DS001:\Applications' `
+    -Name 'Dell CCTK - BIOS Configuration' `
+    -ShortName 'Dell-CCTK' `
+    -CommandLine 'cctk.exe --infile="%DEPLOYROOT%\Applications\Dell-CCTK\configs\default.ini"' `
+    -WorkingDirectory '.\Applications\Dell-CCTK\bin' `
+    -ApplicationSourcePath 'C:\Program Files (x86)\Dell\Command Configure\X86_64' `
+    -DestinationFolder 'Dell-CCTK'
 ```
 
-The builder:
-- Copies the CCTK tree (containing `cctk.exe` and HAPI directory) to
-  `X:\cctk\` inside `boot.wim`.
-- Installs the HAPI driver (`hapint64.inf` or variant) into the offline
-  image so CCTK can talk to BIOS from WinPE.
+Adjust `-ApplicationSourcePath` if Command | Configure is installed elsewhere.
 
-CCTK binaries live **inside** boot.wim so they aren't visible on the
-IMAGES data partition. CCTK is not redistributable — you provide it.
+### 2. Add Config Files to the Deployment Share
 
-### 2. Drop Config Files on the IMAGES Partition
-
-Create a `cctk\` folder on the IMAGES partition of your USB:
+Place your CCTK config files under the application's `configs\` folder
+in the deployment share:
 
 ```
-P:\  (WinPE boot, hidden)
-I:\  (IMAGES data partition)
-├── images\
-│   └── Win11_Pro_24H2.wim
-└── cctk\
-    ├── default.ini          # catch-all: "new Dell out of box"
-    ├── OptiPlex7090.ini     # per-model override
-    └── 1A2B3C4.ini          # per-machine override (service tag)
+C:\MDTDeploymentShare\Applications\Dell-CCTK\configs\
+├── default.ini       ← catch-all: all new Dell machines
+├── OptiPlex7090.ini  ← per-model override
+└── 1A2B3C4.ini       ← per-service-tag override
 ```
 
-### 3. Config Selection Precedence
+**Config selection precedence** (MDT task sequence picks the first match):
 
-The deploy script picks **one** config, in this order:
-
-1. `<SERVICETAG>.ini` — reads `Win32_BIOS.SerialNumber`
-2. `<MODEL>.ini` — reads `Win32_ComputerSystem.Model`, strips non-alnum
-   (so "OptiPlex 7090" becomes `OptiPlex7090.ini`)
+1. `%SerialNumber%.ini` — the machine's BIOS serial number (service tag)
+2. `%Model%.ini` — MDT's `%Model%` variable, non-alphanumerics stripped
+   (e.g. "OptiPlex 7090" → `OptiPlex7090`)
 3. `default.ini`
-4. None found → skip CCTK, continue to deploy
+4. None found → CCTK step is skipped, deploy continues
 
-This means you can ship one USB across a mixed fleet: most machines
-get `default.ini`, specific models or specific service tags get
-overrides when needed.
+This lets one ISO serve a mixed fleet: most machines get `default.ini`,
+specific models or specific service tags get overrides when needed.
+
+**Using MDT variables for per-machine config selection:**
+
+Add a "Run Command Line" step immediately before the CCTK application
+step to select the right config file:
+
+```
+Name:    Set CCTK Config Path
+Command: cmd.exe /c if exist "%DEPLOYROOT%\Applications\Dell-CCTK\configs\%SerialNumber%.ini" (set CCTKConfig=%SerialNumber%.ini) else if exist "%DEPLOYROOT%\Applications\Dell-CCTK\configs\%Model%.ini" (set CCTKConfig=%Model%.ini) else (set CCTKConfig=default.ini)
+```
+
+Then adjust the application command line to reference `%CCTKConfig%`:
+
+```
+cctk.exe --infile="%DEPLOYROOT%\Applications\Dell-CCTK\configs\%CCTKConfig%"
+```
+
+### 3. Order in the Task Sequence
+
+In MDT Workbench task sequence editor, arrange the steps so the CCTK
+application runs **before** "Format and Partition Disk":
+
+```
+State Restore
+├── [Set CCTK Config Path]         ← Run Command Line (optional variable step)
+├── Install Application: Dell-CCTK ← BIOS changes queued here
+├── Format and Partition Disk      ← disk untouched if CCTK fails above
+├── Apply Operating System Image
+└── ...
+```
+
+If CCTK exits non-zero, MDT treats the application step as a failure and
+the task sequence halts before touching any disk.
+
+**Rebuild the media after adding the application** so the CCTK binaries
+and configs are baked into the ISO:
+
+```powershell
+.\scripts\mdt\New-MDTMedia.ps1
+```
 
 ## Config File Format
 
@@ -101,10 +149,10 @@ Plain CCTK INI. Example `default.ini` for a fresh Dell workstation:
 --wakeonlan=lanonly
 ```
 
-The deploy script invokes `cctk.exe --infile=<path>` and aborts the
-deploy on any non-zero exit.
+The task sequence invokes `cctk.exe --infile=<path>` and the application
+step fails on any non-zero exit.
 
-### Changing Existing Passwords
+## Changing / Clearing Passwords
 
 If the BIOS already has a setup or system password set, CCTK needs
 the current one to authenticate:
@@ -125,46 +173,51 @@ For **clearing** a password:
 
 ## Security: Honest Accounting
 
-Passwords live in plaintext on the IMAGES data partition. There is
+Passwords live in plaintext inside the ISO and on the USB. There is
 **no cryptographic protection available** for an unattended WinPE
-flow — anything CCTK reads, someone with the USB can also read. Your
-mitigations are:
+flow — anything CCTK reads, someone with the USB or ISO can also read.
+Your mitigations are:
 
-- **Physical security of the USB** — primary control. Treat it like a
-  domain-admin credential.
+- **Physical security of the USB and ISO** — primary control. Treat them
+  like domain-admin credentials.
 - **Unique setup password per machine** (service-tag configs) — limits
   blast radius if one USB walks off.
 - **Rotate after deployment** — change setup/system passwords via
   CCTK or Windows provisioning after the machine is in service.
 - **CCTK's `--setuppwdencrypted`** — Dell offers a per-machine-hashed
-  encrypted format. Not useful for fleet USBs (encryption is keyed to
+  encrypted format. Not useful for fleet ISOs (encryption is keyed to
   the host generating it), but worth knowing about for one-off
   provisioning.
 
 If you need real runtime secrecy, the only options are typed prompts,
 USB security keys, or network-fetched passwords. All of those break
-the "plug in USB, boot, walk away" model.
+the "boot, walk away" model.
 
-## Operational Notes
+## WinPE Tool Method (alternative)
 
-- **No auto-reboot between CCTK and DISM.** The apply runs, then the
-  existing deploy flow continues. The final end-of-deploy reboot
-  activates both the BIOS change and first-boots the new Windows.
-- **Idempotent re-apply.** Re-running the same config is safe for
-  most settings. Password changes need `--valsetuppwd=<current>`
-  once a password is set.
-- **Windows auto-detects the new storage mode** at first boot (PnP
-  loads stock AHCI/NVMe drivers). No driver injection needed.
-- **Service-tag lookup** uses `Win32_BIOS.SerialNumber`, which is the
-  same tag Dell prints on the chassis. Confirm with `wmic bios get
-  serialnumber` on a reference machine.
+For users of the direct WinPE USB tool (`unified_winpe_deploy.ps1`)
+rather than the MDT ISO workflow, CCTK is embedded differently:
+
+**Embed CCTK in boot.wim** — pass `-CctkSource` to
+`scripts/build_boot_wim.ps1`. The builder copies `cctk.exe` and HAPI
+into `X:\cctk\` inside `boot.wim` and installs the HAPI driver offline.
+
+**Drop config files on the IMAGES partition** — create a `cctk\`
+folder on the IMAGES data partition of the USB. The deploy script picks
+configs in the same service-tag → model → default precedence described
+above.
+
+The config file format, password handling, and security trade-offs are
+identical to the MDT method. See the git history or the pre-v4.6 docs
+for a full walkthrough of the WinPE-only setup.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `CCTK returned exit 116` | HAPI driver not loaded | Rebuild boot.wim with `-CctkSource` pointing at a tree that contains HAPI/*.inf |
+| `CCTK returned exit 116` | HAPI driver not loaded | Ensure the `X86_64` source folder you imported includes the HAPI subdirectory; re-import the application if HAPI was missing |
 | `CCTK returned exit 149` | Password mismatch | Add `--valsetuppwd=<current>` to the config |
-| `No CCTK config matched` | None of `<TAG>.ini`/`<MODEL>.ini`/`default.ini` exist | Drop a `default.ini` on the IMAGES partition under `cctk\` |
-| `CCTK embedded but DEPLOY_IMAGE_DRIVE is unset` | Script ran outside builder's startnet.cmd | Set `$env:DEPLOY_IMAGE_DRIVE` manually before running, or rebuild boot.wim so startnet probes for the IMAGES label |
+| `No CCTK config matched` | None of `<TAG>.ini`/`<MODEL>.ini`/`default.ini` exist | Add a `default.ini` to `C:\MDTDeploymentShare\Applications\Dell-CCTK\configs\` and rebuild media |
 | BIOS change didn't stick after reboot | Some settings (TPM clear, SATA-to-RAID direction) take two POSTs on certain firmware | Reboot manually a second time to confirm |
+| `%DEPLOYROOT%` not resolving in command line | MDT variable not set at application step | Ensure the application step runs after MDT environment initialization — this is always true in a Standard Client task sequence |
+| Application step skipped silently | Application not selected in task sequence | In Workbench, open the task sequence, find the "Install Application" step, and confirm Dell-CCTK is listed |

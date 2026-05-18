@@ -1,22 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   ============================================================================
-  Example unattend.xml — Windows 11 + WinPE deploy pipeline.
+  Example unattend.xml — MDT standalone USB deployment
 
   Full workflow guide:  docs/UNATTEND.md   (start there if you've never
                                             edited an unattend before)
 
-  Usage in brief:
+  Usage in brief — MDT method (primary):
     1. Copy this file (don't edit in place — keep the example clean).
-    2. Replace placeholders:
-         - Account Names + DisplayNames if you want different ones than
-           the LocalAdmin / TechL0 / TechL1 / TechL2 example below
-         - BASE64_*_PASSWORD values (see "Password encoding" below)
-         - TimeZone — defaults to Central Standard Time
-    3. Save to your USB IMAGES partition at e.g. I:\configs\unattend.xml.
-    4. Run the deploy with:
-         unified_winpe_deploy.ps1 -UnattendFile <path>
-       The script copies the file to C:\Windows\Panther\unattend.xml.
+    2. Replace BASE64_*_PASSWORD placeholders (see "Password encoding" below).
+    3. Optionally change TimeZone, ComputerName, account Names/DisplayNames.
+    4. Link to your task sequence — two ways:
+         a. MDT Workbench: right-click task sequence → Properties → OS Info
+            tab → Edit Unattend.xml. Import this file in Windows SIM. MDT
+            stages it to C:\Windows\Panther\unattend.xml automatically.
+         b. File-drop: save as
+            DeploymentShare\Control\<TaskSequenceID>\unattend.xml — MDT
+            auto-discovers it on the next Update-MDTDeploymentShare.
+
+  Usage in brief — WinPE tool method (alternative):
+    Save to USB at e.g. I:\configs\unattend.xml (or any accessible path).
+    Pass it to the deploy script:
+      unified_winpe_deploy.ps1 -UnattendFile <path>
+    The script copies the file to C:\Windows\Panther\unattend.xml.
 
   What this template does:
     - Sets US English locale (change in the international-core component)
@@ -46,6 +52,11 @@
 
     Set <PlainText>false</PlainText> if encoded, <PlainText>true</PlainText>
     if you accept the security trade-off and want to inline the plaintext.
+
+  Note on first-login.ps1:
+    The script is staged into the WIM by prepare_wim.ps1 -DisableExtraBloat.
+    For MDT deployments, import the WIM that already has it baked in — OR
+    add first-login.ps1 as an MDT Application that runs in the task sequence.
 
   Adjusting for x86 / ARM64:
     Replace processorArchitecture="amd64" with "x86" or "arm64" everywhere.

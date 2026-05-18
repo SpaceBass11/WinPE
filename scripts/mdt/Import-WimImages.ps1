@@ -112,6 +112,8 @@ foreach ($wimPath in $WimPaths) {
     }
 
     Write-Host "Importing: $editionName -> Operating Systems\$folderName"
+    # -SourceFile is undocumented on Import-MDTOperatingSystem but empirically
+    # works on MDT 8456 to import a single .wim without pulling the whole folder.
     Import-MDTOperatingSystem -Path "$driveName`:\Operating Systems" `
         -SourceFile $wimPath `
         -DestinationFolder $folderName `
