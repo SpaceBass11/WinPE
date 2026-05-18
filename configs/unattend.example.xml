@@ -38,11 +38,6 @@
     via net user / PowerShell steps — not here. That keeps passwords out of
     the XML and centralises account management in CustomSettings.ini.
 
-  Note on SkipMachineOOBE / SkipUserOOBE:
-    Microsoft marks these as deprecated and warns of unintended effects, but
-    they are included here because many production deployments rely on them
-    for full OOBE suppression. Remove them if you observe unexpected behavior.
-
   Note on first-login.ps1:
     The script must be present at C:\Windows\Setup\Scripts\first-login.ps1
     on the deployed machine for Order 2 to do anything. Options:
@@ -140,10 +135,10 @@
         <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
         <NetworkLocation>Work</NetworkLocation>
         <ProtectYourPC>3</ProtectYourPC>
-        <!-- Deprecated by Microsoft but included for full OOBE suppression.
-             Remove if you observe unexpected behavior on the target hardware. -->
-        <SkipMachineOOBE>true</SkipMachineOOBE>
-        <SkipUserOOBE>true</SkipUserOOBE>
+        <!-- SkipMachineOOBE and SkipUserOOBE intentionally omitted —
+             deprecated in Windows 11 and can cause unintended side effects.
+             MDT's CustomSettings.ini SkipXxx=YES + the HideXxx settings
+             above already fully suppress OOBE in an MDT deployment. -->
       </OOBE>
 
       <TimeZone>Coordinated Universal Time</TimeZone>
