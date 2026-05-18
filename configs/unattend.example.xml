@@ -19,26 +19,29 @@
 
   What this template does:
     - Sets US English locale (change in the international-core component)
-    - Sets a TimeZone (defaults to Central Standard Time; change if needed)
+    - Sets timezone to UTC (change in specialize + oobeSystem if needed)
+    - Joins the Workgroup workgroup (standalone; not domain-joined)
     - Skips OOBE pages (EULA, OEM reg, online account, wireless, privacy)
     - Creates one no-password local admin (LocalAdmin) used only to let
-      MDT's LTIBootstrap.vbs run. Set a password or disable this account
-      post-deploy as your hardening baseline requires.
-    - Configures AutoLogon (one-shot, no password) so the first boot
-      completes unattended and FirstLogonCommands run.
-    - Sets a default ComputerName ("*" = Windows generates a random name;
-      replace with %SerialNumber% to use the service tag, or a fixed string)
+      MDT's LTIBootstrap.vbs run. Set a password or disable post-deploy
+      per your hardening baseline.
+    - Configures AutoLogon (one-shot, no password) for unattended first boot
+    - Sets ComputerName ("*" = Windows random; %SerialNumber% = service tag)
     - Calls LTIBootstrap.vbs (Order 1) so MDT continues the task sequence
       after first logon, then first-login.ps1 (Order 2) for HKCU tweaks
+    - STIG account hardening (rename + disable built-in accounts) is handled
+      by task sequence steps injected by Initialize-MDTDeploymentShare.ps1,
+      not here — keeps it visible and logged in the MDT task sequence.
 
   Additional accounts:
     Create tech/user accounts in the MDT task sequence (State Restore group)
     via net user / PowerShell steps — not here. That keeps passwords out of
     the XML and centralises account management in CustomSettings.ini.
 
-    The built-in Administrator account should be disabled post-deploy per
-    STIG. MDT's AdminPassword= in CustomSettings.ini sets it if needed during
-    the task sequence; disable it in a State Restore step afterwards.
+  Note on SkipMachineOOBE / SkipUserOOBE:
+    Microsoft marks these as deprecated and warns of unintended effects, but
+    they are included here because many production deployments rely on them
+    for full OOBE suppression. Remove them if you observe unexpected behavior.
 
   Note on first-login.ps1:
     The script must be present at C:\Windows\Setup\Scripts\first-login.ps1
@@ -58,6 +61,22 @@
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
 
   <!-- ====================================================================
+       generalize pass — runs during sysprep /generalize on the reference image
+       SkipRearm=1 prevents the activation grace-period timer from resetting,
+       which is required when sysprepping an already-activated image.
+       ==================================================================== -->
+  <settings pass="generalize">
+    <component name="Microsoft-Windows-Security-SPP"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <SkipRearm>1</SkipRearm>
+    </component>
+  </settings>
+
+  <!-- ====================================================================
        specialize pass — runs after Sysprep, before first user login
        ==================================================================== -->
   <settings pass="specialize">
@@ -70,12 +89,24 @@
       <!-- "*" = Windows generates a random name (documented behavior).
            "%SerialNumber%" = use the machine's service tag / serial.
            Fixed string = same name on every machine (test builds only).
-           Do NOT use partial patterns like "WIN-*" — not documented as valid,
-           and ComputerName is limited to 15 characters. -->
+           ComputerName is limited to 15 characters. -->
       <ComputerName>*</ComputerName>
-      <!-- Change this if you need a non-Central timezone. Run
-           `tzutil /l` on any Windows box to list valid names. -->
-      <TimeZone>Central Standard Time</TimeZone>
+      <!-- Change if you need a different timezone. Run `tzutil /l` to list
+           valid names. UTC is a safe default for enterprise deployments. -->
+      <TimeZone>Coordinated Universal Time</TimeZone>
+    </component>
+
+    <!-- Standalone deployment — not domain-joined. Remove this component
+         or replace JoinWorkgroup with a JoinDomain block if needed. -->
+    <component name="Microsoft-Windows-UnattendedJoin"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <Identification>
+        <JoinWorkgroup>Workgroup</JoinWorkgroup>
+      </Identification>
     </component>
   </settings>
 
@@ -109,15 +140,18 @@
         <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
         <NetworkLocation>Work</NetworkLocation>
         <ProtectYourPC>3</ProtectYourPC>
-        <!-- SkipMachineOOBE and SkipUserOOBE intentionally omitted —
-             deprecated, and Microsoft warns they can have unintended effects. -->
+        <!-- Deprecated by Microsoft but included for full OOBE suppression.
+             Remove if you observe unexpected behavior on the target hardware. -->
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
       </OOBE>
 
+      <TimeZone>Coordinated Universal Time</TimeZone>
+
       <!-- LocalAdmin exists solely to give MDT's LTIBootstrap.vbs a session
-           to run under. No password — this is an internal deployment account,
-           not an end-user account. Harden or disable it post-deploy per your
-           STIG baseline. Additional tech/user accounts belong in the MDT
-           task sequence (State Restore), not here. -->
+           to run under. No password — deployment-only account. Harden or
+           disable it post-deploy per your STIG baseline. Additional tech/user
+           accounts belong in the MDT task sequence (State Restore), not here. -->
       <UserAccounts>
         <LocalAccounts>
           <LocalAccount wcm:action="add">
@@ -132,22 +166,19 @@
         </LocalAccounts>
       </UserAccounts>
 
-      <!-- AutoLogon: one-shot, no password. MDT's LTIBootstrap.vbs won't run
-           without an active session — this is how the first boot stays hands-off.
-           LogonCount=1 reverts to the normal lock screen after that one login. -->
+      <!-- AutoLogon: one-shot, no password. Required for MDT's LTIBootstrap.vbs
+           to run unattended. LogonCount=1 reverts to the lock screen after. -->
       <AutoLogon>
         <Username>LocalAdmin</Username>
         <Enabled>true</Enabled>
         <LogonCount>1</LogonCount>
       </AutoLogon>
 
-      <!-- FirstLogonCommands run elevated on first logon (AutoLogon above).
-           Order 1 MUST be LTIBootstrap.vbs — this is how MDT continues
-           the task sequence (State Restore group) after first boot. Without
-           it, MDT stops and the task sequence never completes.
-           Order 2 runs first-login.ps1 for per-user HKCU tweaks. If that
-           script is not present, the command fails silently (logged in
-           setupact.log) — it does not abort the MDT task sequence. -->
+      <!-- Order 1 MUST be LTIBootstrap.vbs — MDT continues the State Restore
+           group (BitLocker, STIG account hardening, etc.) from here.
+           Order 2 runs first-login.ps1 for HKCU tweaks (NumLock, Explorer
+           settings, debloat). STIG account renames and the built-in admin
+           disable are task sequence steps, not FirstLogonCommands. -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>

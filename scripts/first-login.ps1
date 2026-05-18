@@ -48,6 +48,9 @@ function Log {
 #   - 'HKLM:\WimDefault' for the mounted Default User hive
 # ---------------------------------------------------------------------
 $tweaks = @(
+    # ── Keyboard ──────────────────────────────────────────────────
+    @{ Path='{root}\Control Panel\Keyboard'; Name='InitialKeyboardIndicators'; Value='2'; Type='String'; Label='NumLock on at login' },
+
     # ── Explorer / file UI ─────────────────────────────────────────
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name='HideFileExt';    Value=0; Type='DWord'; Label='Show file extensions' },
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name='UseCompactMode'; Value=1; Type='DWord'; Label='Compact view in File Explorer' },

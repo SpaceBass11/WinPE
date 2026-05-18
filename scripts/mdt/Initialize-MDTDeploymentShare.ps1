@@ -196,45 +196,70 @@ function Add-BitLockerTsStep {
     $xml.Save($TsXmlPath)
 }
 
-function Disable-BuiltInAdminTsStep {
+function Add-StigAccountsTsSteps {
     <#
-        Appends a "Disable Built-in Administrator" Run Command Line step to the
-        State Restore group in ts.xml. Runs after BitLocker so the account is
-        available for the full task sequence, then locked down per STIG.
+        Appends three STIG account-hardening steps to the State Restore group
+        in ts.xml. Steps run in order after BitLocker so all accounts are
+        available for the full task sequence, then locked down at the end:
+
+          1. Rename built-in Administrator → X_Admin  (DoD STIG WN11-SO-000030)
+          2. Rename built-in Guest        → Visitor   (DoD STIG WN11-SO-000040)
+          3. Disable X_Admin                          (DoD STIG WN11-SO-000025)
+             Must use the renamed account name — rename runs first.
 
         Note: Opening and saving the task sequence in MDT Workbench regenerates
-        ts.xml and overwrites this step. Re-run Initialize-MDTDeploymentShare.ps1
-        or add the step manually in Workbench afterward.
+        ts.xml and overwrites these steps. Re-run Initialize-MDTDeploymentShare.ps1
+        or add the steps manually in Workbench afterward.
     #>
     param([string]$TsXmlPath)
     if (-not (Test-Path $TsXmlPath)) { return }
 
     [xml]$xml = Get-Content $TsXmlPath -Raw
 
-    # Idempotent — don't add the step twice
-    if ($xml.SelectSingleNode("//*[@name='Disable Built-in Administrator']")) { return }
+    # Idempotent — skip if already injected
+    if ($xml.SelectSingleNode("//*[@name='STIG: Rename Built-in Administrator']")) { return }
 
     $parent = $xml.SelectSingleNode("//group[@name='State Restore']")
     if (-not $parent) { $parent = $xml.SelectSingleNode('//sequence') }
     if (-not $parent) { $parent = $xml.DocumentElement }
 
-    $stepDoc = New-Object System.Xml.XmlDocument
-    $stepDoc.LoadXml('<step
-      type="SMS_TaskSequence_RunCommandLineAction"
-      name="Disable Built-in Administrator"
-      description="STIG: disable the built-in Administrator account after deployment completes."
-      disable="false"
-      continueOnError="false"
-      successCodeList="0">
-  <action>net user Administrator /active:no</action>
-  <defaultVarList>
-    <variable name="RunAsUser" property="RunAsUser">false</variable>
-    <variable name="WorkingDirectory" property="WorkingDirectory">%SystemRoot%\System32</variable>
-    <variable name="Timeout" property="Timeout">0</variable>
-  </defaultVarList>
-</step>')
+    $steps = @(
+        @{
+            name        = 'STIG: Rename Built-in Administrator'
+            description = 'DoD STIG WN11-SO-000030: rename built-in Administrator to X_Admin.'
+            action      = 'powershell.exe -NonInteractive -Command "Rename-LocalUser -Name Administrator -NewName X_Admin"'
+        },
+        @{
+            name        = 'STIG: Rename Built-in Guest'
+            description = 'DoD STIG WN11-SO-000040: rename built-in Guest to Visitor.'
+            action      = 'powershell.exe -NonInteractive -Command "Rename-LocalUser -Name Guest -NewName Visitor"'
+        },
+        @{
+            name        = 'STIG: Disable X_Admin'
+            description = 'DoD STIG WN11-SO-000025: disable the renamed built-in Administrator account.'
+            action      = 'net user X_Admin /active:no'
+        }
+    )
 
-    [void]$parent.AppendChild($xml.ImportNode($stepDoc.DocumentElement, $true))
+    foreach ($s in $steps) {
+        $stepDoc = New-Object System.Xml.XmlDocument
+        $stepDoc.LoadXml(('<step
+          type="SMS_TaskSequence_RunCommandLineAction"
+          name="{0}"
+          description="{1}"
+          disable="false"
+          continueOnError="false"
+          successCodeList="0">
+      <action>{2}</action>
+      <defaultVarList>
+        <variable name="RunAsUser" property="RunAsUser">false</variable>
+        <variable name="WorkingDirectory" property="WorkingDirectory">%SystemRoot%\System32</variable>
+        <variable name="Timeout" property="Timeout">0</variable>
+      </defaultVarList>
+    </step>' -f $s.name, $s.description, $s.action))
+        [void]$parent.AppendChild($xml.ImportNode($stepDoc.DocumentElement, $true))
+    }
+
     $xml.Save($TsXmlPath)
 }
 
@@ -420,11 +445,11 @@ if ($imported.Count -gt 0) {
             -Verbose:$false | Out-Null
 
         $tsXml = Join-Path $SharePath "Control\$tsID\ts.xml"
-        Set-UEFIPartitionScheme        -TsXmlPath $tsXml
-        Add-BitLockerTsStep            -TsXmlPath $tsXml
-        Disable-BuiltInAdminTsStep     -TsXmlPath $tsXml
+        Set-UEFIPartitionScheme     -TsXmlPath $tsXml
+        Add-BitLockerTsStep         -TsXmlPath $tsXml
+        Add-StigAccountsTsSteps     -TsXmlPath $tsXml
 
-        Write-Host "  [$tsID] $tsName  (UEFI partitioning + BitLocker + disable built-in admin applied)"
+        Write-Host "  [$tsID] $tsName  (UEFI partitioning + BitLocker + STIG account hardening applied)"
     }
 }
 
