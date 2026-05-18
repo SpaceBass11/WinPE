@@ -1,5 +1,18 @@
 # Troubleshooting Guide
 
+> This document covers the WinPE layer (`unified_winpe_deploy.ps1`) and MDT-specific issues. For the MDT setup workflow, also see the Troubleshooting table in [docs/MDT.md](MDT.md).
+
+## MDT-Specific Issues
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Task sequence not found | `TaskSequenceID=` in `CustomSettings.ini` doesn't match exactly | Open MDT Workbench → Task Sequences, copy the exact ID |
+| Laptop boots to existing Windows instead of USB | Boot order wrong | Press F12 at POST, select UEFI USB, or set USB first in BIOS |
+| Deploy loops (reinstalls after reboot) | USB not removed before first reboot | Pull USB as soon as the LiteTouch progress bar disappears |
+| `Unable to connect to the deployment share` | Wrong `DeployRoot=` or share not accessible | For standalone media verify `Bootstrap.ini` has `DeployRoot=.` (a literal dot) |
+| WinPE loads then immediately reboots | Secure Boot blocking unsigned WinPE | Disable Secure Boot on the target machine |
+| ISO too large for USB | Selection profile includes all OSes | Create a scoped selection profile in MDT Workbench with only the needed OS |
+
 ## Common Issues
 
 ### Script doesn't auto-start when WinPE boots

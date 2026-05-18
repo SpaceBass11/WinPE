@@ -1,8 +1,11 @@
-# MDT as a USB Payload Factory
+# MDT as a USB Payload Factory — Full Reference
 
 MDT's **standalone media** feature lets you build a single self-contained
-bootable ISO on your admin workstation. That ISO becomes the payload.
-No deployment server, no network share, no PXE — just a file on a download link.
+bootable ISO on your admin workstation. That ISO becomes the payload —
+copy it to a USB stick and it carries everything: WinPE, the task sequence,
+the WIM, all drivers, and the zero-touch config. No deployment server,
+no network share, no PXE, no credentials. The operator never touches MDT;
+they just boot a laptop and walk away.
 
 ```
 Admin workstation (one-time setup, then per update)
@@ -29,6 +32,8 @@ Admin workstation (one-time setup, then per update)
 
 The USB is entirely self-contained. No network required at deploy time.
 Updating the image means rebuilding the ISO once and replacing the download link.
+
+For the three-command quick start, see the [README](../README.md).
 
 ## Prerequisites
 
@@ -88,18 +93,21 @@ C:\MDTMedia\
 
 Upload `LiteTouchMedia_x64.iso` to your download link.
 
-### Step 4 — Operator instructions (two steps)
+## Operator Instructions
 
-Give operators this:
+Give operators these steps (nothing else required):
 
-> 1. Download the ISO from `<your link>`
-> 2. Open [Rufus](https://rufus.ie), select the ISO, select the USB,
->    click **START**. Wait ~20 minutes.
-> 3. Plug USB into laptop, boot from USB (F12 or set USB first in BIOS).
->    Walk away.
+1. Download `LiteTouchMedia_x64.iso` from your shared download link.
+2. Open [Rufus](https://rufus.ie), select the ISO, select the USB drive,
+   click **START**. Wait ~20 minutes for the write to complete.
+3. Plug the USB into the target laptop, boot from USB (F12 boot menu,
+   or set USB first in BIOS boot order). Walk away.
 
-That's it. The laptop partitions, images, configures, and reboots fully
-unattended. No menus, no prompts.
+The laptop partitions itself, applies the Windows image, runs the task
+sequence, and reboots fully unattended. No menus, no prompts, no decisions.
+
+> **Note:** Remove the USB before the post-deploy reboot completes, or the
+> laptop will loop back into the installer.
 
 ## How Zero-Touch Works
 

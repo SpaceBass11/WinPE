@@ -5,7 +5,8 @@ contributions are held to a slightly higher bar than the usual script repo.
 
 ## Before You Start
 
-1. Read [CLAUDE.md](CLAUDE.md) — it documents the safety conventions,
+1. Read [CLAUDE.md](CLAUDE.md) — it covers both the MDT standalone media
+   layer and the underlying WinPE tool, including safety conventions,
    hard-coded drive letters, and WinPE compatibility constraints.
 2. Read [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — many "bug
    reports" are already documented workarounds. The "Known Caveats"
@@ -28,6 +29,20 @@ Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
 
 Real deployment testing requires a WinPE boot medium and a disposable
 target disk. A VM with a scratch VHD works well.
+
+## MDT Script Development
+
+The MDT scripts (`scripts/mdt/`) require MDT 8456 + ADK installed on a Windows
+workstation to test end-to-end. For syntax validation alone, any platform with
+PowerShell 7 works:
+
+```powershell
+pwsh -NoProfile -File ./tests/test_parse.ps1
+```
+
+MDT scripts do not touch disks directly — they configure a deployment share and
+build media. The underlying DISM/diskpart work happens inside the MDT task
+sequence at deploy time.
 
 ## What Makes a Good PR
 

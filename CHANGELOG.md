@@ -9,6 +9,25 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Added
+- **MDT standalone media workflow** — three new scripts build a self-contained
+  bootable ISO for zero-touch USB deployment. No deployment server or network
+  required at deploy time.
+  - `scripts/mdt/Initialize-MDTDeploymentShare.ps1` — one-time deployment share
+    setup: imports WIM(s), creates UEFI task sequences (EFI 300 MB + MSR 16 MB +
+    Windows), writes zero-touch CustomSettings.ini and standalone Bootstrap.ini
+  - `scripts/mdt/Import-WimImages.ps1` — add or replace OS images in an existing
+    share without full rebuild
+  - `scripts/mdt/New-MDTMedia.ps1` — builds the operator payload ISO
+    (`LiteTouchMedia_x64.iso`); operator uses Rufus to write to USB
+  - `configs/mdt/CustomSettings.ini` — zero-touch template (all SkipXxx=YES,
+    OSDDiskIndex=0, FinishAction=REBOOT, DeployRoot=.)
+  - `configs/mdt/Bootstrap.ini` — standalone WinPE boot config
+  - `docs/MDT.md` — full setup guide, operator instructions, CCTK integration,
+    driver management, troubleshooting
+- **`docs/USB_SETUP.md`** — rewritten as operator USB creation guide (Rufus workflow)
+  replacing the manual diskpart partitioning instructions
+
+### Added
 - **`-SourceWim` parameter on `prepare_wim.ps1`** — alternative starting
   point for when the source is an already-captured WIM (e.g. from
   `Dism /Capture-Image` of a reference machine) instead of a stock
@@ -86,6 +105,8 @@ tagged GitHub releases are published.
   Ubuntu in masterize.
 
 ### Removed
+- **`docs/SIGNING.md`** — enterprise PS1 code-signing guide removed; not relevant
+  to the MDT standalone media workflow
 - `.github/CODEOWNERS` — single-owner ceremony with no co-owners; the
   list of "safety-critical files require review by @spacebass11" was
   enforcing review by the only person who'd ever review it.

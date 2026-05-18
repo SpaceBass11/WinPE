@@ -1,3 +1,8 @@
+> This guide covers `unattend.xml` for both the MDT task sequence
+> (linked via MDT Workbench → task sequence → OS Info) and the
+> underlying WinPE deploy tool (`-UnattendFile` parameter).
+> The file format is identical; only how it gets staged differs.
+
 # Unattend.xml Quick Reference
 
 Step-by-step for turning [`configs/unattend.example.xml`](../configs/unattend.example.xml)

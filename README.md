@@ -36,54 +36,26 @@ A Windows `.wim` or `.esd` image file for each OS you want to deploy.
 
 ## Admin Workflow
 
-### Step 1 — One-time setup
-
 ```powershell
-# Elevated PowerShell
+# Step 1 — One-time setup (elevated PowerShell)
 .\scripts\mdt\Initialize-MDTDeploymentShare.ps1 `
     -WimPaths 'C:\images\Win11_Pro_24H2.wim' `
     -OrgName  'Contoso IT'
-```
 
-Creates the MDT deployment share at `C:\MDTDeploymentShare`, imports the WIM,
-and creates a fully zero-touch task sequence (GPT: EFI 300 MB + MSR 16 MB +
-Windows — all wizard pages suppressed, reboots automatically when done).
-
-### Step 2 — Build the payload ISO
-
-```powershell
-.\scripts\mdt\New-MDTMedia.ps1
-# Output: C:\MDTMedia\LiteTouchMedia_x64.iso
-```
-
-Upload `LiteTouchMedia_x64.iso` to your file share / download link.
-
-### Updating the payload
-
-```powershell
-# New WIM version:
+# Step 2 — (Optional) Add or replace a WIM
 .\scripts\mdt\Import-WimImages.ps1 -WimPaths 'C:\images\Win11_Pro_24H2_v2.wim'
 
-# Rebuild and re-upload:
+# Step 3 — Build the payload ISO; upload C:\MDTMedia\LiteTouchMedia_x64.iso
 .\scripts\mdt\New-MDTMedia.ps1
 ```
+
+See [docs/MDT.md](docs/MDT.md) for task sequence tuning, driver injection, CCTK, and full parameter docs.
 
 ## Operator Workflow
 
 1. Download the ISO from the link
 2. Open [Rufus](https://rufus.ie) → select ISO → select USB → **START** (~20 min)
-3. Plug USB into target laptop, boot from USB (F12 boot menu)
-4. Walk away — laptop partitions, installs Windows, and reboots automatically
-
-## Disk Partition Layout
-
-Every deployment creates a clean UEFI/GPT layout:
-
-| Partition | Size | Format | Letter |
-|-----------|------|--------|--------|
-| EFI System | 300 MB | FAT32 | S: |
-| MSR | 16 MB | — | — |
-| Windows | Remaining | NTFS | C: |
+3. Plug USB into target laptop, boot from USB (F12 boot menu) — walk away
 
 ## Configuration
 
@@ -91,9 +63,6 @@ Every deployment creates a clean UEFI/GPT layout:
 |------|---------|
 | `configs/mdt/CustomSettings.ini` | Zero-touch settings: task sequence ID, disk index, locale, FinishAction |
 | `configs/mdt/Bootstrap.ini` | WinPE boot config — `DeployRoot=.` tells LiteTouch to read from the booted USB |
-
-Edit these files and rebuild the ISO to change deployment behavior. See
-[docs/MDT.md](docs/MDT.md) for the full configuration reference.
 
 ## Scripts
 
@@ -105,7 +74,7 @@ Edit these files and rebuild the ISO to change deployment behavior. See
 
 ## Documentation
 
-- [MDT Setup Guide](docs/MDT.md) — full walkthrough, driver integration, Dell CCTK, troubleshooting
+- [Full setup guide: docs/MDT.md](docs/MDT.md) — configuration reference, driver integration, Dell CCTK, troubleshooting
 
 ## License
 
