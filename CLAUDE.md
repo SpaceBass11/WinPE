@@ -2,6 +2,11 @@
 
 ## Project Overview
 
+**This is the MDT branch.** The repo's primary purpose is the MDT standalone
+media workflow — PowerShell scripts that configure MDT as a USB payload factory.
+The WinPE tool (`unified_winpe_deploy.ps1`) is the underlying engine, still
+present and maintained, but not the focus of new work.
+
 This repo has two layers:
 
 **Primary (MDT standalone media):** PowerShell scripts that configure MDT as a
@@ -13,6 +18,15 @@ deploy time. See `docs/MDT.md` and `scripts/mdt/`.
 **Underlying (WinPE USB tool, v4.6.0):** The original PowerShell-based WinPE deploy
 tool (`unified_winpe_deploy.ps1`) that the MDT layer builds on top of conceptually.
 Still present and maintained; documented below.
+
+### Docs style on this branch
+
+Both the scripted (PowerShell) and GUI (MDT Deployment Workbench) paths are
+documented in the user-facing guides. When a user asks "how do I add drivers?"
+or "how do I set up CCTK?" give the GUI steps first (most admins click through
+Workbench for one-offs), then the PowerShell equivalent for repeatable/automated
+builds. See `docs/MDT.md` and `docs/CCTK.md` for the established dual-path
+pattern to follow.
 
 ## Architecture
 
@@ -182,6 +196,16 @@ checks 8-19). They run on every push — no local replica needed.
 - All three scripts require `-RunAsAdministrator` (`#Requires -RunAsAdministrator` at top of file)
 - Error handling via `$ErrorActionPreference = 'Stop'` plus explicit `Test-Path` checks before MDT cmdlets
 - No hardcoded network paths — always `DeployRoot=.` for standalone media
+- `-SourceFile` on `Import-MDTOperatingSystem` is undocumented but empirically works on MDT 8456 to import a single .wim without pulling the whole parent folder
+
+## When Modifying MDT Scripts
+
+1. **Don't break `Set-UEFIPartitionScheme`** — it patches `ts.xml` using MDT's indexed scalar variables (`OSDPartitions0Type`, `OSDPartitions0Size`, etc.). These are NOT an XML blob; each is a separate `<variable>` node. Do not rewrite to an `OSDPartitions` array — that format does not exist in MDT 8456's ts.xml.
+2. **Workbench overwrites the partition patch** — If a user opens the task sequence in MDT Workbench and saves it, MDT regenerates `ts.xml` from its internal model and overwrites `Set-UEFIPartitionScheme`'s changes. Document this and remind users to re-run `Initialize-MDTDeploymentShare.ps1` after Workbench edits, or re-run `Set-UEFIPartitionScheme` standalone.
+3. **`SkipFinalSummary=YES` is required for zero-touch** — without it, MDT shows a "Deployment Complete" screen that blocks the unattended reboot. It must be in `CustomSettings.ini` alongside `SkipSummary=YES`.
+4. **`-SourceFile` is undocumented** — see MDT Script Conventions above. If it breaks on a future MDT build, switch to `-SourcePath (Split-Path -Parent $wimPath)` plus a guard checking the folder contains only one WIM.
+5. **Test syntax after every edit** — run `pwsh -NoProfile -File ./tests/test_parse.ps1`
+6. **MediaName `MEDIA001` is stable** — `New-MDTMedia.ps1` defaults to this. Changing it creates a new orphaned media object in Workbench. Don't change it without also cleaning up the old one.
 
 ## When Modifying the WinPE Script
 
@@ -212,6 +236,9 @@ checks 8-19). They run on every push — no local replica needed.
 - `Update-MDTMedia` is slow (10–30 min first run) — expected behavior, not a hang
 - `MediaName` must be consistent across runs (`MEDIA001` default) — changing it creates a new media object in Workbench and leaves the old one orphaned
 - `DeployRoot=.` only works when reading from the same booted media — changing it to a UNC path enables network mode, but that is out of scope for this project
+- `SkipFinalSummary=YES` in CustomSettings.ini is required for zero-touch — suppresses the post-deploy "Deployment Complete" screen that would otherwise block the unattended reboot
+- `Set-UEFIPartitionScheme` (in `Initialize-MDTDeploymentShare.ps1`) patches individual indexed `<variable>` nodes in `ts.xml` — this is the correct MDT format; don't convert it to a blob
+- CCTK binaries are never committed to the repo — Dell's EULA prohibits redistribution; `.gitignore` blocks common paths but don't rely on it alone
 
 ## Building boot.wim
 
