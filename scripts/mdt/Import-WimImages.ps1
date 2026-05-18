@@ -27,11 +27,11 @@
     Default: true
 .EXAMPLE
     # Import a single new OS
-    .\Import-WimImages.ps1 -WimPaths 'E:\images\Win11_Ent_24H2.wim'
+    .\Import-WimImages.ps1 -WimPaths 'C:\images\Win11_Ent_24H2.wim'
 
 .EXAMPLE
     # Import all WIMs in a folder, skip TS creation
-    .\Import-WimImages.ps1 -WimFolder 'E:\images' -CreateTaskSequences:$false
+    .\Import-WimImages.ps1 -WimFolder 'C:\images' -CreateTaskSequences:$false
 #>
 
 [CmdletBinding()]

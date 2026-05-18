@@ -1,11 +1,17 @@
-# WinPE Image Deployment Tool - Claude Code Guide
+# MDT USB Payload Factory - Claude Code Guide
 
 ## Project Overview
 
-This is a **PowerShell-based WinPE image deployment tool** (v4.6.0) that automates
-Windows installation from `.wim`/`.esd` files in a WinPE boot environment. The tool
-is designed to run from a USB drive with a dual-partition layout: a small WinPE boot
-partition and a larger data partition holding Windows images.
+This repo has two layers:
+
+**Primary (MDT standalone media):** PowerShell scripts that configure MDT as a
+USB payload factory. Admin builds a self-contained bootable ISO on their workstation;
+operator downloads, Rufus → USB, boots a laptop, walks away. No server, no network
+at deploy time. See `docs/MDT.md` and `scripts/mdt/`.
+
+**Underlying (WinPE USB tool, v4.6.0):** The original PowerShell-based WinPE deploy
+tool (`unified_winpe_deploy.ps1`) that the MDT layer builds on top of conceptually.
+Still present and maintained; documented below.
 
 ## Architecture
 
@@ -53,14 +59,27 @@ USB Drive Layout:
 
 ## Key Files
 
+### MDT layer (primary)
+
 | File | Purpose |
 |------|---------|
-| `unified_winpe_deploy.ps1` | Main deployment script - the core deliverable |
-| `scripts/build_boot_wim.ps1` | Reproducible WinPE boot.wim builder (components + reg tweaks + embed deploy script) |
-| `scripts/prepare_wim.ps1` | Companion WIM prep: ISO -> debloated/customized install.wim ready to deploy |
-| `scripts/refresh_usb.ps1` | Thin workflow wrapper: new ISO -> prep + (optional) boot.wim rebuild |
-| `tests/test_parse.ps1` | PowerShell syntax validation (all four scripts) |
-| `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule excludes used locally and in CI |
+| `scripts/mdt/Initialize-MDTDeploymentShare.ps1` | One-time setup: creates share, imports WIM, builds task sequences, writes zero-touch config |
+| `scripts/mdt/Import-WimImages.ps1` | Add/replace WIMs in an existing share |
+| `scripts/mdt/New-MDTMedia.ps1` | Build the operator payload ISO (`LiteTouchMedia_x64.iso`) |
+| `configs/mdt/CustomSettings.ini` | Zero-touch settings baked into the ISO (all SkipXxx=YES) |
+| `configs/mdt/Bootstrap.ini` | WinPE boot config — `DeployRoot=.` for standalone USB |
+| `docs/MDT.md` | Full MDT setup guide, operator instructions, CCTK, drivers, troubleshooting |
+
+### WinPE USB tool (underlying)
+
+| File | Purpose |
+|------|---------|
+| `unified_winpe_deploy.ps1` | WinPE deploy script (TUI, diskpart, DISM, BCDBoot) |
+| `scripts/build_boot_wim.ps1` | Reproducible WinPE boot.wim builder |
+| `scripts/prepare_wim.ps1` | WIM prep: ISO → debloated/customized install.wim |
+| `scripts/refresh_usb.ps1` | Wrapper: new ISO → prep + optional boot.wim rebuild |
+| `tests/test_parse.ps1` | PowerShell syntax validation (all scripts including MDT) |
+| `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule excludes used in CI |
 | `docs/USB_SETUP.md` | USB drive preparation guide |
 | `docs/SCRIPT_REFERENCE.md` | Full parameter and function reference |
 | `docs/ARCHITECTURE.md` | Design rationale, data flow, non-goals |

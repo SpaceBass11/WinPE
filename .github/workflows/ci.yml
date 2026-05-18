@@ -93,13 +93,13 @@ jobs:
           ver=$(grep -oP "ScriptVersion\s*=\s*'\K[0-9.]+" unified_winpe_deploy.ps1 | head -1)
           echo "Script version: $ver"
           if [ -z "$ver" ]; then echo "FAIL: could not extract version"; fail=1; fi
-          for f in CHANGELOG.md CLAUDE.md README.md; do
+          for f in CHANGELOG.md CLAUDE.md; do
             if grep -q "$ver" "$f"; then echo "OK: $f"; else echo "FAIL: $f missing $ver"; fail=1; fi
           done
 
           echo ""
           echo "=== 2. Cross-doc script coverage ==="
-          for f in README.md docs/ARCHITECTURE.md CLAUDE.md; do
+          for f in docs/ARCHITECTURE.md CLAUDE.md; do
             for s in prepare_wim build_boot_wim unified_winpe_deploy; do
               if grep -q "$s" "$f"; then
                 echo "OK: $f mentions $s"
@@ -138,15 +138,7 @@ jobs:
           done
 
           echo ""
-          echo "=== 6. README USB drive layout diagram coverage ==="
-          for dir in 'images/' 'cctk/' 'configs/'; do
-            if grep -A 16 '## USB Drive Layout' README.md | grep -q "$dir"; then
-              echo "OK: '$dir' in USB layout"
-            else
-              echo "FAIL: '$dir' missing from USB Drive Layout diagram"
-              fail=1
-            fi
-          done
+          echo "=== 6. (skipped — USB drive layout check removed; README is MDT-focused) ==="
 
           echo ""
           echo "=== 7. .EXAMPLE paths use I:\\images\\ ==="
