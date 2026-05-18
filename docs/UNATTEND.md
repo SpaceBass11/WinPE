@@ -69,10 +69,10 @@ sequence — State Restore group, `net user` / PowerShell steps. Passwords
 for those accounts can be stored as variables in `CustomSettings.ini` and
 passed as MDT task sequence variables, keeping them out of the XML entirely.
 
-The built-in Administrator account should be disabled post-deploy per STIG.
-If you need it active during State Restore, set `AdminPassword=` in
-`CustomSettings.ini`; MDT will set it on the built-in account. Add a
-State Restore step to disable it after your hardening steps complete.
+The built-in Administrator account is disabled automatically by a State Restore
+step injected by `Initialize-MDTDeploymentShare.ps1` (`net user Administrator
+/active:no`). It runs last in State Restore so it is available for the full
+task sequence and then locked down per STIG without any manual step.
 
 ---
 

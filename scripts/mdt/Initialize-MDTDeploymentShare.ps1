@@ -196,6 +196,48 @@ function Add-BitLockerTsStep {
     $xml.Save($TsXmlPath)
 }
 
+function Disable-BuiltInAdminTsStep {
+    <#
+        Appends a "Disable Built-in Administrator" Run Command Line step to the
+        State Restore group in ts.xml. Runs after BitLocker so the account is
+        available for the full task sequence, then locked down per STIG.
+
+        Note: Opening and saving the task sequence in MDT Workbench regenerates
+        ts.xml and overwrites this step. Re-run Initialize-MDTDeploymentShare.ps1
+        or add the step manually in Workbench afterward.
+    #>
+    param([string]$TsXmlPath)
+    if (-not (Test-Path $TsXmlPath)) { return }
+
+    [xml]$xml = Get-Content $TsXmlPath -Raw
+
+    # Idempotent — don't add the step twice
+    if ($xml.SelectSingleNode("//*[@name='Disable Built-in Administrator']")) { return }
+
+    $parent = $xml.SelectSingleNode("//group[@name='State Restore']")
+    if (-not $parent) { $parent = $xml.SelectSingleNode('//sequence') }
+    if (-not $parent) { $parent = $xml.DocumentElement }
+
+    $stepDoc = New-Object System.Xml.XmlDocument
+    $stepDoc.LoadXml('<step
+      type="SMS_TaskSequence_RunCommandLineAction"
+      name="Disable Built-in Administrator"
+      description="STIG: disable the built-in Administrator account after deployment completes."
+      disable="false"
+      continueOnError="false"
+      successCodeList="0">
+  <action>net user Administrator /active:no</action>
+  <defaultVarList>
+    <variable name="RunAsUser" property="RunAsUser">false</variable>
+    <variable name="WorkingDirectory" property="WorkingDirectory">%SystemRoot%\System32</variable>
+    <variable name="Timeout" property="Timeout">0</variable>
+  </defaultVarList>
+</step>')
+
+    [void]$parent.AppendChild($xml.ImportNode($stepDoc.DocumentElement, $true))
+    $xml.Save($TsXmlPath)
+}
+
 function Set-UEFIPartitionScheme {
     <#
         Patches the Format and Partition Disk step in a task sequence XML to
@@ -378,10 +420,11 @@ if ($imported.Count -gt 0) {
             -Verbose:$false | Out-Null
 
         $tsXml = Join-Path $SharePath "Control\$tsID\ts.xml"
-        Set-UEFIPartitionScheme -TsXmlPath $tsXml
-        Add-BitLockerTsStep     -TsXmlPath $tsXml
+        Set-UEFIPartitionScheme        -TsXmlPath $tsXml
+        Add-BitLockerTsStep            -TsXmlPath $tsXml
+        Disable-BuiltInAdminTsStep     -TsXmlPath $tsXml
 
-        Write-Host "  [$tsID] $tsName  (UEFI partitioning + BitLocker step applied)"
+        Write-Host "  [$tsID] $tsName  (UEFI partitioning + BitLocker + disable built-in admin applied)"
     }
 }
 
