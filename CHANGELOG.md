@@ -8,6 +8,15 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- `prepare_wim.ps1` now names the exported WIM after the selected source
+  image (`$target.ImageName`) instead of the default `$Edition` literal.
+  Before: `-SourceWim foo.wim -Index 1` always produced a WIM labeled
+  `Windows 11 Enterprise (Custom)` regardless of what the source was,
+  which then surfaced as the wrong edition name in the deploy script's
+  `Select-ImageIndex` menu. Falls back to `$Edition` only when the source
+  image has no name set.
+
 ### Added
 - **`-SourceWim` parameter on `prepare_wim.ps1`** — alternative starting
   point for when the source is an already-captured WIM (e.g. from
@@ -61,8 +70,21 @@ tagged GitHub releases are published.
   and (optionally) `build_boot_wim.ps1`, with auto-derived output names,
   a single prompt for the boot-rebuild question, and pre-flight checks
   that fail early if the ADK environment is missing.
+- **`-SourceWim`, `-Index`, `-Edition`, `-DisableExtraBloat` on
+  `scripts/refresh_usb.ps1`** — wrapper-script parity with `prepare_wim.ps1`.
+  `refresh_usb.ps1` previously only exposed the `-SourceIso` flow; the
+  captured-WIM path added by `prepare_wim.ps1 -SourceWim` had no wrapper
+  entry point. `-SourceIso` and `-SourceWim` are now in mutually
+  exclusive parameter sets (`FromIso` / `FromWim`); auto-derived output
+  name uses whichever source is bound.
 
 ### Changed
+- `-UnattendFile` validation now parses the file as XML up front, in
+  addition to the existing `Test-Path` check. A malformed unattend.xml
+  is silently ignored by Windows Setup at first boot (falls through to
+  manual OOBE) — failing here, before any disk wipe, saves the operator
+  a full re-deploy. Matches the manual `[xml](Get-Content ...)` sanity
+  check documented in `docs/UNATTEND.md` section 6.
 - Documentation restructured to cut maintenance burden:
   - `docs/KNOWN_ISSUES.md` merged into `docs/TROUBLESHOOTING.md` as a
     new "Known Caveats" section. "Recently Fixed" entries removed in
@@ -84,6 +106,14 @@ tagged GitHub releases are published.
   strings) are now Phase 1B checks 15-19. The dedicated
   `static-analysis` CI job is removed; the same coverage runs on
   Ubuntu in masterize.
+- `tests/test_parse.ps1` "Required functions" list extended to cover
+  four functions added since v4.5.0 that were silently uncovered:
+  `Invoke-CctkConfig` (Dell BIOS pre-apply gate),
+  `Select-AdditionalWipeDisks` (multi-disk wipe stage),
+  `Test-FinalWipeConfirmation` (the typed-confirmation parser shared by
+  both wipe paths), and `Show-ImageList` (backs the public `-ListOnly`
+  flag). A regression that removed or renamed any of these would have
+  passed the syntax test before this change.
 
 ### Removed
 - `.github/CODEOWNERS` — single-owner ceremony with no co-owners; the

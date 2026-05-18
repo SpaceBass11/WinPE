@@ -489,12 +489,28 @@ defaults and ordering.
 
 ## Parameters
 
-### -SourceIso [string] (Required)
-Path to the Windows ISO.
+### -SourceIso [string]
+Path to the Windows ISO. Required when using the `FromIso` parameter
+set (the default). Mutually exclusive with `-SourceWim`.
+
+### -SourceWim [string]
+Path to an already-captured `.wim` (or `.esd`). Required when using
+the `FromWim` parameter set. Passthrough to `prepare_wim.ps1 -SourceWim`.
+Mutually exclusive with `-SourceIso`.
+
+### -Index [int]
+Numeric image-index to pick from the source. Passthrough to
+`prepare_wim.ps1 -Index`. Useful for captured WIMs that don't use
+standard edition names. Overrides `-Edition` when both are given.
+
+### -Edition [string]
+Edition name (as DISM reports it) to pick from the source. Passthrough
+to `prepare_wim.ps1 -Edition`. Default in the underlying script is
+`Windows 11 Enterprise`.
 
 ### -OutputName [string]
 Basename for the resulting WIM (no extension, no path). Defaults to
-the ISO filename minus its extension.
+the source filename (ISO or WIM) minus its extension.
 
 ### -ImagesPath [string]
 Directory where the resulting WIM is placed. Default: `I:\images`.
@@ -509,6 +525,10 @@ whitelist text file.
 
 ### -DisableCopilot [switch]
 Passthrough to `prepare_wim.ps1 -DisableCopilot`.
+
+### -DisableExtraBloat [switch]
+Passthrough to `prepare_wim.ps1 -DisableExtraBloat`. Superset of
+`-DisableCopilot`.
 
 ### -RebuildBootWim [Yes|No|Ask]
 `Yes` to also rebuild WinPE boot.wim. `No` to skip. `Ask` (default)
@@ -538,12 +558,18 @@ embed in boot.wim. See [docs/CCTK.md](CCTK.md).
 .\scripts\refresh_usb.ps1 `
     -SourceIso 'D:\iso\Win11_24H2.iso' `
     -RebuildBootWim Yes
+
+# Refresh from a captured reference WIM (instead of a stock ISO)
+.\scripts\refresh_usb.ps1 `
+    -SourceWim 'C:\captures\golden-image.wim' `
+    -Index 1 `
+    -DisableExtraBloat
 ```
 
 ## Pre-flight Checks
 
 Fails early on:
-- ISO path doesn't exist
+- Source (ISO or WIM) path doesn't exist
 - `ImagesPath` doesn't exist (USB not mounted as expected)
 - `-RebuildBootWim Yes` but `copype` not on PATH (must run from ADK
   "Deployment and Imaging Tools Environment" as admin)

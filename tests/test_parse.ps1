@@ -82,14 +82,21 @@ $endregions = ($lines | Where-Object { $_ -match '^\s*#endregion' }).Count
 Write-Result -Test "Balanced #region/#endregion" -Pass ($regions -eq $endregions) -Detail "Regions: $regions, Endregions: $endregions"
 
 # Test 5: Required functions exist
+# Functions covering the destructive-operation entry points (Invoke-Diskpart,
+# Apply-WindowsImage, Set-BootConfiguration, Invoke-CctkConfig,
+# Select-AdditionalWipeDisks) and their confirmation parser
+# (Test-FinalWipeConfirmation) must be present — silent loss of any one of
+# them is a safety regression. Show-ImageList backs the public -ListOnly flag.
 $requiredFunctions = @(
     'Write-Log', 'Write-Banner', 'Test-Administrator', 'Show-MessageBox',
     'Initialize-SystemPaths', 'Find-ImageFiles', 'Search-DirectoryForImages',
-    'Show-ImageSelection', 'Test-WinPEEnvironment', 'Test-SystemMemory',
-    'Get-SystemDisks', 'Show-DiskMenu', 'Select-TargetDisk',
-    'Get-WimImageInfo', 'Select-ImageIndex', 'New-DiskpartScript',
-    'Invoke-Diskpart', 'Apply-WindowsImage', 'Set-BootConfiguration',
-    'Start-Deployment'
+    'Show-ImageList', 'Show-ImageSelection',
+    'Test-WinPEEnvironment', 'Test-SystemMemory',
+    'Get-SystemDisks', 'Show-DiskMenu', 'Test-FinalWipeConfirmation',
+    'Select-TargetDisk', 'Get-WimImageInfo', 'Select-ImageIndex',
+    'New-DiskpartScript', 'Invoke-Diskpart', 'Apply-WindowsImage',
+    'Set-BootConfiguration', 'Invoke-CctkConfig',
+    'Select-AdditionalWipeDisks', 'Start-Deployment'
 )
 foreach ($func in $requiredFunctions) {
     $found = $content -match "function\s+$func\b"

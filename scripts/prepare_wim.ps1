@@ -465,11 +465,16 @@ try {
     }
 }
 
-# Step 4: re-export with /Compress:max so the output is the cleanest version of just the customized index
+# Step 4: re-export with /Compress:max so the output is the cleanest version of just the customized index.
+# Base the destination name on the selected image's actual name, not $Edition — when -SourceWim is used
+# with -Index (or with no explicit edition), $Edition keeps its default ('Windows 11 Enterprise') and
+# would mislabel a captured WIM as Enterprise regardless of what it actually is.
+$sourceName = if ($target.ImageName) { $target.ImageName } else { $Edition }
+$destinationName = "$sourceName (Custom)"
 Write-Step "Re-exporting customized WIM to $OutputWim (max compression)"
 if (Test-Path $OutputWim) { Remove-Item $OutputWim -Force }
 Export-WindowsImage -SourceImagePath $baseWim -SourceIndex $target.ImageIndex `
-    -DestinationImagePath $OutputWim -DestinationName "$Edition (Custom)" `
+    -DestinationImagePath $OutputWim -DestinationName $destinationName `
     -ScratchDirectory $scratchDir -CheckIntegrity -CompressionType Max | Out-Null
 
 $finalSizeGB = [Math]::Round((Get-Item $OutputWim).Length / 1GB, 2)
