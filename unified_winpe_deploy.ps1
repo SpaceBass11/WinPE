@@ -86,6 +86,10 @@ $Script:Config = @{
     ImageExtensions = @('*.wim', '*.esd')
     CctkPath = 'X:\cctk\cctk.exe'
     CctkConfigDir = 'cctk'
+    # BitLocker: Enhanced PIN used at every boot. Change before building USB.
+    # Set DataDiskNumber to -1 to skip data-disk formatting and BitLocker entirely.
+    BitLockerPin   = 'ChangeMe123!'
+    DataDiskNumber = 1
 }
 
 $Script:Colors = @{
@@ -875,8 +879,9 @@ function New-DiskpartScript {
         [array]$ExtraWipeDisks = @()
     )
 
-    # Free up S: and C: drive letters if already assigned to avoid diskpart conflicts
+    # Free up S:, C:, and D: (when formatting data disk) to avoid diskpart conflicts
     $lettersToFree = @('S', 'C')
+    if ($Script:Config.DataDiskNumber -ge 0) { $lettersToFree += 'D' }
     foreach ($letter in $lettersToFree) {
         if (Test-Path "$($letter):\" ) {
             # NEVER unmount the current system drive
@@ -910,6 +915,21 @@ clean
 "@
     }
 
+    $dataDiskCommands = ''
+    if ($Script:Config.DataDiskNumber -ge 0) {
+        $dataDiskCommands = @"
+
+select disk $($Script:Config.DataDiskNumber)
+online disk noerr
+attributes disk clear readonly noerr
+clean
+convert gpt
+create partition primary
+format quick fs=ntfs label=Data
+assign letter D
+"@
+    }
+
 $commands = @"
 $extraPreamble
 select disk $DiskNumber
@@ -924,6 +944,7 @@ create partition msr size=16
 create partition primary
 format quick fs=ntfs label=Windows
 assign letter C
+$dataDiskCommands
 exit
 "@
 
@@ -1380,6 +1401,90 @@ function Select-AdditionalWipeDisks {
 #endregion
 
 #region Main Process
+function Initialize-BitLockerSetup {
+    if ($Script:Config.DataDiskNumber -lt 0) { return $true }
+
+    Write-Log "Staging BitLocker setup script for first boot..." -Level Info
+
+    $scriptsDir = 'C:\Windows\Setup\Scripts'
+    if (-not (Test-Path $scriptsDir)) {
+        New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
+    }
+
+    # Escape the PIN for embedding in a here-string (single-quoted PS string — only ' needs doubling)
+    $escapedPin = $Script:Config.BitLockerPin -replace "'", "''"
+
+    $bitlockerScript = @"
+`$ErrorActionPreference = 'Continue'
+`$log = 'C:\Windows\Setup\Scripts\bitlocker-setup.log'
+function Write-BL { param([string]`$m) `$ts = Get-Date -Format 'HH:mm:ss'; "`$ts  `$m" | Tee-Object -FilePath `$log -Append | Out-Null; Write-Host `$m }
+
+Write-BL 'BitLocker setup starting'
+
+# Enhanced PIN requires this policy key (allows non-numeric characters in startup PIN)
+`$fvePath = 'HKLM:\SOFTWARE\Policies\Microsoft\FVE'
+if (-not (Test-Path `$fvePath)) { New-Item -Path `$fvePath -Force | Out-Null }
+Set-ItemProperty -Path `$fvePath -Name 'UseEnhancedPin' -Value 1 -Type DWord -Force
+
+`$recoveryDir = 'D:\BitLocker'
+if (-not (Test-Path `$recoveryDir)) { New-Item -ItemType Directory -Path `$recoveryDir -Force | Out-Null }
+
+`$pin = ConvertTo-SecureString '$escapedPin' -AsPlainText -Force
+
+# C: — TPM + Enhanced PIN primary protector
+try {
+    Enable-BitLocker -MountPoint 'C:' -EncryptionMethod XtsAes256 -TpmAndPinProtector -Pin `$pin -ErrorAction Stop | Out-Null
+    Write-BL 'C: TPM+PIN protector set'
+} catch {
+    Write-BL "ERROR enabling C: BitLocker: `$(`$_.Exception.Message)"
+    exit 1
+}
+
+# C: — recovery key backup protector
+try {
+    Add-BitLockerKeyProtector -MountPoint 'C:' -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
+    Write-BL "C: recovery key saved to `$recoveryDir"
+} catch {
+    Write-BL "WARNING: C: recovery key protector failed: `$(`$_.Exception.Message)"
+}
+
+# D: — recovery key protector
+try {
+    Enable-BitLocker -MountPoint 'D:' -EncryptionMethod XtsAes256 -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
+    Write-BL "D: recovery key saved to `$recoveryDir"
+} catch {
+    Write-BL "ERROR enabling D: BitLocker: `$(`$_.Exception.Message)"
+}
+
+# D: — auto-unlock tied to C:
+try {
+    Enable-BitLockerAutoUnlock -MountPoint 'D:' -ErrorAction Stop | Out-Null
+    Write-BL 'D: auto-unlock enabled'
+} catch {
+    Write-BL "WARNING: D: auto-unlock failed: `$(`$_.Exception.Message)"
+}
+
+Write-BL 'BitLocker setup complete - rebooting'
+shutdown.exe /r /t 15 /c 'BitLocker configured. Rebooting to finalise...'
+"@
+
+    $setupCompleteCmd = @"
+@echo off
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Windows\Setup\Scripts\bitlocker-setup.ps1" >> "C:\Windows\Setup\Scripts\setupcomplete.log" 2>&1
+"@
+
+    try {
+        Set-Content -Path "$scriptsDir\bitlocker-setup.ps1" -Value $bitlockerScript -Encoding UTF8 -Force
+        Set-Content -Path "$scriptsDir\SetupComplete.cmd"   -Value $setupCompleteCmd -Encoding ASCII -Force
+        Write-Log "BitLocker setup staged: $scriptsDir\bitlocker-setup.ps1" -Level Success
+        Write-Log "SetupComplete.cmd staged: $scriptsDir\SetupComplete.cmd" -Level Success
+        return $true
+    } catch {
+        Write-Log "Failed to stage BitLocker setup: $($_.Exception.Message)" -Level Error
+        return $false
+    }
+}
+
 function Start-Deployment {
     Write-Banner "UNIVERSAL WINDOWS IMAGE DEPLOYMENT TOOL v$($Script:Config.ScriptVersion)"
 
@@ -1528,7 +1633,8 @@ function Start-Deployment {
     $verified = $false
     for ($retry = 1; $retry -le $maxRetries; $retry++) {
         Start-Sleep -Seconds 2
-        if ((Test-Path 'S:\') -and (Test-Path 'C:\')) {
+        $needD = $Script:Config.DataDiskNumber -ge 0
+        if ((Test-Path 'S:\') -and (Test-Path 'C:\') -and (-not $needD -or (Test-Path 'D:\'))) {
             $verified = $true
             break
         }
@@ -1540,6 +1646,9 @@ function Start-Deployment {
         }
         if (-not (Test-Path 'C:\')) {
             Write-Log "Diskpart completed but C: (Windows partition) is not available" -Level Error
+        }
+        if ($Script:Config.DataDiskNumber -ge 0 -and -not (Test-Path 'D:\')) {
+            Write-Log "Diskpart completed but D: (data disk $($Script:Config.DataDiskNumber)) is not available" -Level Error
         }
         Write-Log "Try: mountvol S: /d and mountvol C: /d to free letters, then re-run" -Level Info
         return $false
@@ -1579,6 +1688,9 @@ function Start-Deployment {
         Copy-Item -Path $UnattendFile -Destination "$pantherDir\unattend.xml" -Force
         Write-Log "Unattend file staged: $pantherDir\unattend.xml" -Level Success
     }
+
+    # Stage BitLocker setup script (runs on first Windows boot via SetupComplete.cmd)
+    if (-not (Initialize-BitLockerSetup)) { return $false }
 
     # Configure boot
     if (-not (Set-BootConfiguration)) {
