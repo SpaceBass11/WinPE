@@ -55,6 +55,11 @@ produces is handed off; the workstation itself never goes to a deployment site.
 
 ## Setup (Run Once)
 
+The three scripts below automate the initial setup. Every step can also be done
+via **MDT Deployment Workbench** (the GUI). The scripts are useful for
+repeatable or automated builds; the Workbench is useful for one-off changes,
+debugging, and browsing the share structure.
+
 ### Step 1 — Create the deployment share and import your WIM
 
 ```powershell
@@ -70,12 +75,15 @@ named `DEPLOY-WIN11-PRO` pre-configured for zero-touch UEFI deployment.
 
 ### Step 2 — Tune the task sequence (optional)
 
-Open **MDT Deployment Workbench** → Task Sequences → double-click your TS.
+Open **MDT Deployment Workbench** → expand your deployment share → **Task
+Sequences** → double-click your TS to open its properties → click the **Task
+Sequence** tab to view and edit individual steps.
+
 Common changes:
 - **Locale / timezone** — Update `TimeZoneName` in `configs/mdt/CustomSettings.ini`
 - **Computer naming** — Set `OSDComputerName=%SerialNumber%` for serial-based names
 - **Admin password** — Set `AdminPassword=` in CustomSettings.ini
-- **Unattend.xml** — Right-click TS → Properties → OS Info → Edit Unattend.xml
+- **Unattend.xml** — Right-click TS → **Properties** → **OS Info** tab → **Edit Unattend.xml**
   (use `configs/unattend.example.xml` as a starting point if you have one)
 
 ### Step 3 — Build the payload ISO
@@ -154,7 +162,18 @@ The build process is fully repeatable — run it as many times as you like.
 
 ## Adding Drivers
 
-Drop drivers into the deployment share before building media:
+Drop drivers into the deployment share before building media.
+
+**Using MDT Workbench (GUI):**
+
+1. Open **Deployment Workbench** → expand your deployment share → expand **Out-of-Box Drivers**.
+2. Right-click **Out-of-Box Drivers** → **New Folder**. Name it after the model (e.g., `Dell Latitude 5540`).
+3. Right-click the new folder → **Import Drivers**.
+4. Browse to your driver folder (must contain `.inf` files). MDT scans recursively.
+5. Click **Next** through the wizard. MDT copies the drivers into the share.
+6. After all drivers are imported, right-click the deployment share root → **Update Deployment Share** → complete the wizard to regenerate boot.wim.
+
+**Using PowerShell (scriptable / repeatable):**
 
 ```powershell
 Import-Module 'C:\Program Files\Microsoft Deployment Toolkit\bin\MicrosoftDeploymentToolkit.psd1'
@@ -166,35 +185,25 @@ Import-MDTDriver -Path 'DS001:\Out-of-Box Drivers\Dell\Latitude5540' `
 ```
 
 MDT injects the matching driver during the "Inject Drivers" task sequence
-step based on Plug and Play IDs. Rebuild the media after adding drivers.
+step based on Plug and Play IDs.
+
+After adding drivers, rebuild the media: `.\scripts\mdt\New-MDTMedia.ps1`
 
 ## Dell CCTK (BIOS Pre-Configuration)
 
 To apply BIOS settings before Windows images (AHCI mode, Secure Boot, etc.),
 add CCTK as an MDT Application and insert it before the "Apply OS" step.
 
-```powershell
-# After mounting DS001:
-Import-MDTApplication -Path 'DS001:\Applications' `
-    -Name         'Dell CCTK - BIOS Config' `
-    -ShortName    'Dell-CCTK' `
-    -CommandLine  'cctk.exe --infile="%DEPLOYROOT%\Applications\Dell-CCTK\configs\default.ini"' `
-    -WorkingDirectory '.\Applications\Dell-CCTK\bin' `
-    -ApplicationSourcePath 'C:\Path\To\Dell\CommandConfigure\X86_64' `
-    -DestinationFolder 'Dell-CCTK'
-```
+**Quick reference — MDT Application (GUI):**
 
-Drop your CCTK config files under:
-```
-DeploymentShare\Applications\Dell-CCTK\configs\
-├── default.ini       ← catch-all
-├── OptiPlex7090.ini  ← per-model
-└── 1A2B3C4.ini       ← per-service-tag
-```
+1. Open **Deployment Workbench** → **Applications** → **New Application** → *Application with source files*.
+2. Source: your local Dell Command | Configure `X86_64` folder.
+3. Command line: `cctk.exe --infile="%DEPLOYROOT%\Applications\Dell-CCTK\configs\default.ini"`
+4. Working directory: `.\Applications\Dell-CCTK\bin`
+5. In the task sequence editor, drag the application step to run *before* **Format and Partition Disk**.
 
-In the task sequence, move the CCTK application step to run *before*
-"Format and Partition Disk". CCTK changes queue in BIOS and activate on
-the next POST (the post-deploy reboot) — same behavior as the USB tool.
+See [docs/CCTK.md](CCTK.md) for the full walkthrough including PowerShell
+import, config file layout, per-model targeting, and troubleshooting.
 
 > [!IMPORTANT]
 > CCTK binaries are not redistributable. Copy them to the deployment share
