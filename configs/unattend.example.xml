@@ -34,9 +34,10 @@
       blocks as needed.
     - Configures AutoLogon (one-shot) for the admin account so the first
       boot completes truly unattended and FirstLogonCommands run.
-    - Sets a default ComputerName ("WIN-*" = Windows generates a random
-      suffix; replace with a real name if you need a known hostname)
-    - Calls scripts\first-login.ps1 to apply per-user HKCU debloat tweaks
+    - Sets a default ComputerName ("*" = Windows generates a random name;
+      replace with %SerialNumber% to use the service tag, or a fixed string)
+    - Calls LTIBootstrap.vbs (Order 1) so MDT continues the task sequence
+      after first logon, then first-login.ps1 (Order 2) for HKCU tweaks
 
   Password encoding:
     Each <Password><Value> field expects a base64 of the UTF-16LE byte
@@ -54,9 +55,12 @@
     if you accept the security trade-off and want to inline the plaintext.
 
   Note on first-login.ps1:
-    The script is staged into the WIM by prepare_wim.ps1 -DisableExtraBloat.
-    For MDT deployments, import the WIM that already has it baked in — OR
-    add first-login.ps1 as an MDT Application that runs in the task sequence.
+    The script must be present at C:\Windows\Setup\Scripts\first-login.ps1
+    on the deployed machine for Order 2 to do anything. Options:
+      a. Bake it into the WIM before importing to MDT (dism /image offline copy).
+      b. Add it as an MDT Application that copies the file during State Restore,
+         before the first reboot that triggers FirstLogonCommands.
+    If absent, Order 2 fails silently and Order 1 (LTIBootstrap.vbs) is unaffected.
 
   Adjusting for x86 / ARM64:
     Replace processorArchitecture="amd64" with "x86" or "arm64" everywhere.
@@ -77,9 +81,12 @@
                language="neutral"
                versionScope="nonSxS"
                xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <!-- "WIN-*" = Windows generates a random 6-char suffix. Replace with
-           a fixed hostname if you image one machine at a time. -->
-      <ComputerName>WIN-*</ComputerName>
+      <!-- "*" = Windows generates a random name (documented behavior).
+           "%SerialNumber%" = use the machine's service tag / serial.
+           Fixed string = same name on every machine (test builds only).
+           Do NOT use partial patterns like "WIN-*" — not documented as valid,
+           and ComputerName is limited to 15 characters. -->
+      <ComputerName>*</ComputerName>
       <!-- Change this if you need a non-Central timezone. Run
            `tzutil /l` on any Windows box to list valid names. -->
       <TimeZone>Central Standard Time</TimeZone>
@@ -116,8 +123,8 @@
         <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
         <NetworkLocation>Work</NetworkLocation>
         <ProtectYourPC>3</ProtectYourPC>
-        <SkipMachineOOBE>true</SkipMachineOOBE>
-        <SkipUserOOBE>true</SkipUserOOBE>
+        <!-- SkipMachineOOBE and SkipUserOOBE intentionally omitted —
+             deprecated, and Microsoft warns they can have unintended effects. -->
       </OOBE>
 
       <!-- Local accounts. Repeat the <LocalAccount> block for as many
@@ -199,20 +206,22 @@
         <LogonCount>1</LogonCount>
       </AutoLogon>
 
-      <!-- Apply per-user debloat tweaks on first sign-in. The script is
-           staged by `prepare_wim.ps1 -DisableExtraBloat`. If you didn't
-           use that flag, comment this block out or the SynchronousCommand
-           will fail (non-blocking, but noisy in setupact.log).
-
-           Runs as whoever AutoLogon logs in — applies HKCU tweaks to
-           that account's profile. To make non-admin accounts (TechL0/1/2)
-           inherit the same tweaks, the script would need to also edit
-           the Default User hive (C:\Users\Default\NTUSER.DAT); ask if
-           you want that added. -->
+      <!-- FirstLogonCommands run elevated on first logon (AutoLogon above).
+           Order 1 MUST be LTIBootstrap.vbs — this is how MDT continues
+           the task sequence (State Restore group) after first boot. Without
+           it, MDT stops and the task sequence never completes.
+           Order 2 runs first-login.ps1 for per-user HKCU tweaks. If that
+           script is not present, the command fails silently (logged in
+           setupact.log) — it does not abort the MDT task sequence. -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Description>Apply per-user (HKCU) debloat tweaks</Description>
+          <Description>Lite Touch new OS</Description>
+          <CommandLine>wscript.exe %SystemDrive%\LTIBootstrap.vbs</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Description>Apply per-user HKCU tweaks</Description>
           <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\first-login.ps1</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
