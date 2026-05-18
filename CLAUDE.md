@@ -2,22 +2,16 @@
 
 ## Project Overview
 
-**This is the MDT branch.** The repo's primary purpose is the MDT standalone
-media workflow — PowerShell scripts that configure MDT as a USB payload factory.
-The WinPE tool (`unified_winpe_deploy.ps1`) is the underlying engine, still
-present and maintained, but not the focus of new work.
+**This is the MDT branch.** This repo is an MDT standalone media workflow —
+PowerShell scripts that configure MDT as a USB payload factory. The WinPE tool
+scripts (`unified_winpe_deploy.ps1`, `build_boot_wim.ps1`, `prepare_wim.ps1`)
+live on the `main` branch and are **not present here**. Do not look for them,
+reference them in new code, or treat them as the focus of work in this branch.
 
-This repo has two layers:
-
-**Primary (MDT standalone media):** PowerShell scripts that configure MDT as a
-USB payload factory. Admin runs three scripts on their workstation to build a
-self-contained bootable ISO; operator downloads the ISO, Rufus → USB, boots a
-laptop, walks away. Fully automated: no prompts, no decisions, no network at
-deploy time. See `docs/MDT.md` and `scripts/mdt/`.
-
-**Underlying (WinPE USB tool, v4.6.0):** The original PowerShell-based WinPE deploy
-tool (`unified_winpe_deploy.ps1`) that the MDT layer builds on top of conceptually.
-Still present and maintained; documented below.
+**What this branch does:** Admin runs three scripts on their workstation to
+build a self-contained bootable ISO. Operator downloads the ISO, Rufus → USB,
+boots a laptop, walks away. Fully automated: no prompts, no decisions, no
+network at deploy time. See `docs/MDT.md` and `scripts/mdt/`.
 
 ### Docs style on this branch
 
@@ -30,14 +24,15 @@ pattern to follow.
 
 ## Architecture
 
-### MDT Payload Factory Flow (primary)
+### MDT Payload Factory Flow
 
 ```
 Admin workstation (one-time setup, then per update)
   │
   ├── Initialize-MDTDeploymentShare.ps1   (one-time)
   │     Creates deployment share, imports WIM(s), builds task sequences,
-  │     writes zero-touch config (CustomSettings.ini / Bootstrap.ini)
+  │     writes zero-touch config (CustomSettings.ini / Bootstrap.ini),
+  │     applies MDT + Windows 11 ADK compatibility fixes
   │
   ├── Import-WimImages.ps1                (add/replace WIMs)
   │
@@ -54,266 +49,119 @@ Admin workstation (one-time setup, then per update)
 The ISO is completely self-contained. No network required at deploy time.
 Updating the image means rebuilding the ISO once and replacing the download link.
 
-### USB Drive Layout (underlying WinPE mechanism)
-
-```
-USB Drive Layout:
-├── Partition 1: WinPE Boot (FAT32, ~2GB)
-│   └── WinPE with startnet.cmd → unified_winpe_deploy.ps1
-└── Partition 2: Data (NTFS, remaining space)
-    └── images/
-        ├── Win11_Pro.wim
-        ├── Win10_LTSC.wim
-        └── ...
-```
-
-MDT standalone media wraps this layout: LiteTouch WinPE replaces the custom
-WinPE, and MDT task sequences drive the deploy instead of the interactive TUI.
-
-### WinPE USB Tool Pipeline (underlying)
-
-Three programs, one product:
-1. `scripts/prepare_wim.ps1` — *prerequisite, run once per WIM:* prep a clean
-   debloated install.wim from a stock Windows ISO (admin Windows host)
-2. `scripts/build_boot_wim.ps1` — *prerequisite, run once per WinPE rev:* build
-   the WinPE boot.wim that hosts the deploy script (admin Windows host)
-3. `unified_winpe_deploy.ps1` — *runtime, every deploy:* the flow below
-
-### Deployment Flow (unified_winpe_deploy.ps1)
-1. Boot from USB → WinPE loads → script auto-starts
-2. Administrator check (script requires elevation)
-3. Silent-mode validation (if `-Silent`: requires `-WimFile`, `-TargetDisk`, `-Force`; `-WipeDisks` format validated if given)
-4. Script scans for `.wim`/`.esd` files on non-system drives
-5. User selects image via TUI menu
-6. User selects Windows edition (WIM index) via DISM enumeration
-7. WinPE environment check (warns and prompts if not in WinPE)
-8. Memory check (warns if < 8 GB RAM)
-9. **CCTK pre-apply (Dell)** — if `X:\cctk\cctk.exe` is embedded, pick config from `<IMAGES>\cctk\` by service tag → model → default, apply via `cctk --infile=`; non-zero exit aborts the deploy
-10. User selects target disk (with safety confirmations)
-11. **Optional additional-wipe prompt** — list non-target non-USB disks, user picks numbers, single `WIPE ALL` confirmation (or `-WipeDisks` / `-Force` in silent mode)
-12. Disk size validated against image size
-13. Drive letters C:/S: freed if in use (never the system drive)
-14. Diskpart wipes + partitions target (GPT: EFI 300MB + MSR 16MB + NTFS primary), with `clean`-only preamble for any extra-wipe disks in the same diskpart session
-15. Post-diskpart verification (S: and C: available)
-16. DISM applies the WIM to C:\ (progress shown inline)
-17. Post-deploy verification (C:\Windows\System32 exists)
-18. **Unattend staging** — if `-UnattendFile` given, copies answer file to `C:\Windows\Panther\unattend.xml` for Windows Setup to process on first boot (OOBE skip, domain join, computer name, autologon)
-19. BCDBoot configures UEFI boot on S: (EFI partition)
-20. Optional shutdown prompt (uses shutdown.exe for WinPE reliability) — final reboot activates any queued CCTK BIOS changes + Windows processes unattend.xml
-
 ## Key Files
-
-### MDT layer (primary)
 
 | File | Purpose |
 |------|---------|
-| `scripts/mdt/Initialize-MDTDeploymentShare.ps1` | One-time setup: creates share, imports WIM, builds task sequences, writes zero-touch config |
+| `scripts/mdt/Initialize-MDTDeploymentShare.ps1` | One-time setup: creates share, imports WIM, builds task sequences, writes zero-touch config, applies Win11 ADK fixes |
 | `scripts/mdt/Import-WimImages.ps1` | Add/replace WIMs in an existing share |
 | `scripts/mdt/New-MDTMedia.ps1` | Build the operator payload ISO (`LiteTouchMedia_x64.iso`) |
 | `configs/mdt/CustomSettings.ini` | Zero-touch settings baked into the ISO (all SkipXxx=YES) |
 | `configs/mdt/Bootstrap.ini` | WinPE boot config — `DeployRoot=.` for standalone USB |
-| `docs/MDT.md` | Full MDT setup guide, operator instructions, CCTK, drivers, troubleshooting |
-
-### WinPE USB tool (underlying)
-
-| File | Purpose |
-|------|---------|
-| `unified_winpe_deploy.ps1` | WinPE deploy script (TUI, diskpart, DISM, BCDBoot) |
-| `scripts/build_boot_wim.ps1` | Reproducible WinPE boot.wim builder |
-| `scripts/prepare_wim.ps1` | WIM prep: ISO → debloated/customized install.wim |
-| `scripts/refresh_usb.ps1` | Wrapper: new ISO → prep + optional boot.wim rebuild |
-| `tests/test_parse.ps1` | PowerShell syntax validation (all scripts including MDT) |
-| `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule excludes used in CI |
-| `docs/USB_SETUP.md` | Operator USB creation guide (Rufus, partition layout) |
-| `docs/SCRIPT_REFERENCE.md` | Full parameter and function reference |
-| `docs/ARCHITECTURE.md` | Design rationale, data flow, non-goals |
-| `docs/TROUBLESHOOTING.md` | Common issues, fixes, and known caveats |
-| `docs/CCTK.md` | Dell CCTK pre-apply BIOS configuration |
-| `docs/UNATTEND.md` | Unattend.xml answer file reference |
-| `.claude/MASTERIZE.md` | Internal release-audit playbook (greps + read pass) |
+| `configs/unattend.example.xml` | Example unattend.xml for OOBE skip, autologon, accounts |
+| `docs/MDT.md` | Full MDT setup guide with GUI + PowerShell paths |
+| `docs/CCTK.md` | Dell CCTK BIOS pre-configuration — MDT Application method |
+| `docs/UNATTEND.md` | Unattend.xml reference — MDT Workbench + WinPE tool methods |
+| `docs/SCRIPT_REFERENCE.md` | MDT script parameter reference |
+| `docs/ARCHITECTURE.md` | MDT payload factory design |
+| `docs/TROUBLESHOOTING.md` | MDT deployment issues and fixes |
+| `tests/test_parse.ps1` | PowerShell syntax validation for MDT scripts |
+| `PSScriptAnalyzerSettings.psd1` | PSSA rule config used in CI |
+| `.claude/MASTERIZE.md` | Internal release-audit playbook |
 
 ## Stable Files (Skip by Default)
 
-These exist for open-source repo hygiene and rarely change. **Don't read
-them during a session unless the user is specifically asking about
-contribution policy, license terms, or security disclosure.** Reading
-them just to "be thorough" wastes context window:
+Don't read these unless the user is specifically asking about contribution
+policy, license, or security disclosure:
 
-- `CODE_OF_CONDUCT.md`
-- `CONTRIBUTING.md`
-- `SECURITY.md`
-- `LICENSE`
-- `.editorconfig`
-- `.gitattributes`
-- `.gitignore`
-
-If they ever need to change, the user will say so explicitly.
-
-Note: `docs/SIGNING.md` was removed on the MDT branch.
+- `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`
+- `.editorconfig`, `.gitattributes`, `.gitignore`
 
 ## Review & Validation Workflows
 
-### Quick Review Loop
-Use `/review` to run a comprehensive check of `unified_winpe_deploy.ps1` covering:
-- PowerShell syntax parsing
-- Version consistency
-- Safety check validation (admin, WinPE blocking, memory, disk confirmations, -Force behavior)
-- Diskpart script correctness (GPT, EFI, MSR, NTFS, drive letter cleanup)
-- Post-diskpart and post-deploy verification
-- WIM index enumeration and edition selection
-- BCDBoot configuration
-- Error handling coverage (recovery guidance, log file)
-- Disk size validation
-
-The MDT scripts (`scripts/mdt/`) are syntax-checked by `test_parse.ps1` but
-there is no equivalent deep safety review for them — they don't do disk
-destruction and don't run inside WinPE.
-
 ### Running Checks
 ```bash
-# Syntax validation — covers unified_winpe_deploy.ps1, scripts/mdt/, and all other scripts
+# Syntax validation — MDT scripts
 pwsh -NoProfile -Command "& ./tests/test_parse.ps1"
 ```
 
-The deeper safety/diskpart/BCDBoot greps that used to live in
-`validate_script.ps1` are now in the masterize CI job (Phase 1B,
-checks 8-19). They run on every push — no local replica needed.
+CI runs masterize checks on every push (`masterize` job in `.github/workflows/ci.yml`).
+Phase 1B (WinPE safety invariants) has been removed — it referenced scripts
+that no longer exist on this branch.
 
 ## Code Conventions
 
-- **PowerShell 5.1+ compatible** (WinPE environment)
-- Uses `#region`/`#endregion` blocks for organization
-- Color-coded TUI output via `Write-Log` function (also writes to log file)
-- All destructive operations require explicit typed confirmation
-- `-Force` skips "ERASE" but NEVER skips system disk "DESTROY SYSTEM" prompt
-- Script uses `$Script:` scope for shared configuration
-- DISM `/Get-WimInfo` uses `/English` flag for locale-safe parsing
-
 ### MDT Script Conventions
 
+- **PowerShell 5.1+ compatible** (MDT runs scripts via `cscript`/`wscript` wrappers)
+- `#region`/`#endregion` blocks for organization
 - Standard MDT module path: `C:\Program Files\Microsoft Deployment Toolkit\bin\MicrosoftDeploymentToolkit.psd1`
 - PSDrive name convention: `DS001`
-- All three scripts require `-RunAsAdministrator` (`#Requires -RunAsAdministrator` at top of file)
-- Error handling via `$ErrorActionPreference = 'Stop'` plus explicit `Test-Path` checks before MDT cmdlets
+- All three scripts require `#Requires -RunAsAdministrator`
+- Error handling: `$ErrorActionPreference = 'Stop'` plus explicit `Test-Path` checks before MDT cmdlets
 - No hardcoded network paths — always `DeployRoot=.` for standalone media
 - `-SourceFile` on `Import-MDTOperatingSystem` is undocumented but empirically works on MDT 8456 to import a single .wim without pulling the whole parent folder
 
 ## When Modifying MDT Scripts
 
 1. **Don't break `Set-UEFIPartitionScheme`** — it patches `ts.xml` using MDT's indexed scalar variables (`OSDPartitions0Type`, `OSDPartitions0Size`, etc.). These are NOT an XML blob; each is a separate `<variable>` node. Do not rewrite to an `OSDPartitions` array — that format does not exist in MDT 8456's ts.xml.
-2. **Workbench overwrites the partition patch** — If a user opens the task sequence in MDT Workbench and saves it, MDT regenerates `ts.xml` from its internal model and overwrites `Set-UEFIPartitionScheme`'s changes. Document this and remind users to re-run `Initialize-MDTDeploymentShare.ps1` after Workbench edits, or re-run `Set-UEFIPartitionScheme` standalone.
+2. **Workbench overwrites the partition patch** — If a user opens the task sequence in MDT Workbench and saves it, MDT regenerates `ts.xml` from its internal model and overwrites `Set-UEFIPartitionScheme`'s changes. Remind users to re-run `Initialize-MDTDeploymentShare.ps1` after Workbench edits.
 3. **`SkipFinalSummary=YES` is required for zero-touch** — without it, MDT shows a "Deployment Complete" screen that blocks the unattended reboot. It must be in `CustomSettings.ini` alongside `SkipSummary=YES`.
 4. **`-SourceFile` is undocumented** — see MDT Script Conventions above. If it breaks on a future MDT build, switch to `-SourcePath (Split-Path -Parent $wimPath)` plus a guard checking the folder contains only one WIM.
 5. **Test syntax after every edit** — run `pwsh -NoProfile -File ./tests/test_parse.ps1`
 6. **MediaName `MEDIA001` is stable** — `New-MDTMedia.ps1` defaults to this. Changing it creates a new orphaned media object in Workbench. Don't change it without also cleaning up the old one.
 
-## When Modifying the WinPE Script
-
-1. **Never remove safety confirmations** - the multi-step disk destruction confirmations are critical
-2. **Never let -Force bypass system disk protection** - DESTROY SYSTEM must always be typed
-3. **Test syntax after every edit** - run `pwsh -c "[System.Management.Automation.PSParser]::Tokenize((Get-Content unified_winpe_deploy.ps1 -Raw), [ref]$null)"`
-4. **Keep WinPE compatibility** - no modules that aren't available in WinPE (no Az, no ImportExcel, etc.)
-5. **Version field** lives in `$Script:Config.ScriptVersion` (line ~39) AND in the header comment block
-6. **Drive letters S: and C:** are hardcoded for EFI and Windows partitions respectively
-7. **Never unmount the system drive** - mountvol /d must check $env:SystemDrive first
-8. **Use shutdown.exe, not Stop-Computer** - Stop-Computer is unreliable in WinPE
-
 ## Known Constraints
 
-### WinPE USB tool
-
-- WinPE has limited PowerShell modules available
-- `System.Windows.Forms` may not load in all WinPE builds (script handles this gracefully with console Read-Host fallback for YesNo dialogs)
-- `Get-WmiObject` is used instead of `Get-CimInstance` for broader WinPE compatibility
-- No network dependency - everything runs offline from USB
-- DISM runs with `-NoNewWindow` so progress is shown inline in the console
-- Diskpart exit code 0 does not guarantee all commands succeeded - script verifies S: and C: exist after partitioning
-- Log file lives in temp dir (typically X:\Windows\Temp in WinPE) - survives diskpart since X: is RAM disk
-
-### MDT
-
 - MDT 8456 is the last version supporting Windows 11. Do not reference MDT 8450 or earlier.
+- `Initialize-MDTDeploymentShare.ps1` applies Windows 11 ADK compatibility fixes automatically (x86 WinPE placeholder folder, x86 platform disabled, WSIM path patched to amd64). These are baked in — no manual workaround steps needed.
 - `Update-MDTMedia` is slow (10–30 min first run) — expected behavior, not a hang
 - `MediaName` must be consistent across runs (`MEDIA001` default) — changing it creates a new media object in Workbench and leaves the old one orphaned
 - `DeployRoot=.` only works when reading from the same booted media — changing it to a UNC path enables network mode, but that is out of scope for this project
-- `SkipFinalSummary=YES` in CustomSettings.ini is required for zero-touch — suppresses the post-deploy "Deployment Complete" screen that would otherwise block the unattended reboot
-- `Set-UEFIPartitionScheme` (in `Initialize-MDTDeploymentShare.ps1`) patches individual indexed `<variable>` nodes in `ts.xml` — this is the correct MDT format; don't convert it to a blob
+- `SkipFinalSummary=YES` in CustomSettings.ini is required for zero-touch — suppresses the post-deploy "Deployment Complete" screen
+- `Set-UEFIPartitionScheme` patches individual indexed `<variable>` nodes in `ts.xml` — this is the correct MDT format; don't convert it to a blob
 - CCTK binaries are never committed to the repo — Dell's EULA prohibits redistribution; `.gitignore` blocks common paths but don't rely on it alone
-
-## Building boot.wim
-
-The deploy script assumes a WinPE build with the right components and a
-specific registry tweak. Use `scripts/build_boot_wim.ps1` (run from the
-ADK "Deployment and Imaging Tools Environment" as admin) to produce a
-compatible `boot.wim`.
-
-The builder adds these optional components:
-`WinPE-WMI`, `WinPE-NetFx`, `WinPE-Scripting`, `WinPE-PowerShell`,
-`WinPE-DismCmdlets`, `WinPE-SecureStartup`, `WinPE-StorageWMI`,
-`WinPE-EnhancedStorage`, `WinPE-FMAPI`.
-
-And this registry tweak in the offline SYSTEM hive:
-`HKLM\SYSTEM\ControlSet001\Control\FileSystem\NtfsEnableDirCaseSensitivity = 1`
-
-**Why the reg key matters:** Windows Containers/Hyper-V layer files in a
-captured WIM set the `CASE_SENSITIVE_DIR` flag. Without this key, DISM
-apply fails with "Incorrect function" (exit 1) mid-apply on
-`C:\ProgramData\Microsoft\Windows\Containers\Layers\...`. This was the
-root cause behind the v4.3.x diskpart/DISM troubleshooting pass.
 
 ## Masterize Process
 
-Mechanical doc-consistency and code-safety checks run in CI on every
-push (the `masterize` job in `.github/workflows/ci.yml`). Treat a red
-build as the signal — there's nothing to run manually most of the time.
+Mechanical doc-consistency checks run in CI on every push (the `masterize`
+job in `.github/workflows/ci.yml`). Treat a red build as the signal.
 
-Once per release, before tagging, do the Phase 2 read pass described in
-[`.claude/MASTERIZE.md`](.claude/MASTERIZE.md). That's the part CI can't
-do. (The playbook lives under `.claude/` because it's internal release
-process, not user-facing documentation.)
+Once per release, before tagging, do the Phase 2 read pass in
+[`.claude/MASTERIZE.md`](.claude/MASTERIZE.md).
 
-**Do not run masterize per session.** Earlier iterations did and it
-burned tokens for little gain. If the user says "masterize," check
-whether they mean "run Phase 2 for a release" or "look at the doc."
+**Do not run masterize per session.** If the user says "masterize," check
+whether they mean "run Phase 2 for a release" or just "look at the doc."
 
 ### CI check summary (Phase 1A — doc consistency)
 
-- **Check 1:** Version in `unified_winpe_deploy.ps1` matches `CHANGELOG.md` and `CLAUDE.md` (README removed from this check)
-- **Check 2:** `prepare_wim`, `build_boot_wim`, `unified_winpe_deploy` all mentioned in `docs/ARCHITECTURE.md` and `CLAUDE.md` (README removed from this check)
+- **Check 1:** *(removed — no versioned WinPE script on this branch)*
+- **Check 2:** *(removed — WinPE script coverage check; MDT-only branch)*
 - **Check 3:** No stray `E:\images` references in docs/scripts
 - **Check 4:** Volume labels must be `IMAGES`, `WinPE`, or `Windows`
 - **Check 5:** Three-programs diagram in `docs/ARCHITECTURE.md` covers `driver`, `unattend`, `cctk`
-- **Check 6:** *(skipped — USB drive layout check removed; README is MDT-focused)*
-- **Check 7:** `.EXAMPLE` paths in WinPE scripts use `I:\images\`
+- **Check 6:** *(skipped — USB drive layout check removed)*
+- **Check 7:** *(removed — WinPE scripts no longer present)*
+
+Phase 1B (WinPE safety invariants, checks 8–19) has been **removed** — those
+checks ran against `unified_winpe_deploy.ps1` which does not exist on this branch.
 
 ---
 
 ## Git Workflow (Claude Code Web)
 
-**Direct push to `main` is blocked by the Claude Code Web harness as a
-built-in protection — not a GitHub branch-protection rule.** A `git push
-origin main` from this environment fails with HTTP 403 + `Everything
-up-to-date` (a confusing combination that means "remote rejected"). The
-repo's `main` itself has no GitHub branch protection — it's a harness
-guardrail.
+**Direct push to `main` is blocked by the Claude Code Web harness** — not a
+GitHub branch-protection rule. `git push origin main` fails with HTTP 403.
 
 **The supported workflow:**
 
-1. Make commits locally on `main` as usual.
+1. Commit locally on `main` as usual.
 2. Push to a side branch: `git push -u origin main:claude/<short-name>`.
-3. The user opens a PR from `claude/<short-name>` into `main` via the
-   GitHub UI and merges it.
+3. User opens a PR from `claude/<short-name>` into `main` via GitHub UI and merges.
 4. After merge, locally: `git pull origin main` to fast-forward.
-5. If the local-main is now ahead of origin (because you committed but
-   the PR hasn't been merged yet), and the stop hook complains, you
-   can `git reset --hard origin/main` — the work is safely on the side
-   branch, and `git pull` brings it back after merge.
 
-**Don't waste tokens** retrying direct pushes to main with
-exponential backoff — they will all fail. Push to a side branch the
-first time.
+**Don't waste tokens** retrying direct pushes to main — they will all fail.
+Push to a side branch the first time.
 
-**Don't create multiple side branches per session** if avoidable —
-add new commits to the existing one (`git checkout -b <name>
-origin/<name>`, commit, push) so the user has one PR to review,
-not several.
+**Don't create multiple side branches per session** if avoidable — add new
+commits to the existing one so the user has one PR to review, not several.

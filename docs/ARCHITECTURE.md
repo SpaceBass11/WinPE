@@ -1,8 +1,8 @@
 # Architecture
 
-## MDT Standalone Media Layer (primary)
+## MDT Standalone Media Layer
 
-MDT wraps the WinPE deployment engine in a build-time workflow. The admin uses three scripts to produce a self-contained ISO; everything below (the WinPE pipeline) runs inside that ISO when it boots on the target machine.
+MDT wraps the WinPE deployment engine in a build-time workflow. The admin uses three scripts to produce a self-contained ISO; the LiteTouch WinPE inside that ISO runs the task sequence on the target machine.
 
 ```
 Admin workstation
@@ -11,197 +11,53 @@ Admin workstation
   scripts/mdt/New-MDTMedia.ps1                   → LiteTouchMedia_x64.iso
                     ↓
   Operator: Rufus → USB → boot → LiteTouch WinPE runs:
-    Format and Partition Disk (same GPT layout as below)
-    Apply Operating System Image (same DISM call)
+    Format and Partition Disk (GPT: EFI 300 MB + MSR 16 MB + Windows)
+    Apply Operating System Image (DISM apply)
     Setup Windows
     → Reboot → Windows OOBE/unattend
 ```
 
-## WinPE Tool Layer (underlying)
+### Prep time (admin Windows)
 
-The three scripts below are the engine MDT's task sequence calls at deploy time. They also work standalone for direct USB deployments without MDT.
+The admin workstation phase covers:
+- Importing WIM(s) into the deployment share
+- Configuring task sequences (UEFI GPT partitioning, DISM apply, unattend staging)
+- Setting zero-touch CustomSettings.ini (all SkipXxx=YES, no prompts)
+- Optionally importing driver packages and CCTK config into the share
+- Building the operator ISO with `New-MDTMedia.ps1`
 
-High-level design notes for `unified_winpe_deploy.ps1`,
-`scripts/build_boot_wim.ps1`, and `scripts/prepare_wim.ps1`. For
-parameter / function reference, see
-[SCRIPT_REFERENCE.md](SCRIPT_REFERENCE.md).
+Key items baked in at prep time include **driver** packages (imported via MDT Workbench or `Import-MDTDriver`), **unattend** answer files (staged via the task sequence's `Apply Windows PE` / `Setup Windows` steps), and **CCTK** BIOS config files (placed under `scripts\cctk\` in the deployment share for pre-apply).
 
-## Three Programs, One Product
+### Run time (inside WinPE)
 
-```
-┌───────────────────────────┐  ┌───────────────────────────┐  ┌───────────────────────────┐
-│ scripts/prepare_wim.ps1   │  │ scripts/build_boot_wim.ps1│  │ unified_winpe_deploy.ps1  │
-│                           │  │                           │  │                           │
-│ Prep time (admin Windows) │  │ Build time (admin)        │  │ Run time (inside WinPE)   │
-│  - mount ISO              │  │  - copype                 │  │  - discover .wim / .esd   │
-│  - pick edition           │  │  - install components     │  │  - CCTK pre-apply (Dell)  │
-│  - debloat (whitelist)    │  │  - reg tweak              │  │  - pick image + disk      │
-│  - optional reg tweaks    │→ │  - embed deploy script    │→ │  - optional extra wipe    │
-│  - export Compress:max    │  │  - optional CCTK embed    │  │  - diskpart GPT           │
-│  - WIM ready for IMAGES   │  │  - write startnet.cmd     │  │  - dism /apply-image      │
-│  - optional drivers       │  │  - commit boot.wim        │  │  - unattend staging       │
-│                           │  │                           │  │  - bcdboot (UEFI)         │
-└───────────────────────────┘  └───────────────────────────┘  └───────────────────────────┘
-        outputs                      outputs                       runs
-   custom .wim file              boot.wim + media         from USB boot partition
-```
+When the operator boots from the USB, LiteTouch WinPE:
+1. Reads `Bootstrap.ini` (`DeployRoot=.` — self-contained, no network)
+2. Reads `CustomSettings.ini` (all decisions pre-made; no operator prompts)
+3. Runs the task sequence: partitions the disk, applies the WIM via DISM, stages the **unattend** file, runs any **CCTK** pre-apply steps, and configures the UEFI boot record
+4. Reboots; Windows processes the answer file (OOBE skip, domain join, autologon)
+5. **Driver** installation happens during Windows Setup from the injected driver store
 
-`prepare_wim.ps1` runs once per WIM you want to ship. `build_boot_wim.ps1`
-runs once per WinPE version change (or whenever you re-bake CCTK in).
-`unified_winpe_deploy.ps1` runs every time you deploy. All three are
-optional in the sense that `prepare_wim` can be skipped if you have a
-WIM from elsewhere, and `build_boot_wim` can be skipped if you already
-have a compatible boot.wim.
-
-## Runtime Data Flow
-
-```
-[USB Boot]  FAT32 partition → WinPE loads → startnet.cmd
-                                           → wpeinit
-                                           → probe D:-Z: for "IMAGES" label
-                                           → export %DEPLOY_IMAGE_DRIVE%
-                                           → powershell -File X:\scripts\...ps1
-
-[Deploy]  Administrator check
-        → Silent-mode contract check (if -Silent: -WimFile/-TargetDisk/-Force/-WipeDisks format)
-        → Image discovery
-             ├── -WimFile?          → direct path
-             ├── -ImagePath?        → search directory
-             ├── $DEPLOY_IMAGE_DRIVE → search drive
-             └── fall back          → scan all non-system drives
-        → TUI: select image
-        → DISM /Get-WimInfo → TUI: select edition (index)
-        → WinPE environment check (blocks unless CONTINUE ANYWAY)
-        → Memory check (8GB warn)
-        → CCTK pre-apply (if X:\cctk\cctk.exe present)
-             ├── pick config: <SERVICETAG>.ini → <MODEL>.ini → default.ini
-             ├── apply: cctk --infile=<picked>
-             └── non-zero exit       → abort deploy (no disks touched yet)
-        → TUI: select target disk
-             ├── system disk?       → type DESTROY SYSTEM
-             ├── -TargetDisk only?  → type ERASE
-             └── final confirm      → type ERASE
-        → TUI: optional additional-wipe disks
-             └── single WIPE ALL    → clean-only preamble in same diskpart session
-        → Disk size vs image size validation
-        → Free C: / S: drive letters (never system drive)
-        → diskpart: [extra disk cleans] + clean + GPT + EFI 300MB (S:) + MSR 16MB + NTFS (C:)
-        → Post-diskpart: verify S: and C: exist
-        → dism /apply-image /CheckIntegrity (inline progress)
-        → Post-deploy: verify C:\Windows\System32 exists
-        → Unattend staging (if -UnattendFile): copy to C:\Windows\Panther\unattend.xml
-        → bcdboot C:\Windows /s S: /f UEFI
-        → Optional shutdown prompt → final reboot activates queued CCTK BIOS
-             └── Windows Setup reads unattend.xml on first boot (OOBE, domain join, etc.)
-```
-
-## Why These Choices
-
-### Diskpart for partitioning, not Storage cmdlets
-`Initialize-Disk` / `New-Partition` / `Format-Volume` have inconsistent
-behavior across WinPE builds. Diskpart is a 30-year-old tool that works
-the same way everywhere. The script emits a text script and pipes it
-in, then verifies the result out-of-band (checks S: and C: exist)
-because `diskpart.exe` exit code 0 does not mean every command succeeded.
-
-### Hard-coded C: and S:
-The EFI partition and Windows partition letters are constants
-everywhere in the script. Parameterizing them would mean threading two
-more variables through every function for zero operational value — no
-real deployment scenario benefits from a different letter scheme.
-
-### GPT + UEFI only, no MBR / BIOS path
-Supporting MBR doubles the testing matrix and every supported Windows
-since 10 works better on UEFI. Drawing the line here keeps the safety
-logic tractable. MBR support is a non-goal.
-
-### `Write-Host` everywhere
-The deploy script is a TUI, not a pipeline producer. Output needs to
-land in the console in a specific color in a specific order for the
-confirmation prompts to be readable. `Write-Output` would be captured
-/ redirected / reordered by the pipeline in ways that break the user
-experience.
-
-### `Get-WmiObject`, not `Get-CimInstance`
-CIM depends on WinRM plumbing that is not guaranteed in all WinPE
-builds. WMI works in every ADK-built WinPE going back to Windows 7.
-This intentionally trades a deprecation warning for compatibility.
-
-### `shutdown.exe`, not `Stop-Computer`
-`Stop-Computer` is unreliable in WinPE — it sometimes hangs on the
-shutdown privilege check. `shutdown.exe /s /t 0` always works.
-
-### DISM, not Apply-WindowsImage / Expand-WindowsImage
-The PowerShell cmdlets wrap DISM but mask its progress output. We want
-the user to see the apply progress inline. We shell out to
-`dism.exe /apply-image` with `-NoNewWindow` so the progress indicator
-renders in the calling console.
-
-### Registry tweak at build time, not apply time
-`NtfsEnableDirCaseSensitivity = 1` in the offline SYSTEM hive of
-`boot.wim` applies once, permanently, and survives every deploy. Setting
-it at apply time would require re-applying every boot and would lose
-the fix on WinPE restart. Bake it in once; forget about it.
-
-## Safety Model
-
-The safety chain is **typed confirmations at every destructive step**.
-`-Force` bypasses the final "ERASE" prompt. `-Silent` requires all
-inputs up front. *Neither* ever bypasses the system-disk "DESTROY
-SYSTEM" prompt — that requires the exact string typed by a human,
-always. The rationale: any automation that has wandered into wiping
-the host it's running on is by definition broken, and should halt.
-
-## Failure Mode Philosophy
-
-Fail loud and early:
-
-- Admin check: fail before anything
-- WinPE check: block non-WinPE unless explicitly overridden, because
-  running on a production host is the most common way to cause harm
-- `-Silent` contract: missing inputs exit immediately, not after
-  auto-discovery finds something plausible
-- Diskpart: verify S: and C: exist after "success", because exit 0
-  lies
-- DISM: `/CheckIntegrity` catches WIM corruption up front instead of
-  mid-apply as "Incorrect function"
-- Post-apply: verify `C:\Windows\System32` exists before bcdboot, so
-  BCDBoot failure vs. no-Windows-on-disk are distinguishable
-
-## File Layout
+### File Layout
 
 | File / Directory | Role |
 |---|---|
-| `unified_winpe_deploy.ps1` | The deploy script. Runs inside WinPE. |
-| `scripts/prepare_wim.ps1` | WIM prep tool. ISO → debloated/customized install.wim (admin Windows workstation). |
-| `scripts/build_boot_wim.ps1` | Build-time WinPE builder. Runs on Windows with ADK. |
-| `scripts/refresh_usb.ps1` | Workflow wrapper: new ISO → prep + (optional) boot rebuild. |
+| `scripts/mdt/Initialize-MDTDeploymentShare.ps1` | One-time setup: deployment share, WIM import, task sequences, zero-touch config |
+| `scripts/mdt/Import-WimImages.ps1` | Add/replace WIMs in an existing share |
+| `scripts/mdt/New-MDTMedia.ps1` | Build the operator payload ISO (`LiteTouchMedia_x64.iso`) |
+| `configs/mdt/CustomSettings.ini` | Zero-touch settings (all SkipXxx=YES, DeployRoot=.) |
+| `configs/mdt/Bootstrap.ini` | Standalone WinPE boot config |
 | `tests/test_parse.ps1` | PowerShell syntax validation. Runs in CI. |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule config. Used locally and in CI. |
-| `docs/USB_SETUP.md` | User-facing: how to prepare the boot USB. |
-| `docs/SCRIPT_REFERENCE.md` | User-facing: parameters and functions. |
-| `docs/TROUBLESHOOTING.md` | User-facing: failure modes, fixes, and known caveats. |
-| `docs/ARCHITECTURE.md` | This file. Design rationale. |
-| `docs/CCTK.md` | User-facing: Dell CCTK pre-apply BIOS configuration. |
-| `docs/SIGNING.md` | User-facing: enterprise code-signing of the deploy script. |
-| `.claude/MASTERIZE.md` | Internal: release-audit playbook (per-release, not per-session). |
-| `CLAUDE.md` | Contributor-facing: project conventions and safety rules. |
-| `CHANGELOG.md` | Release history (keepachangelog). |
+| `docs/MDT.md` | Full MDT setup guide, operator instructions, CCTK, drivers, troubleshooting |
+| `docs/SCRIPT_REFERENCE.md` | Parameter reference for MDT scripts |
+| `docs/TROUBLESHOOTING.md` | Failure modes, fixes, and known caveats |
+| `docs/ARCHITECTURE.md` | This file. |
+| `docs/CCTK.md` | Dell CCTK pre-apply BIOS configuration |
+| `docs/UNATTEND.md` | Unattend.xml answer file reference |
+| `.claude/MASTERIZE.md` | Internal: release-audit playbook (per-release, not per-session) |
+| `CLAUDE.md` | Contributor-facing: project conventions and safety rules |
+| `CHANGELOG.md` | Release history (keepachangelog) |
 
-## Non-Goals
+## WinPE Tool Layer (main branch)
 
-Explicit non-goals, so future contributors don't waste time proposing
-them:
-
-- Network deployment (PXE, WDS, MDT, SCCM) — wrong tool
-- BIOS / MBR boot — GPT / UEFI only
-- GUI — TUI by design, runs on serial / remote consoles
-- Multi-disk RAID / Storage Spaces setup — single target disk
-- Secure-erase / DoD wipe — standard `diskpart clean` only
-
-**Formerly listed as non-goals, now supported:**
-- Driver injection — pre-bake into WIM via `prepare_wim.ps1 -DriverPath`
-- Unattend.xml / first-boot orchestration — via `-UnattendFile`
-- Domain join — via an answer file with `JoinDomain` in the `specialize` pass
-
-If you want network deployment or full MDT orchestration, you want a different tool.
+The WinPE tool layer (`unified_winpe_deploy.ps1`, `build_boot_wim.ps1`, `prepare_wim.ps1`) lives on the main branch of this repo. This MDT branch replaces those scripts with an MDT standalone media workflow — see `docs/MDT.md` for the full reference.

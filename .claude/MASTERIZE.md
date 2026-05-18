@@ -24,23 +24,20 @@ These run as the `masterize` job in `ci.yml`. They fail the build on
 regression. You don't need to run them manually — but understanding
 what they cover helps interpret a red build.
 
+**Note: This is the MDT branch.** Phase 1B (WinPE safety invariants) and
+several Phase 1A checks have been removed because the WinPE scripts they
+checked (`unified_winpe_deploy.ps1`, etc.) do not exist on this branch.
+
 **Phase 1A — Doc consistency:**
-1. Version consistency (script version appears in CHANGELOG.md and CLAUDE.md — README no longer required)
-2. Cross-doc script coverage (all three WinPE scripts listed in `docs/ARCHITECTURE.md` and CLAUDE.md — README no longer required)
+1. *(removed — version check referenced `unified_winpe_deploy.ps1`, not on this branch)*
+2. *(removed — WinPE script coverage check; MDT-only branch)*
 3. No stray `E:\images` references
 4. Volume labels are `IMAGES` / `WinPE` / `Windows` only
 5. Three-programs diagram in `ARCHITECTURE.md` mentions driver / unattend / cctk
-6. (skipped — USB Drive Layout check removed; README is MDT-focused)
-7. In-script `.EXAMPLE` blocks use `I:\images\` paths
+6. *(skipped — USB Drive Layout check removed; README is MDT-focused)*
+7. *(removed — WinPE scripts no longer present on this branch)*
 
-**Phase 1B — Code safety invariants:**
-8. `-Force` has anti-bypass guard for `DESTROY SYSTEM`
-9. `mountvol /d` guarded by `$env:SystemDrive`
-10. No `Stop-Computer` (must be `shutdown.exe` for WinPE reliability)
-11. Every `dism /Get-WimInfo` invocation uses `/English`
-12. `dism /apply-image` uses `/CheckIntegrity`
-13. `Invoke-CctkConfig` runs before `Select-TargetDisk` (positional)
-14. Unattend copy is ordered `verify < unattend < bcdboot` (positional)
+**Phase 1B — Code safety invariants:** *(entire step removed — checked `unified_winpe_deploy.ps1`)*
 
 **Adding a new mechanical check:** add it to the `masterize` job in
 `ci.yml`. Sanity-test it against a known-bad state first — break the

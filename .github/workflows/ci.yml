@@ -89,26 +89,10 @@ jobs:
           set +e
           fail=0
 
-          echo "=== 1. Version consistency ==="
-          ver=$(grep -oP "ScriptVersion\s*=\s*'\K[0-9.]+" unified_winpe_deploy.ps1 | head -1)
-          echo "Script version: $ver"
-          if [ -z "$ver" ]; then echo "FAIL: could not extract version"; fail=1; fi
-          for f in CHANGELOG.md CLAUDE.md; do
-            if grep -q "$ver" "$f"; then echo "OK: $f"; else echo "FAIL: $f missing $ver"; fail=1; fi
-          done
+          echo "=== 1. (skipped — version check removed; no versioned script on MDT branch) ==="
 
           echo ""
-          echo "=== 2. Cross-doc script coverage ==="
-          for f in docs/ARCHITECTURE.md CLAUDE.md; do
-            for s in prepare_wim build_boot_wim unified_winpe_deploy; do
-              if grep -q "$s" "$f"; then
-                echo "OK: $f mentions $s"
-              else
-                echo "FAIL: $f missing $s"
-                fail=1
-              fi
-            done
-          done
+          echo "=== 2. (skipped — WinPE script coverage check removed; MDT-only branch) ==="
 
           echo ""
           echo "=== 3. Stray E:\\images references ==="
@@ -141,130 +125,6 @@ jobs:
           echo "=== 6. (skipped — USB drive layout check removed; README is MDT-focused) ==="
 
           echo ""
-          echo "=== 7. .EXAMPLE paths use I:\\images\\ ==="
-          bad=$(grep -A 10 '\.EXAMPLE' unified_winpe_deploy.ps1 scripts/prepare_wim.ps1 scripts/build_boot_wim.ps1 | grep 'images\\' | grep -v 'I:\\images\\' || true)
-          if [ -n "$bad" ]; then echo "FAIL:"; echo "$bad"; fail=1; else echo "OK"; fi
-
-          exit $fail
-
-      - name: Phase 1B — Code safety invariants
-        run: |
-          set +e
-          fail=0
-          script=unified_winpe_deploy.ps1
-
-          echo "=== 8. -Force has explicit anti-bypass guard for system disk ==="
-          if grep -q 'Force cannot bypass\|cannot bypass system' $script; then
-            echo "OK"
-          else
-            echo "FAIL: -Force anti-bypass guard missing near DESTROY SYSTEM"
-            fail=1
-          fi
-
-          echo ""
-          echo "=== 9. mountvol /d guarded by \$env:SystemDrive ==="
-          if grep -B 6 'mountvol.*\/d' $script | grep -q 'SystemDrive'; then
-            echo "OK"
-          else
-            echo "FAIL: mountvol /d call lacks SystemDrive guard above it"
-            fail=1
-          fi
-
-          echo ""
-          echo "=== 10. No Stop-Computer (must use shutdown.exe in WinPE) ==="
-          if grep -q 'Stop-Computer' $script; then
-            echo "FAIL: Stop-Computer found — use shutdown.exe instead"
-            fail=1
-          else
-            echo "OK"
-          fi
-
-          echo ""
-          echo "=== 11. dism /Get-WimInfo invocations use /English ==="
-          bad=$(grep -n 'dism\.exe.*Get-WimInfo\|& dism.*Get-WimInfo' $script | grep -v '/English' || true)
-          if [ -z "$bad" ]; then
-            echo "OK"
-          else
-            echo "FAIL: invocation missing /English:"
-            echo "$bad"
-            fail=1
-          fi
-
-          echo ""
-          echo "=== 12. dism /apply-image uses /CheckIntegrity ==="
-          ai=$(grep -n '/apply-image' $script | grep -v 'Write-Log\|Recovery\|manually\|Last resort\|#')
-          if echo "$ai" | grep -q '/CheckIntegrity'; then
-            echo "OK"
-          else
-            echo "FAIL: /apply-image invocation missing /CheckIntegrity"
-            fail=1
-          fi
-
-          echo ""
-          echo "=== 13. CCTK runs before disk selection ==="
-          cctk=$(grep -n 'Invoke-CctkConfig' $script | grep -v 'function ' | head -1 | cut -d: -f1)
-          disk=$(grep -n 'Select-TargetDisk -Disks' $script | head -1 | cut -d: -f1)
-          if [ -n "$cctk" ] && [ -n "$disk" ] && [ "$cctk" -lt "$disk" ]; then
-            echo "OK (cctk line $cctk < disk-select line $disk)"
-          else
-            echo "FAIL: CCTK ($cctk) not before disk selection ($disk)"
-            fail=1
-          fi
-
-          echo ""
-          echo "=== 14. Unattend copy ordered: verify < unattend < bcdboot ==="
-          verify=$(grep -n 'verifyPaths' $script | head -1 | cut -d: -f1)
-          panther=$(grep -n 'pantherDir.*Panther' $script | head -1 | cut -d: -f1)
-          bcdboot=$(grep -n 'Set-BootConfiguration' $script | grep -v 'function ' | head -1 | cut -d: -f1)
-          if [ -n "$verify" ] && [ -n "$panther" ] && [ -n "$bcdboot" ] \
-             && [ "$verify" -lt "$panther" ] && [ "$panther" -lt "$bcdboot" ]; then
-            echo "OK (verify $verify → unattend $panther → bcdboot $bcdboot)"
-          else
-            echo "FAIL: wrong order, got verify=$verify panther=$panther bcdboot=$bcdboot"
-            fail=1
-          fi
-
-          echo ""
-          echo "=== 15. Diskpart GPT layout (EFI 300MB + MSR 16MB + NTFS Windows) ==="
-          ok=1
-          grep -q 'create partition efi size=300' $script || { echo "  missing: 'create partition efi size=300'"; ok=0; }
-          grep -q 'create partition msr size=16'  $script || { echo "  missing: 'create partition msr size=16'";  ok=0; }
-          grep -q 'format quick fs=ntfs label=Windows' $script || { echo "  missing: 'format quick fs=ntfs label=Windows'"; ok=0; }
-          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: diskpart layout drifted"; fail=1; fi
-
-          echo ""
-          echo "=== 16. Diskpart drive letters (S: for EFI, C: for primary) ==="
-          if grep -q 'assign letter S' $script && grep -q 'assign letter C' $script; then
-            echo "OK"
-          else
-            echo "FAIL: missing 'assign letter S' or 'assign letter C'"
-            fail=1
-          fi
-
-          echo ""
-          echo "=== 17. BCDBoot UEFI configuration (bcdboot ... /s S: ... /f UEFI) ==="
-          if grep -q 'bcdboot' $script && grep -qE '/s[[:space:]]+S:' $script && grep -qE '/f[[:space:]]+UEFI' $script; then
-            echo "OK"
-          else
-            echo "FAIL: bcdboot not configured for UEFI / S: target"
-            fail=1
-          fi
-
-          echo ""
-          echo "=== 18. Exit codes checked after destructive steps ==="
-          ok=1
-          for fn in 'Invoke-Diskpart' 'Apply-WindowsImage' 'Set-BootConfiguration'; do
-            grep -q "$fn" $script || { echo "  missing function: $fn"; ok=0; }
-          done
-          grep -q 'ExitCode' $script || { echo "  no ExitCode handling found anywhere"; ok=0; }
-          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: exit-code chain broken"; fail=1; fi
-
-          echo ""
-          echo "=== 19. Safety confirmation strings present (DELETE ALL DATA, DESTROY SYSTEM) ==="
-          ok=1
-          for s in 'DELETE ALL DATA' 'DESTROY SYSTEM'; do
-            grep -qF "$s" $script || { echo "  missing: '$s'"; ok=0; }
-          done
-          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: confirmation strings drifted"; fail=1; fi
+          echo "=== 7. (skipped — WinPE scripts removed) ==="
 
           exit $fail

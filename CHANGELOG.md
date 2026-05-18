@@ -9,6 +9,21 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Added
+- **MDT 8456 + Windows 11 ADK compatibility fixes** in
+  `Initialize-MDTDeploymentShare.ps1`: guards against missing ADK
+  environment variables, improved error messaging when the MDT module
+  path is not found, and explicit `-SourceFile` handling for single-WIM
+  imports on MDT 8456.
+
+### Removed
+- **WinPE tool scripts removed from MDT branch** —
+  `unified_winpe_deploy.ps1`, `scripts/build_boot_wim.ps1`,
+  `scripts/prepare_wim.ps1`, and `scripts/refresh_usb.ps1` are no longer
+  present on this branch. They continue to live on the `main` branch.
+  The MDT standalone media workflow replaces the manual WinPE USB workflow
+  for all new deployments.
+
+### Added
 - **MDT standalone media workflow** — three new scripts build a self-contained
   bootable ISO for zero-touch USB deployment. No deployment server or network
   required at deploy time.

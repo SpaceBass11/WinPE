@@ -68,6 +68,84 @@ function ConvertTo-SafeName {
     return ($Name -replace '[^\w\-]', '_').Trim('_')
 }
 
+function Invoke-MDTWin11AdkFixes {
+    <#
+        Applies three compatibility fixes required when using MDT 8456 with
+        Windows 11 ADK (22H2 / 24H2 / 26H1).  All three are idempotent — safe
+        to call on an already-patched machine.
+
+        Fix 1 — x86 WinPE_OCs placeholder folder
+            ADK for Windows 11 no longer ships 32-bit WinPE.  MDT probes for
+            the x86\WinPE_OCs directory and throws
+            System.IO.DirectoryNotFoundException if it is absent.  Creating
+            the empty folder is sufficient — MDT never reads its contents.
+
+        Fix 2 — DeploymentTools.xml WSIM path (best-effort)
+            MDT's Bin\DeploymentTools.xml hard-codes the WSIM (imgmgr.exe)
+            path without an architecture sub-folder.  Modern ADK ships only
+            an amd64 build of imgmgr.exe under WSIM\amd64.  Patching the
+            single <tool name="imgmgr.exe"> line to append \amd64 lets MDT
+            open unattend files and generate .clg catalogs.
+
+        Fix 3 — Disable x86 boot image generation
+            Written into Control\Settings.xml after the share is created.
+            Prevents Update-MDTDeploymentShare from attempting to build a
+            32-bit LiteTouch boot image (which would fail on modern ADK).
+            Call this overload with -SettingsXmlPath after the PSDrive is
+            mounted.
+    #>
+    param(
+        # When provided, writes SupportX86=False into Settings.xml.
+        # Omit on first call (before the share exists); supply on second call.
+        [string]$SettingsXmlPath = ''
+    )
+
+    # --- Fix 1: x86 WinPE_OCs placeholder ---
+    $adkWinPERoot = 'C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment'
+    $x86OCs = Join-Path $adkWinPERoot 'x86\WinPE_OCs'
+    if (-not (Test-Path $x86OCs)) {
+        try {
+            New-Item -Path $x86OCs -ItemType Directory -Force | Out-Null
+            Write-Host '  Applied: x86\WinPE_OCs placeholder folder created'
+        } catch {
+            Write-Warning "  ADK x86 WinPE_OCs fix skipped — could not create folder: $_"
+        }
+    }
+
+    # --- Fix 2: DeploymentTools.xml WSIM path ---
+    $dtXml = 'C:\Program Files\Microsoft Deployment Toolkit\Bin\DeploymentTools.xml'
+    if (Test-Path $dtXml) {
+        try {
+            $raw = Get-Content $dtXml -Raw
+            # Match the imgmgr.exe tool line that ends with \WSIM but NOT already \WSIM\amd64
+            # Pattern: <tool name="imgmgr.exe">...WSIM</tool>  (no trailing \amd64)
+            if ($raw -match '(?i)<tool\s+name="imgmgr\.exe">[^<]*\\WSIM\s*</tool>' -and
+                $raw -notmatch '(?i)<tool\s+name="imgmgr\.exe">[^<]*\\WSIM\\amd64\s*</tool>') {
+                $patched = $raw -replace '(?i)(<tool\s+name="imgmgr\.exe">(?:[^<]*)\\WSIM)\s*(</tool>)', '$1\amd64$2'
+                Set-Content -Path $dtXml -Value $patched -Encoding UTF8 -NoNewline
+                Write-Host '  Applied: DeploymentTools.xml imgmgr.exe path patched to WSIM\amd64'
+            }
+        } catch {
+            Write-Warning "  DeploymentTools.xml WSIM fix skipped — patch failed: $_"
+        }
+    }
+
+    # --- Fix 3: Disable x86 boot image in Settings.xml ---
+    if ($SettingsXmlPath -ne '' -and (Test-Path $SettingsXmlPath)) {
+        try {
+            [xml]$xml = Get-Content $SettingsXmlPath -Raw
+            $current = $xml.Settings.SupportX86
+            if ($current -ne 'False') {
+                $xml.Settings.SupportX86 = 'False'
+                $xml.Save($SettingsXmlPath)
+                Write-Host '  Applied: SupportX86 set to False in Control\Settings.xml'
+            }
+        } catch {
+            Write-Warning "  SupportX86 fix skipped — could not update Settings.xml: $_"
+        }
+    }
+}
+
 function Set-UEFIPartitionScheme {
     <#
         Patches the Format and Partition Disk step in a task sequence XML to
@@ -153,6 +231,9 @@ foreach ($w in $WimPaths) {
 
 Import-Module $mdtModule -Verbose:$false
 
+Write-Step 'Applying MDT + Windows 11 ADK compatibility fixes'
+Invoke-MDTWin11AdkFixes
+
 #endregion
 
 #region Create share
@@ -183,6 +264,10 @@ New-PSDrive -Name $drive -PSProvider MDTProvider -Root $SharePath `
     -Verbose:$false | Add-MDTPersistentDrive | Out-Null
 
 Write-Host "  DS001: mounted -> $SharePath"
+
+# Fix 3 requires the share to exist — apply SupportX86=False now
+$settingsXml = Join-Path $SharePath 'Control\Settings.xml'
+Invoke-MDTWin11AdkFixes -SettingsXmlPath $settingsXml
 
 #endregion
 
