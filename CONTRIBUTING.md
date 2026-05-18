@@ -57,7 +57,8 @@ sequence at deploy time.
   [CHANGELOG.md](CHANGELOG.md) entry under `[Unreleased]`.
 - **Documented.** Update `docs/SCRIPT_REFERENCE.md` if you changed
   parameters or functions, and `docs/TROUBLESHOOTING.md` if you fixed
-  a failure mode.
+  a failure mode. For MDT script changes, update `docs/MDT.md` and
+  `docs/SCRIPT_REFERENCE.md` as appropriate.
 
 ## Code Style
 
@@ -89,6 +90,11 @@ These are load-bearing. If your PR touches them, the review bar is high:
    — not redistributed via this repo. `.gitignore` blocks common paths
    (`/vendor/`, `/cctk-source/`, `cctk.exe`, `hapint*.inf/.sys`) but
    don't rely on that alone.
+
+Rules 1–5 apply specifically to `unified_winpe_deploy.ps1` and the WinPE
+deploy pipeline. The MDT scripts (`scripts/mdt/`) do not perform disk
+operations directly, so they are not subject to these constraints — but
+rule 6 applies to all scripts in the repo.
 
 ## Commit Messages
 

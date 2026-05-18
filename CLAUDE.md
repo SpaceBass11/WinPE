@@ -5,15 +5,42 @@
 This repo has two layers:
 
 **Primary (MDT standalone media):** PowerShell scripts that configure MDT as a
-USB payload factory. Admin builds a self-contained bootable ISO on their workstation;
-operator downloads, Rufus → USB, boots a laptop, walks away. No server, no network
-at deploy time. See `docs/MDT.md` and `scripts/mdt/`.
+USB payload factory. Admin runs three scripts on their workstation to build a
+self-contained bootable ISO; operator downloads the ISO, Rufus → USB, boots a
+laptop, walks away. Fully automated: no prompts, no decisions, no network at
+deploy time. See `docs/MDT.md` and `scripts/mdt/`.
 
 **Underlying (WinPE USB tool, v4.6.0):** The original PowerShell-based WinPE deploy
 tool (`unified_winpe_deploy.ps1`) that the MDT layer builds on top of conceptually.
 Still present and maintained; documented below.
 
 ## Architecture
+
+### MDT Payload Factory Flow (primary)
+
+```
+Admin workstation (one-time setup, then per update)
+  │
+  ├── Initialize-MDTDeploymentShare.ps1   (one-time)
+  │     Creates deployment share, imports WIM(s), builds task sequences,
+  │     writes zero-touch config (CustomSettings.ini / Bootstrap.ini)
+  │
+  ├── Import-WimImages.ps1                (add/replace WIMs)
+  │
+  └── New-MDTMedia.ps1                    (build payload ISO)
+          │
+          ▼
+  LiteTouchMedia_x64.iso  →  upload to download link
+          │
+          ▼
+  Operator: download → Rufus → USB (~20 min) → boot laptop → done
+  (fully automated: partitions, applies image, reboots — no prompts)
+```
+
+The ISO is completely self-contained. No network required at deploy time.
+Updating the image means rebuilding the ISO once and replacing the download link.
+
+### USB Drive Layout (underlying WinPE mechanism)
 
 ```
 USB Drive Layout:
@@ -26,16 +53,19 @@ USB Drive Layout:
         └── ...
 ```
 
-**Primary script:** `unified_winpe_deploy.ps1`
+MDT standalone media wraps this layout: LiteTouch WinPE replaces the custom
+WinPE, and MDT task sequences drive the deploy instead of the interactive TUI.
 
-**Pipeline overview** (three programs, one product):
+### WinPE USB Tool Pipeline (underlying)
+
+Three programs, one product:
 1. `scripts/prepare_wim.ps1` — *prerequisite, run once per WIM:* prep a clean
    debloated install.wim from a stock Windows ISO (admin Windows host)
 2. `scripts/build_boot_wim.ps1` — *prerequisite, run once per WinPE rev:* build
    the WinPE boot.wim that hosts the deploy script (admin Windows host)
 3. `unified_winpe_deploy.ps1` — *runtime, every deploy:* the flow below
 
-### Deployment Flow
+### Deployment Flow (unified_winpe_deploy.ps1)
 1. Boot from USB → WinPE loads → script auto-starts
 2. Administrator check (script requires elevation)
 3. Silent-mode validation (if `-Silent`: requires `-WimFile`, `-TargetDisk`, `-Force`; `-WipeDisks` format validated if given)
@@ -80,12 +110,12 @@ USB Drive Layout:
 | `scripts/refresh_usb.ps1` | Wrapper: new ISO → prep + optional boot.wim rebuild |
 | `tests/test_parse.ps1` | PowerShell syntax validation (all scripts including MDT) |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule excludes used in CI |
-| `docs/USB_SETUP.md` | USB drive preparation guide |
+| `docs/USB_SETUP.md` | Operator USB creation guide (Rufus, partition layout) |
 | `docs/SCRIPT_REFERENCE.md` | Full parameter and function reference |
 | `docs/ARCHITECTURE.md` | Design rationale, data flow, non-goals |
 | `docs/TROUBLESHOOTING.md` | Common issues, fixes, and known caveats |
 | `docs/CCTK.md` | Dell CCTK pre-apply BIOS configuration |
-| `docs/SIGNING.md` | Enterprise code-signing for the deploy script |
+| `docs/UNATTEND.md` | Unattend.xml answer file reference |
 | `.claude/MASTERIZE.md` | Internal release-audit playbook (greps + read pass) |
 
 ## Stable Files (Skip by Default)
@@ -105,10 +135,12 @@ them just to "be thorough" wastes context window:
 
 If they ever need to change, the user will say so explicitly.
 
+Note: `docs/SIGNING.md` was removed on the MDT branch.
+
 ## Review & Validation Workflows
 
 ### Quick Review Loop
-Use `/review` to run a comprehensive check of the deployment script covering:
+Use `/review` to run a comprehensive check of `unified_winpe_deploy.ps1` covering:
 - PowerShell syntax parsing
 - Version consistency
 - Safety check validation (admin, WinPE blocking, memory, disk confirmations, -Force behavior)
@@ -119,9 +151,13 @@ Use `/review` to run a comprehensive check of the deployment script covering:
 - Error handling coverage (recovery guidance, log file)
 - Disk size validation
 
+The MDT scripts (`scripts/mdt/`) are syntax-checked by `test_parse.ps1` but
+there is no equivalent deep safety review for them — they don't do disk
+destruction and don't run inside WinPE.
+
 ### Running Checks
 ```bash
-# Syntax validation
+# Syntax validation — covers unified_winpe_deploy.ps1, scripts/mdt/, and all other scripts
 pwsh -NoProfile -Command "& ./tests/test_parse.ps1"
 ```
 
@@ -139,7 +175,15 @@ checks 8-19). They run on every push — no local replica needed.
 - Script uses `$Script:` scope for shared configuration
 - DISM `/Get-WimInfo` uses `/English` flag for locale-safe parsing
 
-## When Modifying the Script
+### MDT Script Conventions
+
+- Standard MDT module path: `C:\Program Files\Microsoft Deployment Toolkit\bin\MicrosoftDeploymentToolkit.psd1`
+- PSDrive name convention: `DS001`
+- All three scripts require `-RunAsAdministrator` (`#Requires -RunAsAdministrator` at top of file)
+- Error handling via `$ErrorActionPreference = 'Stop'` plus explicit `Test-Path` checks before MDT cmdlets
+- No hardcoded network paths — always `DeployRoot=.` for standalone media
+
+## When Modifying the WinPE Script
 
 1. **Never remove safety confirmations** - the multi-step disk destruction confirmations are critical
 2. **Never let -Force bypass system disk protection** - DESTROY SYSTEM must always be typed
@@ -152,6 +196,8 @@ checks 8-19). They run on every push — no local replica needed.
 
 ## Known Constraints
 
+### WinPE USB tool
+
 - WinPE has limited PowerShell modules available
 - `System.Windows.Forms` may not load in all WinPE builds (script handles this gracefully with console Read-Host fallback for YesNo dialogs)
 - `Get-WmiObject` is used instead of `Get-CimInstance` for broader WinPE compatibility
@@ -159,6 +205,13 @@ checks 8-19). They run on every push — no local replica needed.
 - DISM runs with `-NoNewWindow` so progress is shown inline in the console
 - Diskpart exit code 0 does not guarantee all commands succeeded - script verifies S: and C: exist after partitioning
 - Log file lives in temp dir (typically X:\Windows\Temp in WinPE) - survives diskpart since X: is RAM disk
+
+### MDT
+
+- MDT 8456 is the last version supporting Windows 11. Do not reference MDT 8450 or earlier.
+- `Update-MDTMedia` is slow (10–30 min first run) — expected behavior, not a hang
+- `MediaName` must be consistent across runs (`MEDIA001` default) — changing it creates a new media object in Workbench and leaves the old one orphaned
+- `DeployRoot=.` only works when reading from the same booted media — changing it to a UNC path enables network mode, but that is out of scope for this project
 
 ## Building boot.wim
 
@@ -195,6 +248,16 @@ process, not user-facing documentation.)
 **Do not run masterize per session.** Earlier iterations did and it
 burned tokens for little gain. If the user says "masterize," check
 whether they mean "run Phase 2 for a release" or "look at the doc."
+
+### CI check summary (Phase 1A — doc consistency)
+
+- **Check 1:** Version in `unified_winpe_deploy.ps1` matches `CHANGELOG.md` and `CLAUDE.md` (README removed from this check)
+- **Check 2:** `prepare_wim`, `build_boot_wim`, `unified_winpe_deploy` all mentioned in `docs/ARCHITECTURE.md` and `CLAUDE.md` (README removed from this check)
+- **Check 3:** No stray `E:\images` references in docs/scripts
+- **Check 4:** Volume labels must be `IMAGES`, `WinPE`, or `Windows`
+- **Check 5:** Three-programs diagram in `docs/ARCHITECTURE.md` covers `driver`, `unattend`, `cctk`
+- **Check 6:** *(skipped — USB drive layout check removed; README is MDT-focused)*
+- **Check 7:** `.EXAMPLE` paths in WinPE scripts use `I:\images\`
 
 ---
 

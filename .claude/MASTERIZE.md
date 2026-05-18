@@ -25,12 +25,12 @@ regression. You don't need to run them manually — but understanding
 what they cover helps interpret a red build.
 
 **Phase 1A — Doc consistency:**
-1. Version consistency (script version appears in CHANGELOG, CLAUDE.md, README.md)
-2. Cross-doc script coverage (all three scripts listed in every overview doc)
+1. Version consistency (script version appears in CHANGELOG.md and CLAUDE.md — README no longer required)
+2. Cross-doc script coverage (all three WinPE scripts listed in `docs/ARCHITECTURE.md` and CLAUDE.md — README no longer required)
 3. No stray `E:\images` references
 4. Volume labels are `IMAGES` / `WinPE` / `Windows` only
 5. Three-programs diagram in `ARCHITECTURE.md` mentions driver / unattend / cctk
-6. README USB Drive Layout diagram lists `images/`, `cctk/`, `configs/`
+6. (skipped — USB Drive Layout check removed; README is MDT-focused)
 7. In-script `.EXAMPLE` blocks use `I:\images\` paths
 
 **Phase 1B — Code safety invariants:**
