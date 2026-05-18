@@ -1,14 +1,13 @@
 # Unattend.xml Answer File
 
 Windows Setup reads `unattend.xml` on first boot to skip OOBE prompts, create
-local accounts, set the computer name and time zone, configure AutoLogon, and
-run first-boot scripts. MDT links the file to the task sequence; the WinPE tool
-stages it at deploy time. The file format is identical — only how it gets there
-differs.
+the deployment account, set computer name and time zone, configure AutoLogon,
+and run first-boot scripts. MDT links the file to the task sequence and stages
+it automatically.
 
 ---
 
-## MDT Method (primary)
+## MDT Method
 
 Two ways to attach an unattend.xml to an MDT task sequence:
 
@@ -18,7 +17,7 @@ Two ways to attach an unattend.xml to an MDT task sequence:
 2. Right-click your task sequence → **Properties** → **OS Info** tab.
 3. Click **Edit Unattend.xml** — this opens Windows System Image Manager (SIM).
 4. In SIM, import `configs/unattend.example.xml` (File → Open Answer File),
-   fill in your values, and save. MDT records the path.
+   adjust TimeZone / ComputerName as needed, and save. MDT records the path.
 5. Run **Update Deployment Share** to rebuild the boot media.
 
 MDT stages the linked unattend.xml to `C:\Windows\Panther\unattend.xml`
@@ -49,55 +48,31 @@ The WinPE deploy script (`unified_winpe_deploy.ps1`) and its `-UnattendFile` par
 Start from [`configs/unattend.example.xml`](../configs/unattend.example.xml).
 Never edit it in place — keep the example clean for future reference.
 
-```powershell
-Copy-Item configs/unattend.example.xml I:\configs\unattend.xml
-```
+### What to change
 
-### Placeholders to fill in
+| Field | Default | Notes |
+|---|---|---|
+| `<ComputerName>` | `*` | `*` = random name. `%SerialNumber%` = service tag. Fixed string = same name on every machine (test only). |
+| `<TimeZone>` | `Central Standard Time` | Run `tzutil /l` on any Windows box to list valid names. |
 
-| Placeholder | What to put there |
-|---|---|
-| `BASE64_LOCALADMIN_PASSWORD` | Encoded admin account password (see below) |
-| `BASE64_TECHL0_PASSWORD` | Encoded TechL0 password |
-| `BASE64_TECHL1_PASSWORD` | Encoded TechL1 password |
-| `BASE64_TECHL2_PASSWORD` | Encoded TechL2 password |
-| `WIN-*` | Fixed hostname, or leave as-is for a random suffix |
-| `Central Standard Time` | Your time zone (`tzutil /l` to list valid names) |
-| Account `<Name>` / `<DisplayName>` | Rename the four example accounts as needed |
+That's it. No passwords to encode — `LocalAdmin` is created with no password
+intentionally (deployment-only account). Set a password or disable it
+post-deploy per your hardening baseline.
 
----
+### Accounts and passwords
 
-## Password Encoding
+The template creates one account (`LocalAdmin`, no password) for the sole
+purpose of giving MDT's `LTIBootstrap.vbs` a session to run under.
 
-Each `<Password><Value>` field expects a base64 of the UTF-16LE bytes of
-`<plaintext> + "Password"`. Run this in PowerShell once per account:
+All other accounts (tech tiers, end-user accounts) belong in the MDT task
+sequence — State Restore group, `net user` / PowerShell steps. Passwords
+for those accounts can be stored as variables in `CustomSettings.ini` and
+passed as MDT task sequence variables, keeping them out of the XML entirely.
 
-```powershell
-function Get-UnattendPassword {
-    param([Parameter(Mandatory)][string]$Plaintext)
-    $bytes = [Text.Encoding]::Unicode.GetBytes($Plaintext + 'Password')
-    [Convert]::ToBase64String($bytes)
-}
-
-# Examples — replace with your real passwords
-Get-UnattendPassword -Plaintext 'L0-Tech-P@ss!'      # TechL0
-Get-UnattendPassword -Plaintext 'L1-Tech-P@ss!'      # TechL1
-Get-UnattendPassword -Plaintext 'L2-Tech-P@ss!'      # TechL2
-Get-UnattendPassword -Plaintext 'Admin-P@ss-2025!'   # LocalAdmin
-```
-
-Each call prints one base64 string. Paste each output into the matching
-`BASE64_*_PASSWORD` slot in your `unattend.xml`.
-
-**Important:** the suffix is literally the string `Password` — not the account
-name. The same suffix applies to all `<LocalAccount>` entries **and** to the
-`<AutoLogon>` block. The `<AutoLogon><Password>` value must be the **same**
-encoded value as the matching `<LocalAccount>` — a mismatch causes OOBE to stall
-at the lock screen.
-
-Set `<PlainText>false</PlainText>` if encoded (recommended),
-`<PlainText>true</PlainText>` if you accept the security trade-off of
-inlining plaintext.
+The built-in Administrator account should be disabled post-deploy per STIG.
+If you need it active during State Restore, set `AdminPassword=` in
+`CustomSettings.ini`; MDT will set it on the built-in account. Add a
+State Restore step to disable it after your hardening steps complete.
 
 ---
 
@@ -121,9 +96,8 @@ settings apply regardless of whether the WIM was sysprepped.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| OOBE prompted for account / lock screen at first boot | AutoLogon missing or password mismatch | Check `C:\Windows\Panther\setupact.log` for `unattend` errors; re-encode passwords |
-| FirstLogonCommands didn't run | `first-login.ps1` not present on target | Prep the WIM with `-DisableExtraBloat`, or add the script as an MDT Application |
-| Can't log in after first boot | Password encoding is wrong | Re-run `Get-UnattendPassword`; confirm the `Password` suffix is included |
+| Lock screen at first boot instead of AutoLogon | AutoLogon block missing or `LocalAdmin` account not created | Check `C:\Windows\Panther\setupact.log` for `unattend` errors |
+| FirstLogonCommands didn't run | `first-login.ps1` not present on target | Bake it into the WIM offline or add it as an MDT Application (State Restore, before first reboot) |
 | ComputerName / TimeZone didn't apply | WIM wasn't sysprepped; specialize pass skipped | Recapture with `sysprep /generalize /oobe /shutdown` |
 | MDT ignored the unattend.xml | File not in the right Control subfolder | Path must be `Control\<TaskSequenceID>\unattend.xml`; re-run Update Deployment Share |
 | Windows SIM validation errors | Schema mismatch or typo | Quick check: `[xml](Get-Content unattend.xml)` in PowerShell — throws on bad XML |

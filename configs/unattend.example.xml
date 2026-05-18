@@ -6,11 +6,10 @@
   Full workflow guide:  docs/UNATTEND.md   (start there if you've never
                                             edited an unattend before)
 
-  Usage in brief — MDT method (primary):
+  Usage in brief:
     1. Copy this file (don't edit in place — keep the example clean).
-    2. Replace BASE64_*_PASSWORD placeholders (see "Password encoding" below).
-    3. Optionally change TimeZone, ComputerName, account Names/DisplayNames.
-    4. Link to your task sequence — two ways:
+    2. Optionally change TimeZone, ComputerName.
+    3. Link to your task sequence — two ways:
          a. MDT Workbench: right-click task sequence → Properties → OS Info
             tab → Edit Unattend.xml. Import this file in Windows SIM. MDT
             stages it to C:\Windows\Panther\unattend.xml automatically.
@@ -21,32 +20,25 @@
   What this template does:
     - Sets US English locale (change in the international-core component)
     - Sets a TimeZone (defaults to Central Standard Time; change if needed)
-    - Skips the most annoying OOBE pages (EULA, OEM reg, online account,
-      wireless setup, privacy settings)
-    - Creates four local accounts: one Administrator + three standard
-      Users (a common tiered-tech pattern). Add/remove <LocalAccount>
-      blocks as needed.
-    - Configures AutoLogon (one-shot) for the admin account so the first
-      boot completes truly unattended and FirstLogonCommands run.
+    - Skips OOBE pages (EULA, OEM reg, online account, wireless, privacy)
+    - Creates one no-password local admin (LocalAdmin) used only to let
+      MDT's LTIBootstrap.vbs run. Set a password or disable this account
+      post-deploy as your hardening baseline requires.
+    - Configures AutoLogon (one-shot, no password) so the first boot
+      completes unattended and FirstLogonCommands run.
     - Sets a default ComputerName ("*" = Windows generates a random name;
       replace with %SerialNumber% to use the service tag, or a fixed string)
     - Calls LTIBootstrap.vbs (Order 1) so MDT continues the task sequence
       after first logon, then first-login.ps1 (Order 2) for HKCU tweaks
 
-  Password encoding:
-    Each <Password><Value> field expects a base64 of the UTF-16LE byte
-    sequence of: <plaintext password> + "Password".
+  Additional accounts:
+    Create tech/user accounts in the MDT task sequence (State Restore group)
+    via net user / PowerShell steps — not here. That keeps passwords out of
+    the XML and centralises account management in CustomSettings.ini.
 
-    In PowerShell:
-      $p = 'YourPasswordHere' + 'Password'
-      [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($p))
-
-    Compute one of these per account and paste into the matching
-    BASE64_*_PASSWORD slot. The AutoLogon block re-uses the same encoded
-    value as its target account — they must match exactly.
-
-    Set <PlainText>false</PlainText> if encoded, <PlainText>true</PlainText>
-    if you accept the security trade-off and want to inline the plaintext.
+    The built-in Administrator account should be disabled post-deploy per
+    STIG. MDT's AdminPassword= in CustomSettings.ini sets it if needed during
+    the task sequence; disable it in a State Restore step afterwards.
 
   Note on first-login.ps1:
     The script must be present at C:\Windows\Setup\Scripts\first-login.ps1
@@ -121,81 +113,30 @@
              deprecated, and Microsoft warns they can have unintended effects. -->
       </OOBE>
 
-      <!-- Local accounts. Repeat the <LocalAccount> block for as many
-           accounts as you need. Common pattern is tiered:
-             - One Administrators member (the maintenance account)
-             - Several Users members (tier-0/1/2 tech / end-user accounts)
-           Each password is base64 of UTF-16LE bytes of
-           (plaintext_password + "Password"). PowerShell one-liner:
-
-             $p = 'MyP@ssw0rd!' + 'Password'
-             [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($p))
-
-           Each account's password is computed independently — the suffix
-           is always literally the string "Password" for LocalAccount and
-           AutoLogon (it's "AdministratorPassword" only for the built-in
-           Administrator account, which we are NOT using here). -->
+      <!-- LocalAdmin exists solely to give MDT's LTIBootstrap.vbs a session
+           to run under. No password — this is an internal deployment account,
+           not an end-user account. Harden or disable it post-deploy per your
+           STIG baseline. Additional tech/user accounts belong in the MDT
+           task sequence (State Restore), not here. -->
       <UserAccounts>
         <LocalAccounts>
-
           <LocalAccount wcm:action="add">
             <Name>LocalAdmin</Name>
             <Group>Administrators</Group>
             <DisplayName>Local Admin</DisplayName>
             <Password>
-              <Value>BASE64_LOCALADMIN_PASSWORD</Value>
-              <PlainText>false</PlainText>
+              <Value></Value>
+              <PlainText>true</PlainText>
             </Password>
           </LocalAccount>
-
-          <LocalAccount wcm:action="add">
-            <Name>TechL0</Name>
-            <Group>Users</Group>
-            <DisplayName>Tech Level 0</DisplayName>
-            <Password>
-              <Value>BASE64_TECHL0_PASSWORD</Value>
-              <PlainText>false</PlainText>
-            </Password>
-          </LocalAccount>
-
-          <LocalAccount wcm:action="add">
-            <Name>TechL1</Name>
-            <Group>Users</Group>
-            <DisplayName>Tech Level 1</DisplayName>
-            <Password>
-              <Value>BASE64_TECHL1_PASSWORD</Value>
-              <PlainText>false</PlainText>
-            </Password>
-          </LocalAccount>
-
-          <LocalAccount wcm:action="add">
-            <Name>TechL2</Name>
-            <Group>Users</Group>
-            <DisplayName>Tech Level 2</DisplayName>
-            <Password>
-              <Value>BASE64_TECHL2_PASSWORD</Value>
-              <PlainText>false</PlainText>
-            </Password>
-          </LocalAccount>
-
         </LocalAccounts>
       </UserAccounts>
 
-      <!-- AutoLogon: required for a TRULY unattended first boot. Without
-           this block, OOBE creates the accounts above and then sits at
-           the lock screen waiting for someone to type a password.
-           LogonCount=1 means it auto-logs once (so FirstLogonCommands
-           can run), then reverts to normal lock-screen prompts.
-
-           The username here must match a Name above (typically the
-           Administrators member). The password is encoded the same
-           way as the LocalAccount password — must match exactly. -->
+      <!-- AutoLogon: one-shot, no password. MDT's LTIBootstrap.vbs won't run
+           without an active session — this is how the first boot stays hands-off.
+           LogonCount=1 reverts to the normal lock screen after that one login. -->
       <AutoLogon>
         <Username>LocalAdmin</Username>
-        <Password>
-          <Value>BASE64_LOCALADMIN_PASSWORD</Value>
-          <PlainText>false</PlainText>
-        </Password>
         <Enabled>true</Enabled>
         <LogonCount>1</LogonCount>
       </AutoLogon>
