@@ -310,6 +310,6 @@ is a snapshot of it at build time — operators never touch the share itself.
 | Task sequence not found at boot | `TaskSequenceID=` in CustomSettings.ini must match exactly (case-sensitive) |
 | Laptop boots to Windows instead of USB | Set USB first in BIOS boot order, or use F12 boot menu |
 | Laptop reboots back to USB install loop | Remove USB before the post-deploy reboot completes |
-| Apply fails with "Incorrect function" | WinPE is missing `NtfsEnableDirCaseSensitivity` registry key — see `scripts/build_boot_wim.ps1` in this repo for how to bake it into WinPE, or add it via a custom MDT WinPE profile |
+| Apply fails with "Incorrect function" | WinPE is missing the `NtfsEnableDirCaseSensitivity` registry key. Add it via a custom MDT WinPE profile: in Deployment Workbench → deployment share → Properties → **Windows PE** tab, add an Extra Files directory containing a prestart command that runs `reg add HKLM\SYSTEM\ControlSet001\Control\FileSystem /v NtfsEnableDirCaseSensitivity /t REG_DWORD /d 1 /f` before LiteTouch starts, then rebuild boot media. |
 | MDT WinPE won't start on some UEFI laptops | Disable Secure Boot on the target, or sign the WinPE boot files |
 | Deploy completes but Windows won't boot | Verify BIOS is in UEFI mode (not Legacy/CSM) — the task sequence creates a GPT disk |

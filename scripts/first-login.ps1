@@ -3,15 +3,10 @@
     Per-user (HKCU) debloat + UX tweaks. Runs once on first sign-in.
 
 .DESCRIPTION
-    Companion to `prepare_wim.ps1 -DisableExtraBloat`, which stages this
-    file into the image at C:\Windows\Setup\Scripts\first-login.ps1.
-
-    An unattend.xml `FirstLogonCommands` entry should call it:
-
-      <SynchronousCommand wcm:action="add">
-        <Order>1</Order>
-        <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\first-login.ps1</CommandLine>
-      </SynchronousCommand>
+    Runs as FirstLogonCommands Order 2 in the MDT task sequence (Order 1
+    is LTIBootstrap.vbs). The script must be present on the deployed
+    machine at C:\Windows\Setup\Scripts\first-login.ps1 before the first
+    reboot — add it as an MDT Application or bake it into the WIM offline.
 
     Applies the tweak list to TWO targets in one pass:
 

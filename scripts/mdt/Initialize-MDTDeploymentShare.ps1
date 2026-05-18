@@ -56,7 +56,7 @@ function Assert-MDTInstalled {
 
 function Get-WimEditionName {
     param([string]$WimPath)
-    # /English flag for locale-safe parsing (same approach as unified_winpe_deploy.ps1)
+    # /English flag for locale-safe parsing
     $info = & dism.exe /Get-WimInfo /WimFile:"$WimPath" /Index:1 /English 2>&1
     $line = $info | Where-Object { $_ -match '^Name\s*:' } | Select-Object -First 1
     if ($line) { return ($line -replace '^Name\s*:\s*', '').Trim() }
@@ -199,7 +199,7 @@ function Add-BitLockerTsStep {
 function Set-UEFIPartitionScheme {
     <#
         Patches the Format and Partition Disk step in a task sequence XML to
-        GPT with the same layout as unified_winpe_deploy.ps1:
+        GPT standard layout:
             EFI  300 MB  FAT32  S:
             MSR   16 MB  (no letter)
             Windows  remainder  NTFS  C:

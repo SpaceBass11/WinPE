@@ -5,9 +5,8 @@ contributions are held to a slightly higher bar than the usual script repo.
 
 ## Before You Start
 
-1. Read [CLAUDE.md](CLAUDE.md) — it covers both the MDT standalone media
-   layer and the underlying WinPE tool, including safety conventions,
-   hard-coded drive letters, and WinPE compatibility constraints.
+1. Read [CLAUDE.md](CLAUDE.md) — it covers the MDT standalone media
+   layer, including safety conventions and MDT compatibility constraints.
 2. Read [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — many "bug
    reports" are already documented workarounds. The "Known Caveats"
    section at the bottom lists intentional behavior that may look like
@@ -27,8 +26,8 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
 Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
 ```
 
-Real deployment testing requires a WinPE boot medium and a disposable
-target disk. A VM with a scratch VHD works well.
+Real end-to-end testing requires MDT 8456 + ADK installed on a Windows
+workstation, and a VM or spare machine to boot the resulting ISO.
 
 ## MDT Script Development
 
@@ -50,10 +49,10 @@ sequence at deploy time.
 - **Preserves the safety chain.** Never weaken
   `ERASE` / `DESTROY SYSTEM` / `CONTINUE ANYWAY` prompts. Never let
   `-Force` bypass system-disk protection.
-- **Tested in WinPE.** Syntax passing is not the same as working.
-  Describe what you actually tested and on what hardware.
-- **Versioned.** Bump `$Script:Config.ScriptVersion` and the `.VERSION`
-  header together when the change is release-worthy. Add a
+- **Tested.** Syntax passing is not the same as working.
+  Describe what you actually tested and on what hardware or VM.
+- **Versioned.** For MDT script changes: bump the `$Script:Version`
+  comment block if the change is release-worthy. Add a
   [CHANGELOG.md](CHANGELOG.md) entry under `[Unreleased]`.
 - **Documented.** Update `docs/SCRIPT_REFERENCE.md` if you changed
   parameters or functions, and `docs/TROUBLESHOOTING.md` if you fixed
@@ -62,14 +61,11 @@ sequence at deploy time.
 
 ## Code Style
 
-- PowerShell 5.1 compatible (WinPE ships 5.1). No `Get-CimInstance`,
-  no PS7-only syntax (`??`, `?.`, ternary, etc.).
+- PowerShell 5.1 compatible (MDT runs scripts in a 5.1 environment). No
+  PS7-only syntax (`??`, `?.`, ternary, etc.).
 - `#region` / `#endregion` blocks organize sections.
 - Use `Write-Log` for user-visible output (also writes to the deploy log).
-- Use `$Script:Config` for shared configuration.
-- Hard-coded drive letters are `C:` (Windows) and `S:` (EFI). Do not
-  parameterize these without a very good reason.
-- Avoid emojis in script output — WinPE consoles render them inconsistently.
+- Avoid emojis in script output — some consoles render them inconsistently.
 
 ## Safety Rules (Non-Negotiable)
 
@@ -91,10 +87,9 @@ These are load-bearing. If your PR touches them, the review bar is high:
    (`/vendor/`, `/cctk-source/`, `cctk.exe`, `hapint*.inf/.sys`) but
    don't rely on that alone.
 
-Rules 1–5 apply specifically to `unified_winpe_deploy.ps1` and the WinPE
-deploy pipeline. The MDT scripts (`scripts/mdt/`) do not perform disk
-operations directly, so they are not subject to these constraints — but
-rule 6 applies to all scripts in the repo.
+The MDT scripts (`scripts/mdt/`) configure MDT and build media — they do
+not perform disk operations directly and are not subject to rules 1–5.
+Rule 6 (no third-party binaries) applies to all scripts.
 
 ## Commit Messages
 
@@ -106,11 +101,10 @@ rule 6 applies to all scripts in the repo.
 ## Reporting Bugs
 
 Use the bug-report issue template. Include:
-- Tool version
-- WinPE architecture and ADK version (if relevant)
+- Which MDT script and version
+- ADK version
 - Exact command line
-- Tail of the deploy log from the temp directory
-- For DISM failures: the relevant section of `X:\Windows\Logs\DISM\dism.log`
+- Relevant log or error output
 
 ## Reporting Security Issues
 

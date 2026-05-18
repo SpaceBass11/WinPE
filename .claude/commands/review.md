@@ -1,64 +1,69 @@
-Run a comprehensive review of unified_winpe_deploy.ps1. Check ALL of the following:
+Run a comprehensive review of all scripts in scripts/mdt/. Check ALL of the following:
 
-## Syntax & Structure
-- Parse the script for PowerShell syntax errors
-- Verify all function definitions are complete and properly closed
-- Check that all #region/#endregion blocks are balanced
-- Verify CmdletBinding and parameter block are correct
+## 1. PowerShell Syntax
 
-## Version Consistency
-- Check that $Script:Config.ScriptVersion matches the version in the header comment block (.VERSION)
-- Flag any version mismatches
+Run `pwsh -NoProfile -File ./tests/test_parse.ps1` and confirm it passes for all four scripts (Initialize-MDTDeploymentShare.ps1, Import-WimImages.ps1, New-MDTMedia.ps1, Enable-BitLocker.ps1).
 
-## Safety & Security Audit
-- Verify administrator check exists and blocks non-admin execution
-- Verify WinPE environment detection blocks non-WinPE unless user types "CONTINUE ANYWAY"
-- Verify -Silent mode aborts (not bypasses) when not in WinPE
-- Verify memory check with warning/prompt
-- Verify disk selection requires typed confirmation ("DELETE ALL DATA")
-- Verify system disk requires extra confirmation ("DESTROY SYSTEM")
-- Verify -Force skips "DELETE ALL DATA" but NEVER skips "DESTROY SYSTEM" for system disks
-- Verify -TargetDisk without -Force still requires typed confirmation
-- Check that USB drives are excluded from target disk list
-- Verify mountvol /d never unmounts $env:SystemDrive
-- Verify disk size validation blocks undersized disks
-- Look for any code paths that could bypass safety checks
+## 2. MDT Cmdlet Accuracy
 
-## Deployment Logic
-- Verify diskpart script creates correct GPT layout (EFI 300MB FAT32, MSR 16MB, Primary NTFS)
-- Verify drive letters C: and S: are freed before diskpart (but never the system drive)
-- Verify post-diskpart verification checks S: and C: exist
-- Verify WIM index enumeration uses DISM /Get-WimInfo /English for locale safety
-- Verify edition selection flow (single index auto-selects, multi-index prompts)
-- Verify DISM command uses correct arguments for /apply-image with selected index
-- Verify DISM runs with -NoNewWindow for inline progress
-- Verify post-deployment verification checks C:\Windows and C:\Windows\System32
-- Verify bcdboot.exe arguments are correct for UEFI (C:\Windows /s S: /f UEFI)
-- Check that drive letters S: and C: are used consistently between diskpart, DISM, and bcdboot
-- Verify cleanup of temp files after deployment
+- Confirm `Import-MDTOperatingSystem` is called with `-SourceFile` (not `-SourcePath`) when importing a single WIM
+- Confirm `Import-MDTTaskSequence` parameters match what MDT 8456 accepts
+- Confirm `New-Item` is used to create the media object (not a dedicated MDT cmdlet)
+- Confirm `Update-MDTMedia` is called with the correct deployment share path
 
-## Error Handling
-- Check that all critical operations (diskpart, DISM, bcdboot) check exit codes
-- Verify try/catch blocks around all external process calls
-- Verify recovery guidance is shown when DISM or BCDBoot fails mid-deployment
-- Check that failures return $false and propagate up to halt deployment
-- Verify the main entry point catches errors and exits with code 1
-- Verify log file is initialized and written to throughout deployment
+## 3. Set-UEFIPartitionScheme
 
-## Image Discovery
-- Verify search priority: -WimFile > -ImagePath > auto-discovery
-- Verify -WimFile path includes LastModified in the image hashtable
-- Check that file size filter (>100MB) is appropriate
-- Verify recursion depth limit works
-- Check that system drive is excluded from scanning
+- Confirm it patches individual indexed `<variable>` nodes (`OSDPartitions0Type`, `OSDPartitions0Size`, `OSDPartitions0FileSystem`, `OSDPartitions0Bootable`, `OSDPartitions1Type`, `OSDPartitions1Size`) in `ts.xml`
+- Confirm it does NOT look for or write an `OSDPartitions` array node
+- Confirm each partition property is a separate `<variable>` node, not a blob
 
-## TUI & User Experience
-- Verify color coding is consistent and appropriate
-- Verify all TUI widths are consistent (80 columns)
-- Check that all menus have quit/cancel options
-- Verify auto-select behavior when only one image is found
-- Check -ListOnly mode shows images and exits without prompting for selection
-- Verify Show-MessageBox has console Read-Host fallback for YesNo dialogs
-- Verify shutdown uses shutdown.exe (not Stop-Computer) for WinPE reliability
+## 4. Add-BitLockerTsStep
 
-Report findings as: PASS, WARN, or FAIL for each category with details.
+- Confirm the injected step targets the State Restore group in `ts.xml`
+- Confirm the step has a condition checking `BDEPin notEquals ""`
+- Confirm the step references `%SCRIPTROOT%\Enable-BitLocker.ps1`
+
+## 5. Win11 ADK Fixes
+
+- Confirm `Invoke-MDTWin11AdkFixes` applies all three fixes:
+  1. Creates the x86 WinPE placeholder folder
+  2. Patches the WSIM path in `DeploymentTools.xml` to the amd64 binary
+  3. Sets `SupportX86=False` in the deployment share
+- Confirm the function is called at both required call sites: before share creation and after
+
+## 6. CustomSettings.ini
+
+- Confirm `SkipFinalSummary=YES` is present
+- Confirm `SkipSummary=YES` is present alongside it
+- Confirm `BDEPin=` is present (triggers BitLocker PIN prompt)
+- Confirm `FinishAction=REBOOT` is present
+
+## 7. Bootstrap.ini
+
+- Confirm `DeployRoot=.` is present (standalone USB mode — no UNC path)
+
+## 8. Enable-BitLocker.ps1
+
+- Confirm recovery keys are saved BEFORE data drives are encrypted (not after)
+- Confirm enhanced PIN policy is configured
+- Confirm auto-unlock is enabled for data drives
+- Confirm an empty `$Pin` value causes a clean exit, not an error
+
+## 9. CI Masterize Checks (Phase 1A)
+
+Run each active grep from `.github/workflows/ci.yml` locally and report PASS or FAIL:
+
+- Check 3: No stray `E:\images` references in docs/ and scripts/
+- Check 4: Volume labels are only `IMAGES`, `WinPE`, or `Windows`
+- Check 5: Three-programs diagram in `docs/ARCHITECTURE.md` covers `driver`, `unattend`, `cctk`
+- Checks 1, 2, 7: Confirm these are skipped (they referenced WinPE scripts not present on this branch)
+
+## 10. CLAUDE.md Accuracy
+
+Confirm these key facts in CLAUDE.md match the actual code:
+
+- `Set-UEFIPartitionScheme` patches individual indexed `<variable>` nodes (not a blob)
+- `SkipFinalSummary=YES` is required and present in `CustomSettings.ini`
+- `Invoke-MDTWin11AdkFixes` applies all three Win11 ADK fixes
+
+Report findings as: PASS, WARN, or FAIL for each item with details.

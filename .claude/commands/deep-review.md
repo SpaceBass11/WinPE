@@ -1,35 +1,42 @@
-Run a multi-angle deep review of unified_winpe_deploy.ps1 and docs. Use parallel agents for each analysis pass, then fix everything found.
+Run a multi-angle deep review of scripts/mdt/ and docs. Use parallel agents for each analysis pass, then fix everything found.
 
 ## Phase 1: Research (run ALL of these in parallel as separate agents)
 
-### Agent 1: Execution Path Trace
-For each function in unified_winpe_deploy.ps1, trace what happens with: empty arrays, null paths, missing disks, failed external commands (diskpart, dism, bcdboot). Only list things that would cause wrong behavior or silent failures — no style issues.
+### Agent 1: Script Correctness — Execution Path Trace
 
-### Agent 2: Adversarial User Input
-Imagine a user who types wrong things at every Read-Host prompt: empty strings, spaces, negative numbers, special characters, paths with spaces and quotes. Trace what each Read-Host and parameter input does with garbage input. Only report inputs that cause crashes, hangs, or bypass safety checks.
+For each function in `Initialize-MDTDeploymentShare.ps1`, trace what happens with:
+- Missing or invalid WIM path (file does not exist, wrong extension)
+- MDT not installed (module path absent, PSDrive creation fails)
+- PSDrive `DS001` already mounted from a previous run
+- `ts.xml` not found after task sequence creation
+- `Enable-BitLocker.ps1` not found at `$PSScriptRoot`
 
-### Agent 3: Environment Mismatch
-This script is meant for WinPE. List every assumption it makes about the environment (available commands, drive letters, PowerShell version, loaded modules, registry state) and identify which assumptions would break on: (a) a minimal WinPE build missing optional packages, (b) a full Windows desktop after CONTINUE ANYWAY, (c) Windows Server Core.
+Only list things that would cause wrong behavior, silent failure, or data loss — no style issues.
 
-### Agent 4: Docs vs Code Drift
-Compare every claim in CLAUDE.md, SCRIPT_REFERENCE.md, USB_SETUP.md, and README.md against the actual code in unified_winpe_deploy.ps1. List every mismatch: parameters that exist in docs but not code, features described differently, version numbers, file paths, command syntax that doesn't match.
+### Agent 2: Doc/Code Consistency
 
-### Agent 5: Safety Audit
-You are a QA tester trying to destroy data on the wrong disk. Find every combination of parameters (-Force, -Silent, -TargetDisk, -ListOnly) and user inputs that could bypass safety confirmations or wipe an unintended disk. Map every code path from parameter input to diskpart execution.
+Compare every claim in `CLAUDE.md`, `docs/MDT.md`, and `docs/SCRIPT_REFERENCE.md` against the actual code in `scripts/mdt/`. List every mismatch: parameters documented but absent from code, behaviors described differently than implemented, incorrect file paths, version numbers, or MDT cmdlet signatures.
 
-### Agent 6: Workflow End-to-End
-Walk through the complete USB creation workflow in USB_SETUP.md from a fresh Windows machine. At each step, what can go wrong? What if the user has a different ADK version, different USB hardware, or does steps out of order?
+### Agent 3: CI Simulation
 
-### Agent 7: PowerShell Gotchas
-Read the script as a PowerShell language expert. Find: single-element array unwrapping, $null vs empty array differences, string comparison case sensitivity, pipeline behavior with zero/single/multiple items, -match vs -eq on collections, and any place where PowerShell's implicit type coercion produces wrong results.
+Run every active Phase 1A check from `.github/workflows/ci.yml` locally (checks 3, 4, 5). Report PASS or FAIL for each with the exact grep output. Confirm checks 1, 2, and 7 are correctly skipped.
+
+### Agent 4: MDT XML Correctness
+
+Read `Initialize-MDTDeploymentShare.ps1`. Verify that `Set-UEFIPartitionScheme` and `Add-BitLockerTsStep` produce valid MDT `ts.xml` structures. Check:
+- Variable node format matches MDT 8456's indexed scalar convention (`OSDPartitions0Type`, etc.)
+- BitLocker step type attribute is correct for a Run Command Line step
+- Condition expression format matches MDT's XML condition schema
+- No array-node format (`OSDPartitions`) is introduced
 
 ## Phase 2: Fix
 
 After all agents report back:
-1. Compile findings into a single prioritized list (bugs first, then safety, then workflow, then docs)
+
+1. Compile findings into a single prioritized list (bugs first, then correctness, then doc drift)
 2. Remove duplicates across agents
 3. Discard style-only issues
-4. Fix every real bug and safety issue found
+4. Fix every real bug and correctness issue found
 5. Update any stale docs
-6. Run syntax validation after all changes
-7. Commit with a clear summary of what was fixed and which analysis pass found it
+6. Run `pwsh -NoProfile -File ./tests/test_parse.ps1` after all changes to confirm syntax is clean
+7. Summarize what was fixed and which agent found it

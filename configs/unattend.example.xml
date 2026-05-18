@@ -18,12 +18,6 @@
             DeploymentShare\Control\<TaskSequenceID>\unattend.xml — MDT
             auto-discovers it on the next Update-MDTDeploymentShare.
 
-  Usage in brief — WinPE tool method (alternative):
-    Save to USB at e.g. I:\configs\unattend.xml (or any accessible path).
-    Pass it to the deploy script:
-      unified_winpe_deploy.ps1 -UnattendFile <path>
-    The script copies the file to C:\Windows\Panther\unattend.xml.
-
   What this template does:
     - Sets US English locale (change in the international-core component)
     - Sets a TimeZone (defaults to Central Standard Time; change if needed)

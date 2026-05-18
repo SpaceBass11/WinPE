@@ -2,9 +2,10 @@
 
 ## Scope
 
-This project ships a PowerShell tool that **wipes and repartitions disks**
-unattended inside a WinPE environment. Security issues in this codebase can
-cause irreversible data loss, which makes responsible disclosure important.
+This project ships PowerShell scripts that configure MDT and build a
+self-contained deployment ISO. Security issues in this codebase can
+cause irreversible data loss on target machines, which makes responsible
+disclosure important.
 
 ## Supported Versions
 
@@ -38,25 +39,25 @@ disk wipe, silent-mode bypass, confirmation bypass) are prioritized.
 
 ## In Scope
 
-- Bypasses of the typed-confirmation safety chain
-  (`ERASE`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`)
-- `-Silent` / `-Force` contract violations that make the tool act without
-  required inputs
-- Disk-selection logic that could target a USB, system, or unintended disk
-- Unsafe drive-letter handling that could unmount the running OS
-- Registry tweaks in `scripts/build_boot_wim.ps1` that weaken the offline
-  boot image
-- Path/parameter handling that allows arbitrary command execution
+- MDT configuration or task-sequence logic that could cause unintended disk
+  wipes or target the wrong machine
+- Zero-touch config (`CustomSettings.ini`, `Bootstrap.ini`) settings that
+  bypass safety checks in unexpected ways
+- Path/parameter handling in the admin scripts that allows arbitrary command
+  execution
+- Third-party binary inclusion or `.gitignore` gaps that could result in
+  inadvertent redistribution of vendor-licensed tools
+
+Note: this branch does not include scripts that modify offline WIM images
+or WinPE boot images directly.
 
 ## Out of Scope
 
-- Issues that require already having Administrator + physical access
-  (WinPE itself is inherently a privileged environment)
-- Crashes in non-WinPE environments when the environment check is bypassed
-  with `CONTINUE ANYWAY` — running outside WinPE is documented as unsupported
+- Issues that require already having Administrator access on the admin
+  workstation (MDT itself is an administrator-only tool)
 - Missing hardening for threats outside the tool's stated use case
   (e.g., not a forensics tool, not a secure erase tool)
-- Third-party WinPE components shipped via the ADK — report those to Microsoft
+- Third-party ADK or MDT components — report those to Microsoft
 
 ## Disclosure
 

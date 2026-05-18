@@ -97,7 +97,7 @@ jobs:
           echo ""
           echo "=== 3. Stray E:\\images references ==="
           # Exclude MASTERIZE.md (it documents the pattern legitimately)
-          stray=$(grep -rn 'E:\\images\|E:/images' docs/ scripts/ unified_winpe_deploy.ps1 .claude/MASTERIZE.md 2>/dev/null | grep -v 'MASTERIZE.md:' || true)
+          stray=$(grep -rn 'E:\\images\|E:/images' docs/ scripts/ .claude/MASTERIZE.md 2>/dev/null | grep -v 'MASTERIZE.md:' || true)
           if [ -n "$stray" ]; then echo "FAIL:"; echo "$stray"; fail=1; else echo "OK"; fi
 
           echo ""

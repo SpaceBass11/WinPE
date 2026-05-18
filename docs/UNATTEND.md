@@ -38,24 +38,9 @@ automatically during the Apply OS step.
 
 ---
 
-## WinPE Tool Method (alternative)
+## WinPE Tool Method
 
-When using `unified_winpe_deploy.ps1` directly (without MDT), pass the file
-via `-UnattendFile`:
-
-```powershell
-.\unified_winpe_deploy.ps1 `
-    -WimFile  D:\images\Win11_Enterprise.wim `
-    -TargetDisk 0 `
-    -UnattendFile D:\configs\unattend.xml `
-    -Force -Silent
-```
-
-The script copies the file to `C:\Windows\Panther\unattend.xml` on the target.
-Windows Setup picks it up on the very next boot.
-
-If you don't need truly unattended OOBE (it's OK to click through a couple of
-screens at first boot), skip this — just omit `-UnattendFile`.
+The WinPE deploy script (`unified_winpe_deploy.ps1`) and its `-UnattendFile` parameter live on the `main` branch of this repo — see the main branch docs for that workflow.
 
 ---
 
