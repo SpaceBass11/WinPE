@@ -146,6 +146,56 @@ function Invoke-MDTWin11AdkFixes {
     }
 }
 
+function Add-BitLockerTsStep {
+    <#
+        Appends an "Enable BitLocker" Run Command Line step to the State Restore
+        group in ts.xml. The step calls Enable-BitLocker.ps1 with the BDEPin
+        MDT variable and is conditional — it is a no-op when BDEPin is empty.
+
+        Note: Opening and saving the task sequence in MDT Workbench regenerates
+        ts.xml and overwrites this step. Re-run Initialize-MDTDeploymentShare.ps1
+        or add the step manually in Workbench afterward.
+    #>
+    param([string]$TsXmlPath)
+    if (-not (Test-Path $TsXmlPath)) { return }
+
+    [xml]$xml = Get-Content $TsXmlPath -Raw
+
+    # Idempotent — don't add the step twice
+    if ($xml.SelectSingleNode("//*[@name='Enable BitLocker']")) { return }
+
+    # Target the State Restore group; fall back to the root sequence element
+    $parent = $xml.SelectSingleNode("//group[@name='State Restore']")
+    if (-not $parent) { $parent = $xml.SelectSingleNode('//sequence') }
+    if (-not $parent) { $parent = $xml.DocumentElement }
+
+    $stepDoc = New-Object System.Xml.XmlDocument
+    $stepDoc.LoadXml('<step
+      type="SMS_TaskSequence_RunCommandLineAction"
+      name="Enable BitLocker"
+      description="Encrypt C: with TPM+PIN and data drives. Skipped when BDEPin is empty."
+      disable="false"
+      continueOnError="false"
+      successCodeList="0 3010">
+  <action>powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "%SCRIPTROOT%\Enable-BitLocker.ps1" -Pin "%BDEPin%"</action>
+  <defaultVarList>
+    <variable name="RunAsUser" property="RunAsUser">false</variable>
+    <variable name="WorkingDirectory" property="WorkingDirectory">%SCRIPTROOT%</variable>
+    <variable name="Timeout" property="Timeout">0</variable>
+  </defaultVarList>
+  <condition>
+    <expression type="SMS_TaskSequence_VariableConditionExpression">
+      <variable name="Variable">BDEPin</variable>
+      <variable name="Operator">notEquals</variable>
+      <variable name="Value"></variable>
+    </expression>
+  </condition>
+</step>')
+
+    [void]$parent.AppendChild($xml.ImportNode($stepDoc.DocumentElement, $true))
+    $xml.Save($TsXmlPath)
+}
+
 function Set-UEFIPartitionScheme {
     <#
         Patches the Format and Partition Disk step in a task sequence XML to
@@ -329,8 +379,9 @@ if ($imported.Count -gt 0) {
 
         $tsXml = Join-Path $SharePath "Control\$tsID\ts.xml"
         Set-UEFIPartitionScheme -TsXmlPath $tsXml
+        Add-BitLockerTsStep     -TsXmlPath $tsXml
 
-        Write-Host "  [$tsID] $tsName  (UEFI partitioning applied)"
+        Write-Host "  [$tsID] $tsName  (UEFI partitioning + BitLocker step applied)"
     }
 }
 
@@ -383,6 +434,11 @@ UserLocale=en-US
 SystemLocale=en-US
 TimeZoneName=$TimeZone
 
+; BitLocker startup PIN (alphanumeric enhanced PIN — letters + numbers allowed)
+; Same value used for C: startup PIN and data drive password.
+; Leave blank to skip BitLocker — useful for VMs or non-TPM hardware.
+BDEPin=
+
 ; Reboot immediately after deploy (activates any queued BIOS changes)
 FinishAction=REBOOT
 "@
@@ -411,6 +467,28 @@ KeyboardLocale=en-US
 
 Set-Content -Path (Join-Path $SharePath 'Control\Bootstrap.ini') -Value $bs -Encoding ASCII
 Write-Host "  Control\Bootstrap.ini written (standalone media)"
+
+#endregion
+
+#region Copy MDT runtime scripts into deployment share Scripts folder
+
+# Enable-BitLocker.ps1 must live in the share's Scripts\ folder so that the
+# task sequence step can reference it via %SCRIPTROOT%.
+$scriptsDir = Join-Path $SharePath 'Scripts'
+if (-not (Test-Path $scriptsDir)) {
+    New-Item -Path $scriptsDir -ItemType Directory -Force | Out-Null
+}
+
+$runtimeScripts = @('Enable-BitLocker.ps1')
+foreach ($rs in $runtimeScripts) {
+    $src = Join-Path $PSScriptRoot $rs
+    if (Test-Path $src) {
+        Copy-Item -Path $src -Destination $scriptsDir -Force
+        Write-Host "  Scripts\$rs copied to deployment share"
+    } else {
+        Write-Warning "  $rs not found at $src — task sequence step will fail at runtime"
+    }
+}
 
 #endregion
 

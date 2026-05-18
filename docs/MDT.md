@@ -209,6 +209,78 @@ import, config file layout, per-model targeting, and troubleshooting.
 > CCTK binaries are not redistributable. Copy them to the deployment share
 > manually; do not commit them to this repo.
 
+## BitLocker Encryption
+
+BitLocker is configured automatically during the MDT State Restore phase.
+C: is encrypted with TPM + an enhanced startup PIN (alphanumeric allowed).
+Data drives (D: by default) are encrypted with the same string used as a
+BitLocker password and have auto-unlock enabled so the operator never types
+a second PIN. Recovery keys are written to D:\BitLocker\ **before** D: is
+encrypted, so they remain accessible immediately after deployment.
+
+### Step 1 — Set the PIN in CustomSettings.ini
+
+```ini
+; In configs/mdt/CustomSettings.ini
+BDEPin=YourPinHere
+```
+
+`BDEPin` is left blank in the repo — fill it in before rebuilding the ISO.
+Leave it blank to skip BitLocker entirely on that build (useful for VMs or
+hardware without a TPM).
+
+### Step 2 — Rebuild the ISO
+
+```powershell
+.\scripts\mdt\New-MDTMedia.ps1
+```
+
+`Enable-BitLocker.ps1` and the task sequence step are already wired in by
+`Initialize-MDTDeploymentShare.ps1` — no manual setup needed.
+
+### Verifying the task sequence step (Workbench GUI)
+
+Open **Deployment Workbench** → **Task Sequences** → double-click your TS →
+**Task Sequence** tab → scroll to the **State Restore** group → find the
+**Enable BitLocker** step. Verify it is present and enabled. Click the
+**Options** tab and confirm the condition reads **BDEPin not equals ""** —
+this ensures the step is a no-op when `BDEPin` is empty.
+
+> **Note:** If the step is missing (e.g., after Workbench re-saved the TS),
+> re-run `Initialize-MDTDeploymentShare.ps1` to reapply it.
+
+### Adding the step manually (Workbench GUI)
+
+For admins who need to add it by hand:
+
+1. In the **State Restore** group, right-click → **Add** → **General** →
+   **Run Command Line**.
+2. Set **Name** to `Enable BitLocker`.
+3. Set **Command line** to:
+   ```
+   powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "%SCRIPTROOT%\Enable-BitLocker.ps1" -Pin "%BDEPin%"
+   ```
+4. Click the **Options** tab → **Add Condition** → **Task Sequence Variable**
+   → set `BDEPin` **not equals** `""`.
+
+### Hardware requirements
+
+- Windows 11 Pro or Enterprise (BitLocker is not available on Home editions)
+- TPM 2.0 enabled and cleared in BIOS (CCTK can automate this — see [docs/CCTK.md](CCTK.md))
+- UEFI boot mode (already enforced by the task sequence GPT disk layout)
+
+### Recovery keys
+
+Recovery keys are saved to `D:\BitLocker\` as plain-text files
+(`C_RecoveryKey.txt`, `D_RecoveryKey.txt`) before encryption starts. After
+deployment:
+
+- **C:** unlocks via TPM + PIN at every boot.
+- **D:** auto-unlocks when C: is unlocked — no second PIN needed.
+- If the TPM is cleared or the drive is moved to another machine, boot from
+  recovery media and supply the key from `D_RecoveryKey.txt` (keep a copy
+  somewhere safe, as D: will be locked at that point).
+
 ## Deployment Share Structure
 
 ```

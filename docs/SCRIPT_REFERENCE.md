@@ -85,3 +85,29 @@ network required when operators use it.
 # Custom output folder
 .\scripts\mdt\New-MDTMedia.ps1 -OutputPath 'D:\Payloads\Win11_24H2'
 ```
+
+---
+
+### Enable-BitLocker.ps1
+
+Encrypts C: with TPM + enhanced startup PIN (XTS-AES-256) and data drives
+with the same string as a BitLocker password with auto-unlock. Recovery keys
+are written to the recovery path before encryption starts.
+
+Called automatically by the MDT task sequence State Restore step. Can also
+be run manually post-deployment to re-apply BitLocker.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `-Pin` | String | `''` | Enhanced startup PIN for C: and password for data drives. Empty = skip BitLocker. |
+| `-RecoveryPath` | String | `D:\BitLocker` | Folder where recovery key .txt files are saved before encryption starts. |
+| `-DataDrives` | String[] | `@('D:')` | Data drives to encrypt with password + auto-unlock. Non-existent drives are skipped. |
+
+```powershell
+# Typically invoked by the task sequence as:
+powershell.exe -ExecutionPolicy Bypass -NonInteractive `
+    -File "%SCRIPTROOT%\Enable-BitLocker.ps1" -Pin "%BDEPin%"
+
+# Manual re-application post-deployment
+.\scripts\mdt\Enable-BitLocker.ps1 -Pin 'MyAlphanumericPIN' -RecoveryPath 'E:\Keys'
+```
