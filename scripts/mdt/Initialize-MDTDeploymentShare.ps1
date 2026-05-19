@@ -153,8 +153,8 @@ function Invoke-MDTWin11AdkFixes {
             # Disable x86 boot image generation (Win11 ADK has no 32-bit WinPE)
             & $setNode 'SupportX86' 'False'
 
-            # Scratch space: 32 MB default is too small for BitLocker + WMI task sequences
-            & $setNode 'Boot.x64.ScratchSpace' '128'
+            # Scratch space: max out at 512 MB -- USB media is large, system RAM is not a concern
+            & $setNode 'Boot.x64.ScratchSpace' '512'
 
             # WinPE optional components required for MDT LiteTouch:
             #   winpe-scripting  -- LiteTouch.wsf and all MDT VBScript helpers
