@@ -202,8 +202,8 @@ SkipWizard=YES
 
 ; ---- Task sequence and locale ----------------------------------------
 TaskSequenceID=WIN11-DEPLOY
-TimeZone=035
-TimeZoneName=Eastern Standard Time
+TimeZone=020
+TimeZoneName=Central Standard Time
 KeyboardLocale=0409:00000409
 
 ; ---- Domain vs. workgroup --------------------------------------------
