@@ -1,359 +1,677 @@
-# MDT as a USB Payload Factory — Full Reference
+# MDT Manual Deployment Guide
 
-MDT's **standalone media** feature lets you build a single self-contained
-bootable ISO on your admin workstation. That ISO becomes the payload —
-copy it to a USB stick and it carries everything: WinPE, the task sequence,
-the WIM, all drivers, and the zero-touch config. No deployment server,
-no network share, no PXE, no credentials. The operator never touches MDT;
-they just boot a laptop and walk away.
+A complete walkthrough for building a zero-touch Windows 11 deployment USB
+using MDT Deployment Workbench. No scripts. No automation layer to maintain.
+Configure MDT once through the GUI, build an ISO, hand it to operators.
+
+**Time estimate:** 2-3 hours first time. 30 minutes to rebuild after a WIM update.
+
+---
+
+## Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Create the Deployment Share](#2-create-the-deployment-share)
+3. [Import the OS Image](#3-import-the-os-image)
+4. [Create the Task Sequence](#4-create-the-task-sequence)
+5. [Configure Zero-Touch Settings](#5-configure-zero-touch-settings)
+6. [Windows 11 ADK Compatibility Fixes](#6-windows-11-adk-compatibility-fixes)
+7. [Configure the Task Sequence](#7-configure-the-task-sequence)
+8. [Add Drivers](#8-add-drivers)
+9. [Add Applications](#9-add-applications)
+10. [Unattend.xml](#10-unattendxml)
+11. [Update the Deployment Share](#11-update-the-deployment-share)
+12. [Create Media](#12-create-media)
+13. [Update Media -- Build the ISO](#13-update-media----build-the-iso)
+14. [Create Bootable USB](#14-create-bootable-usb)
+15. [Updating the Image](#updating-the-image)
+16. [Operator Instructions](#operator-instructions)
+17. [DoD STIG Steps](#dod-stig-steps)
+
+---
+
+## 1. Prerequisites
+
+Install these on your **admin workstation** in order. All require Administrator
+rights. Reboot between the ADK and WinPE add-on installs.
+
+| # | Software | What to select |
+|---|----------|----------------|
+| 1 | [Windows ADK for Windows 11](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install) | **Deployment Tools** only -- uncheck everything else |
+| 2 | [Windows PE add-on for ADK](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install) | Full install (separate installer, same download page) |
+| 3 | [MDT 8456](https://www.microsoft.com/en-us/download/details.aspx?id=54259) | Full install -- last MDT version; supports Windows 11 |
+| 4 | [Hotfix KB4564442](https://support.microsoft.com/kb/4564442) | Required for Windows 11 UEFI deployments |
+
+You also need:
+
+- A Windows 11 `.wim` or `.iso` file (from Microsoft media, or a captured
+  image -- see [Capturing a Custom Image](#capturing-a-custom-image) below)
+- Administrator rights on the workstation
+- ~30 GB free disk space for the deployment share
+
+---
+
+## 2. Create the Deployment Share
+
+1. Open **Deployment Workbench** (Start > Microsoft Deployment Toolkit >
+   Deployment Workbench).
+2. Right-click **Deployment Shares** > **New Deployment Share**.
+3. Fill in the wizard:
+
+   | Field | Value |
+   |-------|-------|
+   | Deployment share path | `C:\MDTDeploymentShare` |
+   | Share name | `MDTDeploymentShare$` |
+   | Deployment share description | Windows 11 Deployment |
+   | Ask if image should be captured | Uncheck |
+   | Ask user to set local admin password | Uncheck |
+   | Ask user for product key | Uncheck |
+
+4. Click **Next** through the summary, then **Finish**.
+
+The deployment share appears under **Deployment Shares** in the tree.
+
+---
+
+## 3. Import the OS Image
+
+### From a WIM file (recommended)
+
+1. Expand your deployment share > **Operating Systems**.
+2. Right-click **Operating Systems** > **Import Operating System**.
+3. Select **Custom image file**.
+4. Browse to your `.wim` file. Click **Next**.
+5. Leave "Setup files are not needed" checked. Click **Next**.
+6. Destination folder name: `Windows 11 Enterprise` (or any descriptive name).
+   Click **Next** > **Next** > **Finish**.
+
+### From ISO media
+
+1. Mount the ISO: double-click it in Explorer (Windows 10/11 mounts it
+   automatically as a drive letter).
+2. Follow the wizard above but select **Full set of source files** and point
+   to the mounted drive letter.
+3. Workbench copies and imports the WIM automatically.
+
+After import you will see one or more OS entries. If the ISO contained multiple
+editions (Home/Pro/Enterprise), each appears as a separate entry. You select
+the correct edition when creating the task sequence.
+
+### Capturing a custom image
+
+To deploy a pre-configured image (software already installed):
+
+1. On a reference machine, install and configure Windows exactly as desired.
+2. Run Sysprep from an elevated command prompt:
+   ```
+   C:\Windows\System32\Sysprep\sysprep.exe /generalize /oobe /shutdown
+   ```
+3. The machine shuts down. Boot it from any WinPE USB.
+4. From the WinPE command prompt, capture the image:
+   ```
+   Dism /Capture-Image /ImageFile:D:\custom.wim /CaptureDir:C:\ /Name:"Windows 11 Custom" /CheckIntegrity
+   ```
+5. Copy `custom.wim` to your admin workstation and import it using the
+   "From a WIM file" steps above.
+
+---
+
+## 4. Create the Task Sequence
+
+1. Right-click **Task Sequences** > **New Task Sequence**.
+2. Fill in the wizard:
+
+   | Field | Value |
+   |-------|-------|
+   | Task sequence ID | `WIN11-DEPLOY` |
+   | Task sequence name | Windows 11 Enterprise Deployment |
+   | Task sequence comments | (leave blank) |
+   | Template | **Standard Client Task Sequence** |
+   | OS | Select the Windows 11 image you just imported |
+   | Product key | Do not specify |
+   | Full name | (your org, or leave blank) |
+   | Organization | (your org, or leave blank) |
+   | IE home page | (leave blank) |
+   | Admin password | Do not specify |
+
+3. Click **Next** > **Next** > **Finish**.
+
+---
+
+## 5. Configure Zero-Touch Settings
+
+Zero-touch is controlled by two INI files baked into the deployment share
+and then into the bootable ISO. MDT reads these at runtime to skip all
+interactive wizard screens.
+
+Open **Deployment Share Properties**: right-click your deployment share >
+**Properties** > **Rules** tab.
+
+### Bootstrap.ini
+
+Click **Edit Bootstrap.ini** at the bottom of the Rules tab. Replace the
+entire contents with:
+
+```ini
+[Settings]
+Priority=Default
+
+[Default]
+DeployRoot=.
+SkipBDDWelcome=YES
+```
+
+`DeployRoot=.` is what makes the ISO standalone -- WinPE reads the deployment
+data from the same USB it booted from, no network required.
+
+Click **OK** (or close the editor; it saves automatically).
+
+### CustomSettings.ini
+
+Back on the **Rules** tab, replace the text area contents with the following.
+Read the comments before saving -- several settings need to match your
+environment.
+
+```ini
+[Settings]
+Priority=Default
+
+[Default]
+_SMSTSOrgName=Windows 11 Deployment
+OSInstall=Y
+HideShell=YES
+
+; ---- Zero-touch: skip all wizard pages --------------------------------
+SkipAdminPassword=YES
+SkipApplications=YES
+SkipBitLocker=YES
+SkipCapture=YES
+SkipComputerBackup=YES
+SkipComputerName=YES
+SkipDomainMembership=YES
+SkipFinalSummary=YES
+SkipLocaleSelection=YES
+SkipPackageDisplay=YES
+SkipProductKey=YES
+SkipRoles=YES
+SkipSummary=YES
+SkipTaskSequence=YES
+SkipTimeZone=YES
+SkipUserData=YES
+SkipWizard=YES
+
+; ---- Task sequence and locale ----------------------------------------
+TaskSequenceID=WIN11-DEPLOY
+TimeZone=035
+TimeZoneName=Eastern Standard Time
+KeyboardLocale=0409:00000409
+
+; ---- Domain vs. workgroup --------------------------------------------
+; To join a domain, replace the block below with:
+;   JoinDomain=yourdomain.local
+;   DomainAdmin=svc_mdt
+;   DomainAdminPassword=<password>
+;   DomainAdminDomain=yourdomain.local
+;   MachineObjectOU=OU=Workstations,DC=yourdomain,DC=local
+JoinWorkgroup=WORKGROUP
+
+; ---- Computer naming -------------------------------------------------
+; Uncomment one of these patterns, or leave both commented to keep the
+; current name / let the task sequence set one.
+;OSDComputerName=PC-%SerialNumber%
+;OSDComputerName=WS-%AssetTag%
+
+; ---- No capture, no user data migration ------------------------------
+DoCapture=NO
+ComputerBackupLocation=NONE
+UserDataLocation=NONE
+
+; ---- Post-deploy action ----------------------------------------------
+; Restart: machine reboots into Windows (operators see it working)
+; Shutdown: machine powers off (operators pull USB and hand to user)
+FinishAction=Restart
+```
+
+> **SkipFinalSummary=YES is required.** Without it MDT shows a "Deployment
+> Complete" dialog that blocks the automated reboot indefinitely.
+
+Click **OK** to close Properties.
+
+The same content is at `configs/mdt/CustomSettings.ini` in this repo as a
+reference. The media object (step 12) needs its own copy -- paste it there too.
+
+---
+
+## 6. Windows 11 ADK Compatibility Fixes
+
+MDT 8456 predates Windows 11. Three manual fixes are required before running
+**Update Deployment Share** or the WinPE build will fail.
+
+### Fix 1 -- Create the x86 WinPE placeholder
+
+MDT checks for `Boot\x86\LiteTouchPE_x86.wim` and aborts if the folder
+does not exist.
+
+1. Open Explorer, navigate to `C:\MDTDeploymentShare\Boot\`.
+2. Create folder `x86` (if it does not already exist).
+3. Inside `x86`, create an empty file named `LiteTouchPE_x86.wim`. One way:
+   open Notepad, immediately File > Save As, navigate to
+   `C:\MDTDeploymentShare\Boot\x86\`, set "Save as type" to All Files,
+   filename `LiteTouchPE_x86.wim`. The file can be zero bytes -- it only
+   needs to exist.
+
+### Fix 2 -- Disable x86 platform
+
+1. Open `C:\MDTDeploymentShare\Control\DeploymentShare.ini` in Notepad.
+2. Under the `[Settings]` section, add or change:
+
+   ```ini
+   SupportedPlatforms=x64
+   ```
+
+3. Save the file.
+
+This tells MDT to build only the x64 WinPE, skipping x86 build steps that
+fail on modern ADK.
+
+### Fix 3 -- WSIM path (only if Update Deployment Share fails with a WSIM error)
+
+If step 11 fails with an error mentioning `imgmgr.exe` or "Windows System
+Image Manager":
+
+1. Navigate to `C:\Program Files\Microsoft Deployment Toolkit\Bin\`.
+2. Open the Deployment Workbench config file (typically
+   `DeploymentWorkbench.dll.config` or the Workbench `.exe.config`) in Notepad.
+3. Find any reference to `\WSIM\imgmgr.exe` and update it to point to the
+   amd64 path:
+   ```
+   C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\WSIM\imgmgr.exe
+   ```
+4. Save and restart Deployment Workbench.
+
+> Most installs only need Fix 1 and Fix 2. Fix 3 applies only if you see
+> a WSIM-specific error in the update output.
+
+---
+
+## 7. Configure the Task Sequence
+
+Open the task sequence editor: expand **Task Sequences** > right-click
+**Windows 11 Enterprise Deployment** > **Properties** > **Task Sequence** tab.
+
+### 7a. UEFI Partition Layout
+
+Find the **Format and Partition Disk** step under **Preinstall** >
+**New Computer Only**. Click it.
+
+Set **Disk type** to **GPT** in the right pane.
+
+Delete existing partition entries and recreate using **New Partition**:
+
+| # | Type | File system | Size | Flag |
+|---|------|-------------|------|------|
+| 1 | EFI System Partition | FAT32 | 300 MB | Check **Make this a boot partition** |
+| 2 | MSR (Reserved) | (none) | 16 MB | -- |
+| 3 | Primary | NTFS | 100% of remaining space | -- |
+
+Click **Apply** to save.
+
+> **Important:** If you open and save the task sequence in Workbench later,
+> MDT may regenerate `ts.xml` and reset the partition layout. Re-verify and
+> re-run Update Media Content before distributing a new ISO.
+
+### 7b. Apply Operating System
+
+Find the **Apply Operating System Image** step under **Install**.
+
+- Verify it points to the correct OS entry and the correct index within the WIM.
+- To check available indexes from an elevated command prompt:
+  ```
+  Dism /Get-WimInfo /WimFile:"C:\MDTDeploymentShare\Operating Systems\Windows 11 Enterprise\install.wim"
+  ```
+
+### 7c. Rename Built-in Accounts (DoD STIG)
+
+Add these **Run Command Line** steps to State Restore, after **Tattoo**.
+
+To add a step: right-click the group or position in State Restore >
+**Add** > **General** > **Run Command Line**.
+
+| Step name | Command line |
+|-----------|-------------|
+| Rename Administrator to X_Admin | `wmic useraccount where name='Administrator' call rename newname='X_Admin'` |
+| Disable X_Admin | `net user X_Admin /active:no` |
+| Rename Guest to Visitor | `wmic useraccount where name='Guest' call rename newname='Visitor'` |
+
+See [DoD STIG Steps](#dod-stig-steps) for the full STIG task list.
+
+### 7d. BitLocker
+
+MDT includes a built-in **Enable BitLocker** step.
+
+1. Right-click **State Restore** > **Add** > **Disks** > **Enable BitLocker**.
+2. Place the step near the **end** of State Restore (after all software
+   installs) so encryption starts on a fully configured OS.
+3. Configure the step:
+
+   | Setting | Value |
+   |---------|-------|
+   | Current OS drive | selected |
+   | Key management | TPM and PIN |
+   | PIN | Your deployment PIN (6+ digits) |
+   | Recovery password | Save locally (see below) or Do not create |
+
+To save the recovery key to disk before encrypting, add a **Run Command Line**
+step immediately before the Enable BitLocker step:
 
 ```
-Admin workstation (one-time setup, then per update)
-  │
-  ├── Install MDT + ADK
-  ├── Create deployment share  ←  your "kitchen"
-  ├── Import WIM(s)
-  ├── Create task sequence(s)  ←  hardcode everything here
-  ├── Configure for zero-touch
-  └── Build media ISO          ←  the "payload"
-          │
-          ▼
-  Upload ISO to download link
-          │
-          ▼
-  Operator downloads ISO
-  Rufus → USB (one click, ~20 min)
-          │
-          ▼
-  Boot laptop from USB
-  Fully automated: partitions, applies image, reboots
-  No prompts. No decisions.
+cmd /c md D:\BitLocker 2>nul & manage-bde -protectors -add C: -RecoveryPassword > D:\BitLocker\RecoveryKey.txt
 ```
 
-The USB is entirely self-contained. No network required at deploy time.
-Updating the image means rebuilding the ISO once and replacing the download link.
+> If deploying to machines without TPM, change key management to
+> **Password only** in the Enable BitLocker step.
 
-For the three-command quick start, see the [README](../README.md).
+### 7e. Computer Name (optional)
 
-## Prerequisites
+To name machines automatically from serial number, add a **Set Task Sequence
+Variable** step early in State Restore:
 
-Install in this order on your **admin workstation** (not the target laptops):
+- Variable: `OSDComputerName`
+- Value: `PC-%SerialNumber%`
 
-1. **Windows ADK** — select *Deployment Tools* only
-   [Download](https://docs.microsoft.com/en-us/windows-hardware/get-started/adk-install)
+Or uncomment `OSDComputerName=PC-%SerialNumber%` in CustomSettings.ini to
+apply it globally.
 
-2. **Windows ADK WinPE add-on** — separate installer, same page
+---
 
-3. **MDT 8456**
-   [Download](https://www.microsoft.com/en-us/download/details.aspx?id=54259)
+## 8. Add Drivers
 
-4. **MDT hotfix KB4564442** — required for Windows 11 UEFI deployments
-   [Download](https://support.microsoft.com/en-us/topic/windows-10-deployments-fail-with-microsoft-deployment-toolkit-on-computers-with-bios-type-firmware-70557b0b-6be3-81d2-556f-b313e29e2cb7)
+Drivers imported here get injected during OS apply (offline DISM injection
+before first Windows boot).
 
-One admin workstation serves as the build machine indefinitely. The ISO it
-produces is handed off; the workstation itself never goes to a deployment site.
+### Import drivers
 
-## Setup (Run Once)
+1. Expand **Out-of-Box Drivers**.
+2. Create a folder: right-click **Out-of-Box Drivers** > **New Folder** >
+   name it (e.g., `Dell Latitude 5540 Win11`).
+3. Right-click the folder > **Import Drivers**.
+4. Browse to the folder containing extracted driver `.inf` files.
+5. Workbench imports all `.inf` files found recursively. Click **Finish**.
 
-The three scripts below automate the initial setup. Every step can also be done
-via **MDT Deployment Workbench** (the GUI). The scripts are useful for
-repeatable or automated builds; the Workbench is useful for one-off changes,
-debugging, and browsing the share structure.
+### Target drivers to specific hardware (recommended)
 
-### Step 1 — Create the deployment share and import your WIM
+Without selection profiles, MDT injects every driver into every deployment,
+causing conflicts across hardware models.
+
+**Create a selection profile:**
+
+1. Go to **Advanced Configuration** > **Selection Profiles** > **New
+   Selection Profile**.
+2. Name it for the hardware (e.g., `Dell Latitude 5540`).
+3. Check only the driver folder for that model.
+
+**Match by model in CustomSettings.ini:**
+
+```ini
+[Settings]
+Priority=Model,Default
+
+[Dell Latitude 5540]
+DriverGroup001=Dell Latitude 5540 Win11
+
+[HP EliteBook 840 G9]
+DriverGroup001=HP EliteBook 840 G9 Win11
+```
+
+MDT matches `Win32_ComputerSystem.Model` against section headers. To see the
+exact model string on a target machine, run from an elevated command prompt:
+
+```
+wmic computersystem get model
+```
+
+Use that exact string as the section header (spaces and all).
+
+---
+
+## 9. Add Applications
+
+Applications added here install automatically during State Restore.
+
+1. Expand **Applications** > right-click > **New Application**.
+2. Select **Application with source files** (copies files into the share) or
+   **Application without source files** (runs a command on the target).
+3. Fill in: Name, Source folder, Installation command, Working directory.
+4. Click **Finish**.
+
+To install zero-touch: open the task sequence editor > **State Restore** >
+**Install Applications** step > change mode to "install the following
+applications" > add your application.
+
+### Dell CCTK (BIOS pre-configuration)
+
+See [docs/CCTK.md](CCTK.md) for the full walkthrough. The short version:
+add CCTK binaries as an Application, add your BIOS config `.ini` alongside
+the application, add a **Run Command Line** step in State Restore:
+
+```
+cctk.exe --import=cctk-config.ini
+```
+
+---
+
+## 10. Unattend.xml
+
+An `unattend.xml` controls Windows OOBE, account creation, autologon, and
+first-boot commands.
+
+MDT picks up a per-task-sequence unattend.xml from:
+
+```
+C:\MDTDeploymentShare\Control\WIN11-DEPLOY\unattend.xml
+```
+
+Replace `WIN11-DEPLOY` with your task sequence ID if you changed it.
+
+**To install:**
+
+1. Create or edit the unattend.xml. Use `configs/unattend.example.xml` in
+   this repo as a starting point. See [docs/UNATTEND.md](UNATTEND.md) for the
+   full reference.
+2. Copy it to `C:\MDTDeploymentShare\Control\WIN11-DEPLOY\unattend.xml`.
+3. Run **Update Deployment Share** (step 11) for MDT to pick it up.
+
+**Validate before deploying:**
 
 ```powershell
-# Admin PowerShell — elevated
-.\scripts\mdt\Initialize-MDTDeploymentShare.ps1 `
-    -WimPaths 'C:\images\Win11_Pro_24H2.wim' `
-    -OrgName  'Contoso IT'
+[xml](Get-Content .\unattend.xml)
 ```
 
-This creates `C:\MDTDeploymentShare` and an SMB share (local only, used by
-MDT tooling — not exposed to operators). It also creates a task sequence
-named `DEPLOY-WIN11-PRO` pre-configured for zero-touch UEFI deployment.
+This throws on XML syntax errors. For schema validation open the file in
+Windows System Image Manager (WSIM) -- red entries indicate schema violations.
 
-### Step 2 — Tune the task sequence (optional)
+---
 
-Open **MDT Deployment Workbench** → expand your deployment share → **Task
-Sequences** → double-click your TS to open its properties → click the **Task
-Sequence** tab to view and edit individual steps.
+## 11. Update the Deployment Share
 
-Common changes:
-- **Locale / timezone** — Update `TimeZoneName` in `configs/mdt/CustomSettings.ini`
-- **Computer naming** — Set `OSDComputerName=%SerialNumber%` for serial-based names
-- **Admin password** — Set `AdminPassword=` in CustomSettings.ini
-- **Unattend.xml** — Right-click TS → **Properties** → **OS Info** tab → **Edit Unattend.xml**
-  (use `configs/unattend.example.xml` as a starting point if you have one)
+Regenerates the WinPE boot image. **Required after any change to drivers,
+task sequences, applications, or INI files.**
 
-### Step 3 — Build the payload ISO
+1. Right-click your deployment share > **Update Deployment Share**.
+2. First run: select **Completely regenerate the boot images**.
+   Subsequent runs: **Optimize the boot image updating process** (faster).
+3. Click **Next** > **Next** and wait.
 
-```powershell
-.\scripts\mdt\New-MDTMedia.ps1 -OutputPath 'C:\MDTMedia'
-```
+**Time:** 10-30 minutes. Normal -- not a hang.
 
-Takes 10–30 minutes the first time (copies the WIM into the media). Output:
+Output in `C:\MDTDeploymentShare\Boot\`:
+- `LiteTouchPE_x64.iso` -- network-boot ISO (not the standalone USB ISO)
+- `LiteTouchPE_x64.wim` -- WinPE boot image used by the media object
 
-```
-C:\MDTMedia\
-└── LiteTouchMedia_x64.iso   ← this is your payload
-```
+---
 
-Upload `LiteTouchMedia_x64.iso` to your download link.
+## 12. Create Media
+
+The Media object builds a self-contained copy of the deployment share that
+boots standalone from USB -- no network required at deploy time.
+
+**Create the media object (one-time):**
+
+1. Expand **Advanced Configuration** > right-click **Media** > **New Media**.
+2. Fill in:
+
+   | Field | Value |
+   |-------|-------|
+   | Media path | `C:\MDTDeploymentShare\Media` |
+   | Media profile | `Everything` (or a selection profile from step 8) |
+   | Comments | (optional) |
+
+3. Click **Finish**. Media item **MEDIA001** appears.
+
+### Set the media rules
+
+The media needs its own Bootstrap.ini and CustomSettings.ini -- these are
+separate from the deployment share's rules and get baked into the ISO.
+
+1. Right-click **MEDIA001** > **Properties** > **Rules** tab.
+2. Click **Edit Bootstrap.ini** and paste:
+
+   ```ini
+   [Settings]
+   Priority=Default
+
+   [Default]
+   DeployRoot=.
+   SkipBDDWelcome=YES
+   ```
+
+3. In the **Rules** text area, paste the same CustomSettings.ini content
+   from step 5.
+4. Click **OK**.
+
+> **Why two copies?** The deployment share rules apply for network deployments.
+> The media rules are baked into the ISO for standalone USB deployments. Both
+> need the same zero-touch settings.
+
+---
+
+## 13. Update Media -- Build the ISO
+
+1. Right-click **MEDIA001** > **Update Media Content**.
+2. Click **Next** through the wizard.
+3. Wait (10-30 minutes first run; faster on subsequent runs if only content
+   changed, not drivers or WinPE).
+
+Output: `C:\MDTDeploymentShare\Media\MEDIA001\LiteTouchMedia_x64.iso`
+
+This is the file you upload and distribute to operators.
+
+**After any Workbench save of the task sequence:** MDT may reset partition
+steps in `ts.xml`. Re-verify the partition layout in the task sequence editor
+(step 7a) before re-running Update Media Content.
+
+---
+
+## 14. Create Bootable USB
+
+Operators use Rufus to write the ISO to USB.
+
+1. Download [Rufus](https://rufus.ie) (portable -- no install needed).
+2. Insert a USB drive (16 GB minimum; 32 GB recommended).
+3. Open Rufus:
+
+   | Setting | Value |
+   |---------|-------|
+   | Device | Select your USB drive |
+   | Boot selection | Click SELECT > browse to `LiteTouchMedia_x64.iso` |
+   | Partition scheme | GPT |
+   | Target system | UEFI (non-CSM) |
+
+4. Click **START**. Accept the drive-erase warning.
+5. Takes approximately 20 minutes.
+
+**Test boot:** Plug USB into a target machine, press F12 (Dell/Lenovo) or F9
+(HP) at POST, select the USB. LiteTouch should skip all screens and start
+deploying automatically. If you see wizard screens, check that
+`SkipBDDWelcome=YES` is in Bootstrap.ini and all `SkipXxx=YES` lines are in
+the media's CustomSettings.ini.
+
+---
+
+## Updating the Image
+
+When a new WIM is available (patch recapture, software update, OS upgrade):
+
+1. Import the new WIM -- Operating Systems > Import Operating System.
+2. Update the task sequence: Task Sequence Properties > Task Sequence tab >
+   **Apply Operating System** step > select the new WIM.
+3. Run **Update Deployment Share** (step 11).
+4. Run **Update Media Content** (step 13).
+5. Replace the download link with the new ISO.
+
+Operators use the same Rufus process. No instruction changes needed.
+
+---
 
 ## Operator Instructions
 
-Give operators these steps (nothing else required):
+Send or print this as a card:
 
-1. Download `LiteTouchMedia_x64.iso` from your shared download link.
-2. Open [Rufus](https://rufus.ie), select the ISO, select the USB drive,
-   click **START**. Wait ~20 minutes for the write to complete.
-3. Plug the USB into the target laptop, boot from USB (F12 boot menu,
-   or set USB first in BIOS boot order). Walk away.
+---
 
-The laptop partitions itself, applies the Windows image, runs the task
-sequence, and reboots fully unattended. No menus, no prompts, no decisions.
+**Windows Deployment USB -- Operator Steps**
 
-> **Note:** Remove the USB before the post-deploy reboot completes, or the
-> laptop will loop back into the installer.
+1. Download the ISO from [your link].
+2. Download Rufus from https://rufus.ie (free, portable, no install needed).
+3. Insert a USB drive (16 GB or larger).
+4. Open Rufus. Select the ISO and your USB drive. Leave all settings as
+   defaults. Click **START**. Takes about 20 minutes.
+5. Plug the USB into the target laptop.
+6. Power on. At the manufacturer logo, press:
+   - **Dell:** F12  |  **HP:** F9  |  **Lenovo:** F12 or Enter then F12
+7. Select the USB from the boot menu.
+8. The screen shows "LiteTouch" briefly, then Windows Setup starts
+   automatically. Walk away.
+9. Deployment takes about 20 minutes. The machine reboots (or shuts down)
+   automatically when done.
 
-## How Zero-Touch Works
+---
 
-`configs/mdt/Bootstrap.ini` is baked into the WinPE image. The key line:
+## DoD STIG Steps
 
-```ini
-DeployRoot=.
-```
+Add each as a **Run Command Line** step in State Restore (right-click State
+Restore > Add > General > Run Command Line).
 
-This tells LiteTouch "the deployment share is on the same media you booted
-from" — no network, no credentials, no server.
+### Account hardening
 
-`configs/mdt/CustomSettings.ini` (also baked in) suppresses every wizard
-page and hardcodes all settings:
+| Step name | Command |
+|-----------|---------|
+| Rename Administrator to X_Admin | `wmic useraccount where name='Administrator' call rename newname='X_Admin'` |
+| Disable X_Admin | `net user X_Admin /active:no` |
+| Rename Guest to Visitor | `wmic useraccount where name='Guest' call rename newname='Visitor'` |
 
-```ini
-SkipBDDWelcome=YES
-SkipTaskSequence=YES
-TaskSequenceID=DEPLOY-WIN11-PRO
-OSDDiskIndex=0
-SkipSummary=YES
-FinishAction=REBOOT
-```
+### Local security policy
 
-The operator sees a brief "LiteTouch is initializing" splash and then the
-progress bar. No decisions needed.
-
-## Updating the Payload
-
-When you update the WIM, add drivers, or change settings:
-
-```powershell
-# Re-import the new WIM (or skip if WIM hasn't changed)
-.\scripts\mdt\Import-WimImages.ps1 -WimPaths 'C:\images\Win11_Pro_24H2_v2.wim'
-
-# Rebuild the ISO
-.\scripts\mdt\New-MDTMedia.ps1 -OutputPath 'C:\MDTMedia'
-
-# Upload C:\MDTMedia\LiteTouchMedia_x64.iso to replace the old download link
-```
-
-Existing operators with the old USB keep working until they re-download.
-The build process is fully repeatable — run it as many times as you like.
-
-## Adding Drivers
-
-Drop drivers into the deployment share before building media.
-
-**Using MDT Workbench (GUI):**
-
-1. Open **Deployment Workbench** → expand your deployment share → expand **Out-of-Box Drivers**.
-2. Right-click **Out-of-Box Drivers** → **New Folder**. Name it after the model (e.g., `Dell Latitude 5540`).
-3. Right-click the new folder → **Import Drivers**.
-4. Browse to your driver folder (must contain `.inf` files). MDT scans recursively.
-5. Click **Next** through the wizard. MDT copies the drivers into the share.
-6. After all drivers are imported, right-click the deployment share root → **Update Deployment Share** → complete the wizard to regenerate boot.wim.
-
-**Using PowerShell (scriptable / repeatable):**
-
-```powershell
-Import-Module 'C:\Program Files\Microsoft Deployment Toolkit\bin\MicrosoftDeploymentToolkit.psd1'
-New-PSDrive -Name 'DS001' -PSProvider MDTProvider -Root 'C:\MDTDeploymentShare' -Verbose:$false
-
-# Import a folder of drivers (INF files)
-Import-MDTDriver -Path 'DS001:\Out-of-Box Drivers\Dell\Latitude5540' `
-    -SourcePath 'C:\Drivers\Dell\Latitude5540'
-```
-
-MDT injects the matching driver during the "Inject Drivers" task sequence
-step based on Plug and Play IDs.
-
-After adding drivers, rebuild the media: `.\scripts\mdt\New-MDTMedia.ps1`
-
-## Dell CCTK (BIOS Pre-Configuration)
-
-To apply BIOS settings before Windows images (AHCI mode, Secure Boot, etc.),
-add CCTK as an MDT Application and insert it before the "Apply OS" step.
-
-**Quick reference — MDT Application (GUI):**
-
-1. Open **Deployment Workbench** → **Applications** → **New Application** → *Application with source files*.
-2. Source: your local Dell Command | Configure `X86_64` folder.
-3. Command line: `cctk.exe --infile="%DEPLOYROOT%\Applications\Dell-CCTK\configs\default.ini"`
-4. Working directory: `.\Applications\Dell-CCTK\bin`
-5. In the task sequence editor, drag the application step to run *before* **Format and Partition Disk**.
-
-See [docs/CCTK.md](CCTK.md) for the full walkthrough including PowerShell
-import, config file layout, per-model targeting, and troubleshooting.
-
-> [!IMPORTANT]
-> CCTK binaries are not redistributable. Copy them to the deployment share
-> manually; do not commit them to this repo.
-
-## BitLocker Encryption
-
-BitLocker is configured automatically during the MDT State Restore phase.
-C: is encrypted with TPM + an enhanced startup PIN (alphanumeric allowed).
-Data drives (D: by default) are encrypted with the same string used as a
-BitLocker password and have auto-unlock enabled so the operator never types
-a second PIN. Recovery keys are written to D:\BitLocker\ **before** D: is
-encrypted, so they remain accessible immediately after deployment.
-
-### Step 1 — Set the PIN in CustomSettings.ini
-
-```ini
-; In configs/mdt/CustomSettings.ini
-BDEPin=YourPinHere
-```
-
-`BDEPin` is left blank in the repo — fill it in before rebuilding the ISO.
-Leave it blank to skip BitLocker entirely on that build (useful for VMs or
-hardware without a TPM).
-
-### Step 2 — Rebuild the ISO
-
-```powershell
-.\scripts\mdt\New-MDTMedia.ps1
-```
-
-`Enable-BitLocker.ps1` and the task sequence step are already wired in by
-`Initialize-MDTDeploymentShare.ps1` — no manual setup needed.
-
-### Verifying the task sequence step (Workbench GUI)
-
-Open **Deployment Workbench** → **Task Sequences** → double-click your TS →
-**Task Sequence** tab → scroll to the **State Restore** group → find the
-**Enable BitLocker** step. Verify it is present and enabled. Click the
-**Options** tab and confirm the condition reads **BDEPin not equals ""** —
-this ensures the step is a no-op when `BDEPin` is empty.
-
-> **Note:** If the step is missing (e.g., after Workbench re-saved the TS),
-> re-run `Initialize-MDTDeploymentShare.ps1` to reapply it.
-
-### Adding the step manually (Workbench GUI)
-
-For admins who need to add it by hand:
-
-1. In the **State Restore** group, right-click → **Add** → **General** →
-   **Run Command Line**.
-2. Set **Name** to `Enable BitLocker`.
-3. Set **Command line** to:
-   ```
-   powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "%SCRIPTROOT%\Enable-BitLocker.ps1" -Pin "%BDEPin%"
-   ```
-4. Click the **Options** tab → **Add Condition** → **Task Sequence Variable**
-   → set `BDEPin` **not equals** `""`.
-
-### Hardware requirements
-
-- Windows 11 Pro or Enterprise (BitLocker is not available on Home editions)
-- TPM 2.0 enabled and cleared in BIOS (CCTK can automate this — see [docs/CCTK.md](CCTK.md))
-- UEFI boot mode (already enforced by the task sequence GPT disk layout)
-
-### Recovery keys
-
-Recovery keys are saved to `D:\BitLocker\` as plain-text files
-(`C_RecoveryKey.txt`, `D_RecoveryKey.txt`) before encryption starts. After
-deployment:
-
-- **C:** unlocks via TPM + PIN at every boot.
-- **D:** auto-unlocks when C: is unlocked — no second PIN needed.
-- If the TPM is cleared or the drive is moved to another machine, boot from
-  recovery media and supply the key from `D_RecoveryKey.txt` (keep a copy
-  somewhere safe, as D: will be locked at that point).
-
-## STIG Account Hardening
-
-`Initialize-MDTDeploymentShare.ps1` automatically injects three DoD STIG-required steps into the State Restore group of every task sequence it creates. These run at the end of deployment, after BitLocker:
-
-| Step | STIG ID | What it does |
-|------|---------|--------------|
-| Rename built-in Administrator to `X_Admin` | WN11-SO-000030 | Built-in Administrator must be renamed |
-| Rename built-in Guest to `Visitor` | WN11-SO-000040 | Built-in Guest must be renamed |
-| Disable `X_Admin` | WN11-SO-000025 | Built-in Administrator must be disabled |
-
-The rename steps run before the disable step -- this is required because the disable command targets the account by its new name (`net user X_Admin /active:no`).
-
-**Note:** If you open the task sequence in MDT Workbench and save it, Workbench regenerates `ts.xml` from its own internal model and overwrites the injected steps -- they were never part of that model. The simplest recovery is to re-run `Initialize-MDTDeploymentShare.ps1` (or `Start-MDT.ps1` step 3) after any Workbench edits.
-
-### Verifying in Workbench
-
-Task Sequences -> right-click your sequence -> Properties -> Task Sequence tab -> scroll to the State Restore group. You should see three "Run Command Line" steps at the bottom:
-- STIG: Rename Built-in Administrator
-- STIG: Rename Built-in Guest
-- STIG: Disable X_Admin
-
-If they are missing after a Workbench save, re-run step 3 to restore them.
-
-### Adding the steps manually in Workbench
-
-If you prefer to manage the task sequence entirely in Workbench and not re-run Initialize, you can add the three steps by hand. In the Task Sequence tab, scroll to **State Restore**, click **Add -> General -> Run Command Line** three times, and configure them in this exact order:
-
-**Step 1 -- Rename Administrator (must run before disable)**
-- Name: `STIG: Rename Built-in Administrator`
-- Command: `net user Administrator X_Admin`
-- Continue on error: checked
-
-**Step 2 -- Rename Guest**
-- Name: `STIG: Rename Built-in Guest`
-- Command: `net user Guest Visitor`
-- Continue on error: checked
-
-**Step 3 -- Disable X_Admin (uses new name from step 1)**
-- Name: `STIG: Disable X_Admin`
-- Command: `net user X_Admin /active:no`
-- Continue on error: checked
-
-Order matters: the disable step targets `X_Admin` by name, so the rename must have already run. Click **OK** to save -- Workbench will now include these steps in its model and they will survive future saves.
-
-## Deployment Share Structure
+If you have LGPO.exe from the Microsoft Security Compliance Toolkit, add it
+as an Application and call it from a Run Command Line step:
 
 ```
-C:\MDTDeploymentShare\
-├── Boot\
-│   └── LiteTouchPE_x64.wim        ← WinPE boot image
-├── Operating Systems\
-│   └── Win11_Pro_24H2\             ← imported WIM files live here
-├── Task Sequences\
-│   └── DEPLOY-WIN11-PRO\
-├── Applications\
-│   └── Dell-CCTK\                  ← optional
-├── Out-of-Box Drivers\             ← optional, per-model driver packages
-└── Control\
-    ├── CustomSettings.ini          ← configs/mdt/CustomSettings.ini
-    └── Bootstrap.ini               ← configs/mdt/Bootstrap.ini
+LGPO.exe /g .\LGPO_PolicyFiles\
 ```
 
-The deployment share is your build environment. The ISO (`LiteTouchMedia_x64.iso`)
-is a snapshot of it at build time — operators never touch the share itself.
+Or apply a security baseline with secedit:
 
-## Troubleshooting
+```
+secedit /configure /db C:\Windows\Security\Local.sdb /cfg .\security-baseline.inf /overwrite /quiet
+```
 
-| Symptom | Fix |
-|---|---|
-| Rufus writes fail / ISO not bootable | Use **DD image mode** in Rufus if GPT/UEFI mode fails |
-| Task sequence not found at boot | `TaskSequenceID=` in CustomSettings.ini must match exactly (case-sensitive) |
-| Laptop boots to Windows instead of USB | Set USB first in BIOS boot order, or use F12 boot menu |
-| Laptop reboots back to USB install loop | Remove USB before the post-deploy reboot completes |
-| Apply fails with "Incorrect function" | WinPE is missing the `NtfsEnableDirCaseSensitivity` registry key. Add it via a custom MDT WinPE profile: in Deployment Workbench → deployment share → Properties → **Windows PE** tab, add an Extra Files directory containing a prestart command that runs `reg add HKLM\SYSTEM\ControlSet001\Control\FileSystem /v NtfsEnableDirCaseSensitivity /t REG_DWORD /d 1 /f` before LiteTouch starts, then rebuild boot media. |
-| MDT WinPE won't start on some UEFI laptops | Disable Secure Boot on the target, or sign the WinPE boot files |
-| Deploy completes but Windows won't boot | Verify BIOS is in UEFI mode (not Legacy/CSM) — the task sequence creates a GPT disk |
+Download a Windows 11 security baseline from:
+https://www.microsoft.com/en-us/download/details.aspx?id=55319
+
+### Firewall
+
+```
+cmd /c netsh advfirewall set allprofiles state on & netsh advfirewall set allprofiles firewallpolicy blockinbound,allowoutbound
+```
+
+Add as a Run Command Line step.

@@ -122,11 +122,8 @@ If CCTK exits non-zero, MDT treats the application step as a failure and
 the task sequence halts before touching any disk.
 
 **Rebuild the media after adding the application** so the CCTK binaries
-and configs are baked into the ISO:
-
-```powershell
-.\scripts\mdt\New-MDTMedia.ps1
-```
+and configs are baked into the ISO: right-click **MEDIA001** > **Update
+Media Content**.
 
 ## Config File Format
 
@@ -192,24 +189,6 @@ Your mitigations are:
 If you need real runtime secrecy, the only options are typed prompts,
 USB security keys, or network-fetched passwords. All of those break
 the "boot, walk away" model.
-
-## WinPE Tool Method (alternative)
-
-For users of the direct WinPE USB tool (`unified_winpe_deploy.ps1`)
-rather than the MDT ISO workflow, CCTK is embedded differently:
-
-**Embed CCTK in boot.wim** — pass `-CctkSource` to
-`scripts/build_boot_wim.ps1`. The builder copies `cctk.exe` and HAPI
-into `X:\cctk\` inside `boot.wim` and installs the HAPI driver offline.
-
-**Drop config files on the IMAGES partition** — create a `cctk\`
-folder on the IMAGES data partition of the USB. The deploy script picks
-configs in the same service-tag → model → default precedence described
-above.
-
-The config file format, password handling, and security trade-offs are
-identical to the MDT method. See the git history or the pre-v4.6 docs
-for a full walkthrough of the WinPE-only setup.
 
 ## Troubleshooting
 

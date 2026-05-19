@@ -11,51 +11,6 @@ permissions:
   contents: read
 
 jobs:
-  syntax:
-    name: PowerShell syntax
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Show PowerShell version
-        shell: pwsh
-        run: $PSVersionTable
-
-      - name: Run syntax tests
-        shell: pwsh
-        run: ./tests/test_parse.ps1
-
-  pssa:
-    name: PSScriptAnalyzer
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install PSScriptAnalyzer
-        shell: pwsh
-        run: |
-          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
-
-      - name: Analyze
-        shell: pwsh
-        run: |
-          $results = Invoke-ScriptAnalyzer `
-            -Path . `
-            -Recurse `
-            -Settings ./PSScriptAnalyzerSettings.psd1
-
-          if ($results) {
-            $results | Format-Table -AutoSize
-            $errors = @($results | Where-Object Severity -eq 'Error')
-            if ($errors.Count -gt 0) {
-              Write-Error "PSScriptAnalyzer found $($errors.Count) error(s)."
-              exit 1
-            }
-            Write-Host "PSScriptAnalyzer found $($results.Count) warning(s) - not failing the build."
-          } else {
-            Write-Host "PSScriptAnalyzer: clean."
-          }
-
   actionlint:
     name: Workflow lint
     runs-on: ubuntu-latest
@@ -79,34 +34,27 @@ jobs:
           fail: true
 
   masterize:
-    name: Masterize (doc + safety greps)
+    name: Masterize (doc consistency)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Phase 1A — Doc consistency
+      - name: Phase 1A -- Doc consistency
         run: |
           set +e
           fail=0
 
-          echo "=== 1. (skipped — version check removed; no versioned script on MDT branch) ==="
-
-          echo ""
-          echo "=== 2. (skipped — WinPE script coverage check removed; MDT-only branch) ==="
-
-          echo ""
           echo "=== 3. Stray E:\\images references ==="
-          # Exclude MASTERIZE.md (it documents the pattern legitimately)
-          stray=$(grep -rn 'E:\\images\|E:/images' docs/ scripts/ .claude/MASTERIZE.md 2>/dev/null | grep -v 'MASTERIZE.md:' || true)
+          stray=$(grep -rn 'E:\\images\|E:/images' docs/ .claude/MASTERIZE.md 2>/dev/null | grep -v 'MASTERIZE.md:' || true)
           if [ -n "$stray" ]; then echo "FAIL:"; echo "$stray"; fail=1; else echo "OK"; fi
 
           echo ""
           echo "=== 4. Volume labels (must be IMAGES, WinPE, or Windows) ==="
-          bad=$(grep -rn 'label=' docs/ scripts/ 2>/dev/null | grep -iv '"IMAGES"\|"WinPE"\|label=Windows' || true)
+          bad=$(grep -rn 'label=' docs/ 2>/dev/null | grep -iv '"IMAGES"\|"WinPE"\|label=Windows' || true)
           if [ -n "$bad" ]; then echo "FAIL:"; echo "$bad"; fail=1; else echo "OK"; fi
 
           echo ""
-          echo "=== 5. Three-programs diagram feature coverage ==="
+          echo "=== 5. Architecture doc coverage ==="
           for keyword in 'driver' 'unattend' 'cctk'; do
             if [ "$keyword" = "driver" ]; then
               section='Prep time (admin Windows)'
@@ -120,11 +68,5 @@ jobs:
               fail=1
             fi
           done
-
-          echo ""
-          echo "=== 6. (skipped — USB drive layout check removed; README is MDT-focused) ==="
-
-          echo ""
-          echo "=== 7. (skipped — WinPE scripts removed) ==="
 
           exit $fail

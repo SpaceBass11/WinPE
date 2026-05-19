@@ -37,12 +37,6 @@ automatically during the Apply OS step.
 
 ---
 
-## WinPE Tool Method
-
-The WinPE deploy script (`unified_winpe_deploy.ps1`) and its `-UnattendFile` parameter live on the `main` branch of this repo — see the main branch docs for that workflow.
-
----
-
 ## Template
 
 Start from [`configs/unattend.example.xml`](../configs/unattend.example.xml).
@@ -69,10 +63,10 @@ sequence — State Restore group, `net user` / PowerShell steps. Passwords
 for those accounts can be stored as variables in `CustomSettings.ini` and
 passed as MDT task sequence variables, keeping them out of the XML entirely.
 
-The built-in Administrator account is disabled automatically by a State Restore
-step injected by `Initialize-MDTDeploymentShare.ps1` (`net user Administrator
-/active:no`). It runs last in State Restore so it is available for the full
-task sequence and then locked down per STIG without any manual step.
+The built-in Administrator account is disabled by a State Restore step you
+add to the task sequence (see step 7c in `docs/MDT.md`): `net user
+X_Admin /active:no`. It runs at the end of State Restore so the account is
+available for the full task sequence and then locked down per STIG.
 
 ---
 
@@ -97,7 +91,7 @@ settings apply regardless of whether the WIM was sysprepped.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Lock screen at first boot instead of AutoLogon | AutoLogon block missing or `LocalAdmin` account not created | Check `C:\Windows\Panther\setupact.log` for `unattend` errors |
-| FirstLogonCommands didn't run | `first-login.ps1` not present on target | Bake it into the WIM offline or add it as an MDT Application (State Restore, before first reboot) |
+| FirstLogonCommands didn't run | Script not present at the path in the CommandLine element | Bake it into the WIM offline or add it as an MDT Application (State Restore, before first reboot) |
 | ComputerName / TimeZone didn't apply | WIM wasn't sysprepped; specialize pass skipped | Recapture with `sysprep /generalize /oobe /shutdown` |
 | MDT ignored the unattend.xml | File not in the right Control subfolder | Path must be `Control\<TaskSequenceID>\unattend.xml`; re-run Update Deployment Share |
 | Windows SIM validation errors | Schema mismatch or typo | Quick check: `[xml](Get-Content unattend.xml)` in PowerShell — throws on bad XML |

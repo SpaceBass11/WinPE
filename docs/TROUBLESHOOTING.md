@@ -1,8 +1,6 @@
 # Troubleshooting Guide
 
-> This document covers MDT standalone media deployment issues. For the underlying WinPE engine issues, see the main branch.
-
-For the MDT setup workflow, also see the Troubleshooting table in [docs/MDT.md](MDT.md).
+For the MDT setup walkthrough, see [docs/MDT.md](MDT.md).
 
 ## MDT-Specific Issues
 
@@ -148,26 +146,21 @@ These are intentional design choices or environmental constraints, not
 bugs. For a list of what's recently changed, see
 [CHANGELOG.md](../CHANGELOG.md).
 
-### PowerShell runtime required for validation
-`tests/test_parse.ps1` requires `pwsh` on PATH. Run it from
-Windows or any runner with PowerShell installed.
-
-### Update-MDTMedia is slow on first run
-`Update-MDTMedia` (called by `New-MDTMedia.ps1`) can take 10–30 minutes
-the first time it runs. This is expected MDT behavior, not a hang. Subsequent
-runs are faster if only content changed.
+### Update Media Content is slow on first run
+Update Media Content (right-click MEDIA001 > Update Media Content) can take
+10-30 minutes the first time. This is expected MDT behavior, not a hang.
+Subsequent runs are faster if only content changed and not drivers or WinPE.
 
 ### MediaName MEDIA001 must be stable
-`New-MDTMedia.ps1` defaults to `MEDIA001`. Changing the media object name
-creates a new orphaned media entry in MDT Workbench. If you need a different
-name, clean up the old `MEDIA001` object in Workbench first.
+If you rename the media object from `MEDIA001`, Workbench creates a new
+orphaned media entry and leaves the old one behind. If you need a different
+name, delete `MEDIA001` in Workbench first, then create the new one.
 
-### Workbench overwrites Set-UEFIPartitionScheme patches
+### Workbench overwrites task sequence partition settings
 If you open the task sequence in MDT Workbench and save it, MDT regenerates
-`ts.xml` from its internal model and overwrites the partition scheme patch
-applied by `Initialize-MDTDeploymentShare.ps1`. Re-run the initialize script
-(or the `Set-UEFIPartitionScheme` function standalone) after any Workbench
-edits to the task sequence.
+`ts.xml` from its internal model and may reset the partition layout. Always
+re-verify the Format and Partition Disk step after any Workbench save and
+re-run Update Media Content before distributing a new ISO.
 
 ### CCTK is not redistributable
 Dell's EULA for Command | Configure does not allow shipping `cctk.exe`
