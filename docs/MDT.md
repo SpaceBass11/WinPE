@@ -344,6 +344,7 @@ All other Postinstall steps: keep.
 | Restore User State | **Disable** -- no USMT migration |
 | Restore Groups | **Disable** -- no USMT migration |
 | Apply Local GPO Package | **Disable** -- unless you have an LGPO package ready |
+| Enable BitLocker (built-in) | **Disable** -- only exposes TPM-only and TPM+USB; replaced by manage-bde steps in Custom Tasks (see 7e) |
 | **Imaging** (entire group) | **Disable** -- Sysprep/capture path; not deploying a capture sequence |
 
 All other State Restore steps: keep.
@@ -352,8 +353,9 @@ All other State Restore steps: keep.
 
 - Initialization, Validation, Install, and most of Postinstall run untouched
 - In State Restore: Gather, Post-Apply Cleanup, Tattoo, Install Applications,
-  Custom Tasks, Enable BitLocker all stay on
-- You will add your own steps to Custom Tasks (STIG) -- see below
+  Custom Tasks stay on; Enable BitLocker (built-in) is disabled and replaced
+  by manage-bde Run Command Line steps you add to Custom Tasks (see 7e)
+- You will add your STIG and BitLocker steps to Custom Tasks -- see below
 
 ---
 
@@ -409,35 +411,36 @@ firewall and security policy steps.
 
 ### 7e. BitLocker
 
-The **Enable BitLocker** step is already in State Restore. Configure it:
+The built-in **Enable BitLocker** step only exposes TPM-only and TPM+USB key
+options -- there is no TPM+PIN option in the GUI. **Disable the built-in step**
+and replace it with four **Run Command Line** steps in State Restore.
 
-1. Click **Enable BitLocker** in State Restore to select it.
-2. In the right pane, set **Key management** to **TPM and PIN**.
-3. For recovery key, select **Do not create a recovery key** (you are saving
-   it manually via the step below) or your preferred escrow option.
+Add these steps in order, after your STIG steps and before the end of State
+Restore. Right-click **Custom Tasks** > **Add** > **General** >
+**Run Command Line** for each.
 
-The actual PIN value is not set in the task sequence -- MDT reads it from the
-`BDEPin` variable in CustomSettings.ini. Add it there:
+| Step name | Command line |
+|-----------|--------------|
+| BitLocker -- Create recovery folder | `cmd /c md D:\BitLocker 2>nul` |
+| BitLocker -- Add recovery password | `manage-bde -protectors -add C: -RecoveryPassword` |
+| BitLocker -- Save recovery key | `manage-bde -protectors -get C: -Type RecoveryPassword > D:\BitLocker\RecoveryKey.txt` |
+| BitLocker -- Add TPM+PIN and encrypt | `manage-bde -protectors -add C: -TPMAndPIN %BDEPin% & manage-bde -on C: -UsedSpaceOnly -skiphardwaretest` |
+
+The PIN comes from `BDEPin` in CustomSettings.ini -- set it there:
 
 ```ini
 BDEPin=123456
 ```
 
-Replace `123456` with your deployment PIN (numeric, 6+ digits recommended).
+Replace `123456` with your deployment PIN (numeric, 6+ digits).
 
-> **BDEPin is stored in plaintext in the ISO.** Anyone with the USB or ISO
-> can read it. Treat the ISO like a credential -- physical security and
-> rotating the PIN after deployment are your mitigations.
+> **BDEPin is plaintext in the ISO.** Anyone with the USB or ISO can read it.
+> Treat the ISO like a credential -- physical security and rotating the PIN
+> post-deploy are your mitigations.
 
-To save the recovery key to disk before encrypting, add a **Run Command Line**
-step immediately **before** Enable BitLocker in State Restore:
-
-```
-cmd /c md D:\BitLocker 2>nul & manage-bde -protectors -add C: -RecoveryPassword > D:\BitLocker\RecoveryKey.txt
-```
-
-> If deploying to machines without TPM, set Key management to **No TPM**
-> and use a password-only protector instead.
+> `-UsedSpaceOnly` encrypts only the space already written to disk, which is
+> much faster than full-disk encryption on a fresh image. Full encryption
+> completes in the background after the machine is in service.
 
 ### 7f. Computer Name (optional)
 
