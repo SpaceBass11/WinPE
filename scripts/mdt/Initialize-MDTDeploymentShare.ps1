@@ -431,8 +431,19 @@ if ($imported.Count -gt 0) {
         $tsID   = 'DEPLOY-' + ($os.Folder.ToUpper() -replace '[_]{1,}', '-')
         $tsName = "Deploy $($os.Edition)"
 
-        $mdtOS = Get-ChildItem "${drive}:\Operating Systems\$($os.Folder)" -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.NodeType -eq 'OperatingSystem' } | Select-Object -First 1
+        # Find the imported OS object -- leaf items are OS entries, containers are folders
+        $mdtOS = Get-ChildItem "${drive}:\Operating Systems\$($os.Folder)" `
+            -ErrorAction SilentlyContinue |
+            Where-Object { -not $_.PSIsContainer } |
+            Select-Object -First 1
+
+        # Fallback: search the full OS tree in case DestinationFolder was adjusted by MDT
+        if (-not $mdtOS) {
+            $mdtOS = Get-ChildItem "${drive}:\Operating Systems" -Recurse `
+                -ErrorAction SilentlyContinue |
+                Where-Object { -not $_.PSIsContainer -and $_.PSPath -like "*$($os.Folder)*" } |
+                Select-Object -First 1
+        }
 
         if (-not $mdtOS) {
             Write-Warning "  OS object not found for $($os.Folder)  -- skipping TS"
