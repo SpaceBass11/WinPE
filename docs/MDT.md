@@ -317,6 +317,7 @@ there is no existing user state to capture.
 | Format and Partition Disk **(BIOS)** | **Disable** -- UEFI machines only; keep the UEFI step |
 | Offline User State Capture | **Disable** -- no user state to capture |
 | Refresh only > Backup | **Disable** -- not doing in-place refresh |
+| Enable BitLocker (Offline) | **Disable** -- pre-provisions encryption in WinPE before the OS is applied; conflicts with the State Restore BitLocker step which handles this properly with TPM+PIN |
 
 All other Preinstall steps: keep.
 
