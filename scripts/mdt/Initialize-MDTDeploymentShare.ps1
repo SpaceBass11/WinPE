@@ -451,11 +451,6 @@ foreach ($wimPath in $WimPaths) {
 if ($imported.Count -gt 0) {
     Write-Step 'Creating task sequences'
 
-    $template = 'C:\Program Files\Microsoft Deployment Toolkit\Templates\Client.xml'
-    if (-not (Test-Path $template)) {
-        throw "MDT task sequence template not found: $template"
-    }
-
     foreach ($os in $imported) {
         $tsID   = 'DEPLOY-' + ($os.Folder.ToUpper() -replace '[_]{1,}', '-')
         $tsName = "Deploy $($os.Edition)"
@@ -479,8 +474,10 @@ if ($imported.Count -gt 0) {
             continue
         }
 
+        # -Template takes the filename only; MDT resolves it from its own Templates directory.
+        # Passing a full path causes MDT to silently fall back to a bare <tss /> stub.
         Import-MDTTaskSequence -Path "${drive}:\Task Sequences" `
-            -ID $tsID -Name $tsName -Template $template `
+            -ID $tsID -Name $tsName -Template 'Client.xml' `
             -Comments '' `
             -OperatingSystemPath $mdtOS.PSPath `
             -FullName 'Windows User' -OrgName $OrgName `
