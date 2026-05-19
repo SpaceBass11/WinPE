@@ -30,10 +30,13 @@
 
 [CmdletBinding()]
 param(
-    [string]   $SharePath = 'C:\MDTDeploymentShare',
-    [string[]] $WimPaths  = @(),
-    [string]   $OrgName   = 'My Organization',
-    [string]   $TimeZone  = 'Central Standard Time'
+    [string]   $SharePath       = 'C:\MDTDeploymentShare',
+    [string[]] $WimPaths        = @(),
+    [string]   $OrgName         = 'My Organization',
+    [string]   $TimeZone        = 'Coordinated Universal Time',
+    [string]   $BDEPin          = '',
+    [string]   $FinishAction    = 'REBOOT',
+    [string]   $OSDComputerName = ''
 )
 
 Set-StrictMode -Version Latest
@@ -502,13 +505,16 @@ UserLocale=en-US
 SystemLocale=en-US
 TimeZoneName=$TimeZone
 
+; Computer name. Blank = Windows random. %SerialNumber% = service tag.
+OSDComputerName=$OSDComputerName
+
 ; BitLocker startup PIN (alphanumeric enhanced PIN  -- letters + numbers allowed)
 ; Same value used for C: startup PIN and data drive password.
 ; Leave blank to skip BitLocker  -- useful for VMs or non-TPM hardware.
-BDEPin=
+BDEPin=$BDEPin
 
-; Reboot immediately after deploy (activates any queued BIOS changes)
-FinishAction=REBOOT
+; Action after deployment completes: REBOOT or SHUTDOWN
+FinishAction=$FinishAction
 "@
 
 Set-Content -Path (Join-Path $SharePath 'Control\CustomSettings.ini') -Value $cs -Encoding ASCII
