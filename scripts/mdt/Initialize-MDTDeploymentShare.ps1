@@ -168,7 +168,7 @@ function Invoke-MDTWin11AdkFixes {
             & $setNode 'Boot.x64.IncludeAllPackages' 'True'
 
             $xml.Save($SettingsXmlPath)
-            Write-Host '  Applied: WinPE boot image configured (128 MB scratch, scripting+WMI+HTA, all drivers/packages, x86 disabled)'
+            Write-Host '  Applied: WinPE boot image configured (512 MB scratch, scripting+WMI+HTA, all drivers/packages, x86 disabled)'
         } catch {
             Write-Warning "  Settings.xml update skipped: $_"
         }
@@ -370,6 +370,9 @@ function Set-UEFIPartitionScheme {
 Write-Step 'Checking prerequisites'
 
 $mdtModule = Assert-MDTInstalled
+
+# Normalize: PS collapses empty array returns to $null; @() is always safe under StrictMode
+if ($null -eq $WimPaths) { $WimPaths = @() }
 
 foreach ($w in $WimPaths) {
     if (-not (Test-Path $w)) { throw "WIM not found: $w" }
