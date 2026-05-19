@@ -308,10 +308,6 @@ function Invoke-Initialize {
     }
 
     $wimPaths = Read-WimPaths
-    Write-Host ''
-
-    $script:Cfg.SharePath = Read-Default 'Deployment share path' $script:Cfg.SharePath
-    $script:Cfg.OrgName   = Read-Default 'Organization name    ' $script:Cfg.OrgName
 
     Write-Host ''
     Write-Host '  Starting -- this takes a few minutes...' -ForegroundColor DarkGray
@@ -357,9 +353,6 @@ function Invoke-ImportWim {
     }
 
     $wimPaths = Read-WimPaths
-    Write-Host ''
-
-    $script:Cfg.SharePath = Read-Default 'Deployment share path' $script:Cfg.SharePath
 
     Write-Host ''
     try {
@@ -390,9 +383,6 @@ function Invoke-BuildIso {
         Write-Host '  Run step 3 (Initialize) first.' -ForegroundColor Red
         return
     }
-
-    $script:Cfg.SharePath  = Read-Default 'Deployment share path' $script:Cfg.SharePath
-    $script:Cfg.OutputPath = Read-Default 'ISO output folder    ' $script:Cfg.OutputPath
 
     # Verify the output folder is writable before starting a 20+ min build.
     $testFile = Join-Path $script:Cfg.OutputPath '.write_test'
