@@ -45,25 +45,8 @@ Disk", no disks have been touched yet — safe to abort and retry.
    ```
    cctk.exe --infile="%DEPLOYROOT%\Applications\Dell-CCTK\configs\default.ini"
    ```
-6. Set the working directory to `.\Applications\Dell-CCTK\bin`.
+6. Set the working directory to `.\Applications\Dell-CCTK`.
 7. Complete the wizard. MDT copies the source tree into the deployment share.
-
-**Using PowerShell (scriptable):**
-
-```powershell
-Import-Module 'C:\Program Files\Microsoft Deployment Toolkit\bin\MicrosoftDeploymentToolkit.psd1'
-New-PSDrive -Name 'DS001' -PSProvider MDTProvider -Root 'C:\MDTDeploymentShare' -Verbose:$false
-
-Import-MDTApplication -Path 'DS001:\Applications' `
-    -Name 'Dell CCTK - BIOS Configuration' `
-    -ShortName 'Dell-CCTK' `
-    -CommandLine 'cctk.exe --infile="%DEPLOYROOT%\Applications\Dell-CCTK\configs\default.ini"' `
-    -WorkingDirectory '.\Applications\Dell-CCTK\bin' `
-    -ApplicationSourcePath 'C:\Program Files (x86)\Dell\Command Configure\X86_64' `
-    -DestinationFolder 'Dell-CCTK'
-```
-
-Adjust `-ApplicationSourcePath` if Command | Configure is installed elsewhere.
 
 ### 2. Add Config Files to the Deployment Share
 
