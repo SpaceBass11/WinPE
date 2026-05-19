@@ -412,14 +412,22 @@ firewall and security policy steps.
 The **Enable BitLocker** step is already in State Restore. Configure it:
 
 1. Click **Enable BitLocker** in State Restore to select it.
-2. In the right pane, configure:
+2. In the right pane, set **Key management** to **TPM and PIN**.
+3. For recovery key, select **Do not create a recovery key** (you are saving
+   it manually via the step below) or your preferred escrow option.
 
-   | Setting | Value |
-   |---------|-------|
-   | Current OS drive | selected |
-   | Key management | TPM and PIN |
-   | PIN | Your deployment PIN (6+ digits) |
-   | Recovery password | Save locally (see below) or Do not create |
+The actual PIN value is not set in the task sequence -- MDT reads it from the
+`BDEPin` variable in CustomSettings.ini. Add it there:
+
+```ini
+BDEPin=123456
+```
+
+Replace `123456` with your deployment PIN (numeric, 6+ digits recommended).
+
+> **BDEPin is stored in plaintext in the ISO.** Anyone with the USB or ISO
+> can read it. Treat the ISO like a credential -- physical security and
+> rotating the PIN after deployment are your mitigations.
 
 To save the recovery key to disk before encrypting, add a **Run Command Line**
 step immediately **before** Enable BitLocker in State Restore:
@@ -428,8 +436,8 @@ step immediately **before** Enable BitLocker in State Restore:
 cmd /c md D:\BitLocker 2>nul & manage-bde -protectors -add C: -RecoveryPassword > D:\BitLocker\RecoveryKey.txt
 ```
 
-> If deploying to machines without TPM, change key management to
-> **Password only** in the Enable BitLocker step.
+> If deploying to machines without TPM, set Key management to **No TPM**
+> and use a password-only protector instead.
 
 ### 7f. Computer Name (optional)
 
