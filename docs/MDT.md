@@ -593,13 +593,10 @@ so a failure requires digging into the cmd output to find which installer broke.
 
 ### Dell CCTK (BIOS pre-configuration)
 
-See [docs/CCTK.md](CCTK.md) for the full walkthrough. The short version:
-add CCTK binaries as an Application, add your BIOS config `.ini` alongside
-the application, add a **Run Command Line** step in State Restore:
-
-```
-cctk.exe --import=cctk-config.ini
-```
+See [docs/CCTK.md](CCTK.md) for the full walkthrough. CCTK is imported as
+an Application in Workbench -- the application step handles running it with
+the correct config file path. Do not add a separate Run Command Line step
+for CCTK in Custom Tasks.
 
 ---
 
