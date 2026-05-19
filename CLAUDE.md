@@ -53,6 +53,8 @@ Updating the image means rebuilding the ISO once and replacing the download link
 
 | File | Purpose |
 |------|---------|
+| `START.bat` | Double-click launcher -- handles UAC elevation and calls `Start-MDT.ps1` |
+| `Start-MDT.ps1` | Interactive menu: Initialize / Import WIM / Build ISO |
 | `scripts/mdt/Initialize-MDTDeploymentShare.ps1` | One-time setup: creates share, imports WIM, builds task sequences, writes zero-touch config, applies Win11 ADK fixes |
 | `scripts/mdt/Import-WimImages.ps1` | Add/replace WIMs in an existing share |
 | `scripts/mdt/New-MDTMedia.ps1` | Build the operator payload ISO (`LiteTouchMedia_x64.iso`) |
