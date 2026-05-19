@@ -562,6 +562,35 @@ In the task sequence editor, right-click **State Restore** > **Add** >
 **General** > **Install Application**. Select the application from the list.
 This adds a single-app step you can position anywhere in State Restore.
 
+**Option C -- Bundle script (alternative for many apps)**
+
+Instead of importing each installer separately, create one folder with all
+your installers and a script that runs them:
+
+```
+Software\
+  npp.8.6.0.Installer.x64.exe
+  vlc-3.0.21-win64.exe
+  7z2301-x64.exe
+  install.cmd
+```
+
+`install.cmd`:
+```cmd
+npp.8.6.0.Installer.x64.exe /S
+vlc-3.0.21-win64.exe /L=1033 /S
+7z2301-x64.exe /S
+```
+
+Import the `Software` folder as a single MDT application with command line
+`install.cmd`. One GUID in CustomSettings.ini installs everything.
+
+To add or update an app: edit `install.cmd` and swap the `.exe` -- no
+Workbench wizard needed again.
+
+Trade-off: the task sequence log shows one step instead of per-app entries,
+so a failure requires digging into the cmd output to find which installer broke.
+
 ### Dell CCTK (BIOS pre-configuration)
 
 See [docs/CCTK.md](CCTK.md) for the full walkthrough. The short version:
