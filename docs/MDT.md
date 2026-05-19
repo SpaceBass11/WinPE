@@ -527,9 +527,28 @@ In Deployment Workbench, expand **Deployment Shares** > **your share** >
 3. Fill in: Name, Source folder, Installation command, Working directory.
 4. Click **Finish**.
 
-To install zero-touch: open the task sequence editor > **State Restore** >
-**Install Applications** step > change mode to "install the following
-applications" > add your application.
+**To install zero-touch**, two options:
+
+**Option A -- MandatoryApplications in CustomSettings.ini (recommended)**
+
+Get the application GUID: right-click the application in Workbench >
+**Properties** -- the GUID is shown at the bottom of the General tab.
+
+Add it to CustomSettings.ini:
+
+```ini
+MandatoryApplications001={PASTE-GUID-HERE}
+MandatoryApplications002={PASTE-GUID-HERE}
+```
+
+The Install Applications step in State Restore reads these automatically
+at runtime and installs them in order.
+
+**Option B -- Dedicated task sequence step**
+
+In the task sequence editor, right-click **State Restore** > **Add** >
+**General** > **Install Application**. Select the application from the list.
+This adds a single-app step you can position anywhere in State Restore.
 
 ### Dell CCTK (BIOS pre-configuration)
 
