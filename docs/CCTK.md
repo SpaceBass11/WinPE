@@ -34,15 +34,30 @@ needs to change before the OS is applied.
 
 ## MDT Method (primary)
 
-### 1. Create the CCTK Application in MDT
+### 1. Get the CCTK binaries
 
-**Using MDT Workbench (GUI):**
+Install Dell Command | Configure on your admin workstation (not the target
+machines -- you only need the binaries locally). Download from
+[Dell support](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure)
+and run the installer.
+
+After install, the files you need are at:
+
+```
+C:\Program Files (x86)\Dell\Command Configure\X86_64\
+```
+
+This folder contains `cctk.exe` plus the HAPI driver subdirectory. That is
+the folder you point MDT at in the next step. You do not deploy DCC itself
+to target machines -- only the contents of `X86_64\` get baked into the
+deployment share.
+
+### 2. Create the CCTK Application in MDT
 
 1. Open Deployment Workbench and expand your deployment share.
 2. Right-click **Applications** → **New Application**.
 3. Choose **Application with source files**.
-4. Set the source directory to your local Dell Command | Configure
-   `X86_64` folder (contains `cctk.exe` and the HAPI subdirectory).
+4. Set the source directory to `C:\Program Files (x86)\Dell\Command Configure\X86_64`.
 5. Set the command line to:
    ```
    cctk.exe --infile="%DEPLOYROOT%\Applications\Dell-CCTK\configs\default.ini"
