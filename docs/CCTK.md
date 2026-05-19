@@ -11,24 +11,26 @@
 > `cctk.exe`, and `hapint*.inf/.sys` as a safety net.
 
 The MDT deployment can optionally apply BIOS configuration via Dell's
-[Client Configuration Toolkit (CCTK)](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure)
-**before** the Windows image is applied. This targets new Dell hardware
-that ships with RAID enabled in BIOS — DISM can see the disk, but
-Windows won't boot post-apply without the RAID driver, so you want
-AHCI, passwords, and boot order set once per machine during the same
-run that deploys Windows.
+[Client Configuration Toolkit (CCTK)](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure).
+CCTK is imported as an MDT Application and runs in **State Restore** --
+inside the newly deployed Windows environment, after OS apply. BIOS changes
+queue in firmware and take effect on the reboot at the end of deployment.
 
-## Why Pre-Apply (Not Post-Apply)
+## Timing
 
-CCTK changes queue in BIOS and activate on the **next POST**. The
-normal end-of-deploy reboot is that POST. So CCTK runs during the WinPE
-session, the rest of the task sequence finishes with the current BIOS
-state, the machine reboots, and Windows first-boots with the intended
-BIOS already in place — one reboot, not two.
+CCTK changes activate on the **next POST**, not immediately. The flow is:
 
-If CCTK fails (bad config, password mismatch, HAPI driver missing),
-the task sequence aborts. When the step runs before "Format and Partition
-Disk", no disks have been touched yet — safe to abort and retry.
+1. Windows is deployed normally
+2. State Restore runs in the new Windows environment
+3. CCTK runs, writes BIOS settings -- they queue, not applied yet
+4. Task sequence finishes, machine reboots
+5. BIOS settings take effect on that POST -- one reboot, done
+
+**RAID → AHCI:** If the target machine ships with RAID mode enabled, DISM
+will apply the image but Windows won't boot without the RAID driver. This
+must be fixed **manually in BIOS before starting deployment** -- flip to
+AHCI, then run the USB. CCTK cannot fix this in-band because the disk mode
+needs to change before the OS is applied.
 
 ## MDT Method (primary)
 
@@ -104,7 +106,7 @@ State Restore
 ```
 
 If CCTK exits non-zero, MDT treats the application step as a failure and
-the task sequence halts before touching any disk.
+the task sequence halts.
 
 **Rebuild the media after adding the application** so the CCTK binaries
 and configs are baked into the ISO: right-click **MEDIA001** > **Update
