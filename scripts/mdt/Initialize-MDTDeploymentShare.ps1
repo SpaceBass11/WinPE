@@ -133,18 +133,44 @@ function Invoke-MDTWin11AdkFixes {
         }
     }
 
-    # --- Fix 3: Disable x86 boot image in Settings.xml ---
+    # --- Fix 3: Disable x86 boot image + configure WinPE boot image settings ---
     if ($SettingsXmlPath -ne '' -and (Test-Path $SettingsXmlPath)) {
         try {
             [xml]$xml = Get-Content $SettingsXmlPath -Raw
-            $current = $xml.Settings.SupportX86
-            if ($current -ne 'False') {
-                $xml.Settings.SupportX86 = 'False'
-                $xml.Save($SettingsXmlPath)
-                Write-Host '  Applied: SupportX86 set to False in Control\Settings.xml'
+
+            # Helper: set or create a child element on the Settings root.
+            # Uses local-name() XPath so dots in element names are unambiguous.
+            $setNode = {
+                param([string]$Name, [string]$Value)
+                $node = $xml.SelectSingleNode("/Settings/*[local-name()='$Name']")
+                if (-not $node) {
+                    $node = $xml.CreateElement($Name)
+                    [void]$xml.DocumentElement.AppendChild($node)
+                }
+                if ($node.InnerText -ne $Value) { $node.InnerText = $Value }
             }
+
+            # Disable x86 boot image generation (Win11 ADK has no 32-bit WinPE)
+            & $setNode 'SupportX86' 'False'
+
+            # Scratch space: 32 MB default is too small for BitLocker + WMI task sequences
+            & $setNode 'Boot.x64.ScratchSpace' '128'
+
+            # WinPE optional components required for MDT LiteTouch:
+            #   winpe-scripting  -- LiteTouch.wsf and all MDT VBScript helpers
+            #   winpe-wmi        -- hardware detection queries during WinPE phase
+            #   winpe-hta        -- progress/wizard dialogs
+            & $setNode 'Boot.x64.FeaturePacks' 'winpe-scripting,winpe-wmi,winpe-hta'
+
+            # Include all imported drivers and packages in the boot image.
+            # No-op if nothing is imported yet; automatically picks up new drivers on rebuild.
+            & $setNode 'Boot.x64.IncludeAllDrivers'  'True'
+            & $setNode 'Boot.x64.IncludeAllPackages' 'True'
+
+            $xml.Save($SettingsXmlPath)
+            Write-Host '  Applied: WinPE boot image configured (128 MB scratch, scripting+WMI+HTA, all drivers/packages, x86 disabled)'
         } catch {
-            Write-Warning "  SupportX86 fix skipped  -- could not update Settings.xml: $_"
+            Write-Warning "  Settings.xml update skipped: $_"
         }
     }
 }
