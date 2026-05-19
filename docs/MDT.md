@@ -293,11 +293,37 @@ deployment:
 
 The rename steps run before the disable step -- this is required because the disable command targets the account by its new name (`net user X_Admin /active:no`).
 
-**Note:** If you open the task sequence in MDT Workbench and save it, Workbench regenerates `ts.xml` and overwrites these injected steps. Re-run `Initialize-MDTDeploymentShare.ps1` (or `Start-MDT.ps1` step 3) after any Workbench edits to restore them.
+**Note:** If you open the task sequence in MDT Workbench and save it, Workbench regenerates `ts.xml` from its own internal model and overwrites the injected steps -- they were never part of that model. The simplest recovery is to re-run `Initialize-MDTDeploymentShare.ps1` (or `Start-MDT.ps1` step 3) after any Workbench edits.
 
 ### Verifying in Workbench
 
-GUI: Task Sequences -> right-click your sequence -> Properties -> Task Sequence tab -> scroll to State Restore group. You should see three "Run Command Line" steps at the bottom: STIG: Rename Built-in Administrator, STIG: Rename Built-in Guest, STIG: Disable X_Admin.
+Task Sequences -> right-click your sequence -> Properties -> Task Sequence tab -> scroll to the State Restore group. You should see three "Run Command Line" steps at the bottom:
+- STIG: Rename Built-in Administrator
+- STIG: Rename Built-in Guest
+- STIG: Disable X_Admin
+
+If they are missing after a Workbench save, re-run step 3 to restore them.
+
+### Adding the steps manually in Workbench
+
+If you prefer to manage the task sequence entirely in Workbench and not re-run Initialize, you can add the three steps by hand. In the Task Sequence tab, scroll to **State Restore**, click **Add -> General -> Run Command Line** three times, and configure them in this exact order:
+
+**Step 1 -- Rename Administrator (must run before disable)**
+- Name: `STIG: Rename Built-in Administrator`
+- Command: `net user Administrator X_Admin`
+- Continue on error: checked
+
+**Step 2 -- Rename Guest**
+- Name: `STIG: Rename Built-in Guest`
+- Command: `net user Guest Visitor`
+- Continue on error: checked
+
+**Step 3 -- Disable X_Admin (uses new name from step 1)**
+- Name: `STIG: Disable X_Admin`
+- Command: `net user X_Admin /active:no`
+- Continue on error: checked
+
+Order matters: the disable step targets `X_Admin` by name, so the rename must have already run. Click **OK** to save -- Workbench will now include these steps in its model and they will survive future saves.
 
 ## Deployment Share Structure
 

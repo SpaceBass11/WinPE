@@ -133,7 +133,7 @@ function Show-Banner {
 function Read-Default {
     param([string]$Prompt, [string]$Default)
     $v = (Read-Host "  $Prompt [$Default]").Trim()
-    return if ($v) { $v } else { $Default }
+    if ($v) { return $v } else { return $Default }
 }
 
 function Read-WimPaths {
