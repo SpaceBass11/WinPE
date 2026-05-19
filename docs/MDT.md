@@ -299,9 +299,66 @@ Image Manager":
 Open the task sequence editor: expand **Task Sequences** > right-click
 **Windows 11 Enterprise Deployment** > **Properties** > **Task Sequence** tab.
 
-### 7a. UEFI Partition Layout
+### 7a. Full step audit -- what to disable
 
-Find the **Format and Partition Disk** step under **Preinstall** >
+Go through every group top to bottom and disable the steps below. To disable
+a step: right-click it > **Disable**. Disabled steps show as greyed out and
+are skipped at runtime without being deleted.
+
+**State Capture** (top-level group)
+
+Disable the **entire State Capture group**. You are doing fresh deployments --
+there is no existing user state to capture.
+
+**Preinstall > New Computer Only**
+
+| Step | Action |
+|------|--------|
+| Format and Partition Disk **(BIOS)** | **Disable** -- UEFI machines only; keep the UEFI step |
+| Offline User State Capture | **Disable** -- no user state to capture |
+| Refresh only > Backup | **Disable** -- not doing in-place refresh |
+
+All other Preinstall steps: keep.
+
+**Install**
+
+Nothing to disable. Both steps (Install Operating System, Next Phase) are required.
+
+**Postinstall**
+
+| Step | Action |
+|------|--------|
+| Add Windows Recovery (WinRE) | **Disable** -- WinRE is a known BitLocker bypass vector; disabling it removes that attack surface |
+
+All other Postinstall steps: keep.
+
+**State Restore**
+
+| Step | Action |
+|------|--------|
+| Recover From Domain | **Disable** -- workgroup deployment |
+| Opt In to CEIP and WER | **Disable** -- telemetry |
+| Windows Update (Pre-Application Install) | **Disable** -- no network at deploy time |
+| Windows Update (Post-Application Install) | **Disable** -- no network at deploy time |
+| Restore User State | **Disable** -- no USMT migration |
+| Restore Groups | **Disable** -- no USMT migration |
+| Apply Local GPO Package | **Disable** -- unless you have an LGPO package ready |
+| **Imaging** (entire group) | **Disable** -- Sysprep/capture path; not deploying a capture sequence |
+
+All other State Restore steps: keep.
+
+**Summary of what stays enabled:**
+
+- Initialization, Validation, Install, and most of Postinstall run untouched
+- In State Restore: Gather, Post-Apply Cleanup, Tattoo, Install Applications,
+  Custom Tasks, Enable BitLocker all stay on
+- You will add your own steps to Custom Tasks (STIG) -- see below
+
+---
+
+### 7b. UEFI Partition Layout
+
+Find the **Format and Partition Disk (UEFI)** step under **Preinstall** >
 **New Computer Only**. Click it.
 
 Set **Disk type** to **GPT** in the right pane.
@@ -320,7 +377,7 @@ Click **Apply** to save.
 > MDT may regenerate `ts.xml` and reset the partition layout. Re-verify and
 > re-run Update Media Content before distributing a new ISO.
 
-### 7b. Apply Operating System
+### 7c. Apply Operating System
 
 Find the **Apply Operating System Image** step under **Install**.
 
@@ -330,11 +387,12 @@ Find the **Apply Operating System Image** step under **Install**.
   Dism /Get-WimInfo /WimFile:"C:\MDTDeploymentShare\Operating Systems\Windows 11 Enterprise\install.wim"
   ```
 
-### 7c. Rename Built-in Accounts (DoD STIG)
+### 7d. Rename Built-in Accounts (DoD STIG)
 
-Add these **Run Command Line** steps to State Restore, after **Tattoo**.
+Add these **Run Command Line** steps to State Restore > **Custom Tasks**,
+or after **Tattoo**.
 
-To add a step: right-click the group or position in State Restore >
+To add a step: right-click **Custom Tasks** >
 **Add** > **General** > **Run Command Line**.
 
 | Step name | Command line |
@@ -343,16 +401,15 @@ To add a step: right-click the group or position in State Restore >
 | Disable X_Admin | `net user X_Admin /active:no` |
 | Rename Guest to Visitor | `wmic useraccount where name='Guest' call rename newname='Visitor'` |
 
-See [DoD STIG Steps](#dod-stig-steps) for the full STIG task list.
+See [DoD STIG Steps](#dod-stig-steps) for the full STIG task list including
+firewall and security policy steps.
 
-### 7d. BitLocker
+### 7e. BitLocker
 
-MDT includes a built-in **Enable BitLocker** step.
+The **Enable BitLocker** step is already in State Restore. Configure it:
 
-1. Right-click **State Restore** > **Add** > **Disks** > **Enable BitLocker**.
-2. Place the step near the **end** of State Restore (after all software
-   installs) so encryption starts on a fully configured OS.
-3. Configure the step:
+1. Click **Enable BitLocker** in State Restore to select it.
+2. In the right pane, configure:
 
    | Setting | Value |
    |---------|-------|
@@ -362,7 +419,7 @@ MDT includes a built-in **Enable BitLocker** step.
    | Recovery password | Save locally (see below) or Do not create |
 
 To save the recovery key to disk before encrypting, add a **Run Command Line**
-step immediately before the Enable BitLocker step:
+step immediately **before** Enable BitLocker in State Restore:
 
 ```
 cmd /c md D:\BitLocker 2>nul & manage-bde -protectors -add C: -RecoveryPassword > D:\BitLocker\RecoveryKey.txt
@@ -371,7 +428,7 @@ cmd /c md D:\BitLocker 2>nul & manage-bde -protectors -add C: -RecoveryPassword 
 > If deploying to machines without TPM, change key management to
 > **Password only** in the Enable BitLocker step.
 
-### 7e. Computer Name (optional)
+### 7f. Computer Name (optional)
 
 To name machines automatically from serial number, add a **Set Task Sequence
 Variable** step early in State Restore:
