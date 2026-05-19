@@ -446,7 +446,7 @@ foreach ($wimPath in $WimPaths) {
 
 #endregion
 
-#region Create task sequences
+#region Create task sequences for newly imported WIMs
 
 if ($imported.Count -gt 0) {
     Write-Step 'Creating task sequences'
@@ -484,12 +484,50 @@ if ($imported.Count -gt 0) {
             -HomePage 'about:blank' `
             -Verbose:$false | Out-Null
 
-        $tsXml = Join-Path $SharePath "Control\$tsID\ts.xml"
-        Set-UEFIPartitionScheme     -TsXmlPath $tsXml
-        Add-BitLockerTsStep         -TsXmlPath $tsXml
-        Add-StigAccountsTsSteps     -TsXmlPath $tsXml
+        Write-Host "  Created: [$tsID] $tsName"
+    }
+}
 
-        Write-Host "  [$tsID] $tsName  (UEFI partitioning + BitLocker + STIG account hardening applied)"
+#endregion
+
+#region Patch all task sequences (UEFI + BitLocker + STIG)
+
+# Runs for every DEPLOY-* control folder whether WIMs were imported or not.
+# Repairs stub ts.xml files left by earlier runs with the wrong template parameter.
+
+Write-Step 'Patching task sequences (UEFI / BitLocker / STIG)'
+
+$mdtTemplatePath = 'C:\Program Files\Microsoft Deployment Toolkit\Templates\Client.xml'
+$tsDirs = @(Get-ChildItem (Join-Path $SharePath 'Control') -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^DEPLOY-' })
+
+if ($tsDirs.Count -eq 0) {
+    Write-Warning '  No task sequences found. Run step 3 with a WIM path to create one.'
+} else {
+    foreach ($tsDir in $tsDirs) {
+        $tsXml = Join-Path $tsDir.FullName 'ts.xml'
+        if (-not (Test-Path $tsXml)) {
+            Write-Warning "  ts.xml missing for $($tsDir.Name)  -- skipping"
+            continue
+        }
+
+        # A stub ts.xml has no <group> or <step> elements.
+        # Replace it with the Client.xml template so there are steps to patch.
+        $tsContent = Get-Content $tsXml -Raw -ErrorAction SilentlyContinue
+        if ($tsContent -notmatch '<group|<step') {
+            if (Test-Path $mdtTemplatePath) {
+                Copy-Item $mdtTemplatePath $tsXml -Force
+                Write-Host "  Repaired stub ts.xml: $($tsDir.Name)"
+            } else {
+                Write-Warning "  Stub ts.xml and Client.xml template not found  -- skipping $($tsDir.Name)"
+                continue
+            }
+        }
+
+        Set-UEFIPartitionScheme -TsXmlPath $tsXml
+        Add-BitLockerTsStep     -TsXmlPath $tsXml
+        Add-StigAccountsTsSteps -TsXmlPath $tsXml
+        Write-Host "  Patched: $($tsDir.Name)  (UEFI + BitLocker + STIG)"
     }
 }
 
@@ -499,10 +537,13 @@ if ($imported.Count -gt 0) {
 
 Write-Step 'Writing zero-touch CustomSettings.ini'
 
-$firstTsID = if ($imported.Count -gt 0) {
-    'DEPLOY-' + ($imported[0].Folder.ToUpper() -replace '[_]{1,}', '-')
+# Use the first newly imported TS, or fall back to first existing DEPLOY-* dir
+if ($imported.Count -gt 0) {
+    $firstTsID = 'DEPLOY-' + ($imported[0].Folder.ToUpper() -replace '[_]{1,}', '-')
 } else {
-    'DEPLOY-WIN11-PRO'
+    $existingTs = Get-ChildItem (Join-Path $SharePath 'Control') -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^DEPLOY-' } | Select-Object -First 1
+    $firstTsID = if ($existingTs) { $existingTs.Name } else { 'DEPLOY-WIN11-PRO' }
 }
 
 # All wizard pages suppressed  -- operator sees only the progress bar.
@@ -603,15 +644,20 @@ foreach ($rs in $runtimeScripts) {
 
 #endregion
 
-#region Update deployment share
+#region Update deployment share (only when new WIMs were imported)
 
-Write-Step 'Updating deployment share (generating LiteTouchPE_x64.wim  -- a few minutes)'
-Update-MDTDeploymentShare -Path "${drive}:" -Force -Verbose:$false
+if ($imported.Count -gt 0) {
+    Write-Step 'Updating deployment share (generating LiteTouchPE_x64.wim  -- a few minutes)'
+    Update-MDTDeploymentShare -Path "${drive}:" -Force -Verbose:$false
 
-$bootWim = Join-Path $SharePath 'Boot\LiteTouchPE_x64.wim'
-if (Test-Path $bootWim) {
-    $mb = [math]::Round((Get-Item $bootWim).Length / 1MB, 1)
-    Write-Host "  Boot WIM ready: Boot\LiteTouchPE_x64.wim ($mb MB)"
+    $bootWim = Join-Path $SharePath 'Boot\LiteTouchPE_x64.wim'
+    if (Test-Path $bootWim) {
+        $mb = [math]::Round((Get-Item $bootWim).Length / 1MB, 1)
+        Write-Host "  Boot WIM ready: Boot\LiteTouchPE_x64.wim ($mb MB)"
+    }
+} else {
+    Write-Host ''
+    Write-Host '  Boot WIM not regenerated (no new WIMs imported -- skipping Update-MDTDeploymentShare).' -ForegroundColor DarkGray
 }
 
 #endregion
@@ -623,17 +669,13 @@ Write-Host '=====================================================' -ForegroundCo
 Write-Host ' Deployment share ready' -ForegroundColor Green
 Write-Host '=====================================================' -ForegroundColor Green
 Write-Host "  Path : $SharePath"
-if ($imported.Count -gt 0) {
-    Write-Host ''
-    Write-Host '  Task sequences:'
-    foreach ($os in $imported) {
-        $tsID = 'DEPLOY-' + ($os.Folder.ToUpper() -replace '[_]{1,}', '-')
-        Write-Host "    [$tsID]  $($os.Edition)"
-    }
-}
 Write-Host ''
-Write-Host '  Next: build the operator payload ISO:'
-Write-Host "  PS> .\scripts\mdt\New-MDTMedia.ps1 -OutputPath 'C:\MDTMedia'"
+Write-Host '  Task sequences:'
+$tsDirsAll = @(Get-ChildItem (Join-Path $SharePath 'Control') -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^DEPLOY-' })
+foreach ($d in $tsDirsAll) { Write-Host "    [$($d.Name)]" }
+Write-Host ''
+Write-Host '  Next: run step 5 (Start-MDT.ps1) to build the operator ISO.'
 Write-Host '=====================================================' -ForegroundColor Green
 
 #endregion
