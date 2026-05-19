@@ -593,10 +593,10 @@ so a failure requires digging into the cmd output to find which installer broke.
 
 ### Dell CCTK (BIOS pre-configuration)
 
-See [docs/CCTK.md](CCTK.md) for the full walkthrough. CCTK is imported as
-an Application in Workbench -- the application step handles running it with
-the correct config file path. Do not add a separate Run Command Line step
-for CCTK in Custom Tasks.
+See [docs/CCTK.md](CCTK.md) for the full walkthrough. CCTK is **not** an
+MDT Application -- it's a one-shot CLI tool that lives in the deployment
+share's `Tools\` folder and is called from a Run Command Line step in
+State Restore > Custom Tasks.
 
 ---
 
