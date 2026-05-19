@@ -281,6 +281,24 @@ deployment:
   recovery media and supply the key from `D_RecoveryKey.txt` (keep a copy
   somewhere safe, as D: will be locked at that point).
 
+## STIG Account Hardening
+
+`Initialize-MDTDeploymentShare.ps1` automatically injects three DoD STIG-required steps into the State Restore group of every task sequence it creates. These run at the end of deployment, after BitLocker:
+
+| Step | STIG ID | What it does |
+|------|---------|--------------|
+| Rename built-in Administrator to `X_Admin` | WN11-SO-000030 | Built-in Administrator must be renamed |
+| Rename built-in Guest to `Visitor` | WN11-SO-000040 | Built-in Guest must be renamed |
+| Disable `X_Admin` | WN11-SO-000025 | Built-in Administrator must be disabled |
+
+The rename steps run before the disable step -- this is required because the disable command targets the account by its new name (`net user X_Admin /active:no`).
+
+**Note:** If you open the task sequence in MDT Workbench and save it, Workbench regenerates `ts.xml` and overwrites these injected steps. Re-run `Initialize-MDTDeploymentShare.ps1` (or `Start-MDT.ps1` step 3) after any Workbench edits to restore them.
+
+### Verifying in Workbench
+
+GUI: Task Sequences -> right-click your sequence -> Properties -> Task Sequence tab -> scroll to State Restore group. You should see three "Run Command Line" steps at the bottom: STIG: Rename Built-in Administrator, STIG: Rename Built-in Guest, STIG: Disable X_Admin.
+
 ## Deployment Share Structure
 
 ```

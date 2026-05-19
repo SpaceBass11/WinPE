@@ -7,10 +7,11 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-$mdtInitPath   = Join-Path $PSScriptRoot '..' 'scripts\mdt\Initialize-MDTDeploymentShare.ps1'
-$mdtImportPath = Join-Path $PSScriptRoot '..' 'scripts\mdt\Import-WimImages.ps1'
-$mdtMediaPath  = Join-Path $PSScriptRoot '..' 'scripts\mdt\New-MDTMedia.ps1'
-$mdtBLPath     = Join-Path $PSScriptRoot '..' 'scripts\mdt\Enable-BitLocker.ps1'
+$mdtInitPath      = Join-Path $PSScriptRoot '..' 'scripts\mdt\Initialize-MDTDeploymentShare.ps1'
+$mdtImportPath    = Join-Path $PSScriptRoot '..' 'scripts\mdt\Import-WimImages.ps1'
+$mdtMediaPath     = Join-Path $PSScriptRoot '..' 'scripts\mdt\New-MDTMedia.ps1'
+$mdtBLPath        = Join-Path $PSScriptRoot '..' 'scripts\mdt\Enable-BitLocker.ps1'
+$launcherPath     = Join-Path $PSScriptRoot '..' 'Start-MDT.ps1'
 $passed = 0
 $failed = 0
 
@@ -59,6 +60,9 @@ Test-ScriptSyntax -Path $mdtMediaPath -Label "MDT media build" | Out-Null
 
 Write-Host "`n--- scripts/mdt/Enable-BitLocker.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $mdtBLPath -Label "MDT BitLocker" | Out-Null
+
+Write-Host "`n--- Start-MDT.ps1 ---" -ForegroundColor Cyan
+Test-ScriptSyntax -Path $launcherPath -Label "MDT launcher" | Out-Null
 
 # Summary
 Write-Host "`n=== Results ===" -ForegroundColor Cyan

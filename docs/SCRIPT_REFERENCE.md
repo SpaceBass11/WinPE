@@ -24,6 +24,9 @@ task sequence per OS (UEFI GPT layout), and writes zero-touch
 | `-WimPaths` | string[] | `@()` | One or more `.wim`/`.esd` files to import; each becomes an OS + task sequence |
 | `-OrgName` | string | `My Organization` | Organization name embedded in task sequences |
 | `-TimeZone` | string | `Central Standard Time` | Windows time-zone name (`tzutil /l` to list valid names) |
+| `-BDEPin` | String | `''` (empty) | BitLocker startup PIN. Alphanumeric, 6+ chars. Same value used for C: TPM+PIN and data drive password. Leave blank to skip BitLocker entirely (VMs, non-TPM hardware). |
+| `-FinishAction` | String | `'REBOOT'` | Post-deployment action baked into CustomSettings.ini. Valid values: `REBOOT` or `SHUTDOWN`. |
+| `-OSDComputerName` | String | `''` (empty) | Computer naming pattern. Empty = Windows random name. `%SerialNumber%` = service tag/serial. Fixed string = same name on every machine (test only). |
 
 ```powershell
 # Typical first-time setup

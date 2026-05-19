@@ -53,7 +53,7 @@ Never edit it in place — keep the example clean for future reference.
 | Field | Default | Notes |
 |---|---|---|
 | `<ComputerName>` | `*` | `*` = random name. `%SerialNumber%` = service tag. Fixed string = same name on every machine (test only). |
-| `<TimeZone>` | `Central Standard Time` | Run `tzutil /l` on any Windows box to list valid names. |
+| `<TimeZone>` | `Coordinated Universal Time` | Run `tzutil /l` on any Windows box to list valid names. |
 
 That's it. No passwords to encode — `LocalAdmin` is created with no password
 intentionally (deployment-only account). Set a password or disable it

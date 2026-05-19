@@ -44,3 +44,8 @@ Desktop.ini
 # Test output
 TestResults/
 coverage/
+
+# MDT deployment share artifacts (created outside repo by default but belt-and-suspenders)
+MDTDeploymentShare/
+*DeploymentShare/
+LiteTouchMedia_x64.iso

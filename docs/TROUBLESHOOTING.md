@@ -108,7 +108,7 @@ bcdboot C:\Windows /s S: /f UEFI
 
 ### CCTK: "CCTK returned exit code N - aborting deploy"
 
-CCTK only runs when CCTK binaries are embedded in the LiteTouch WinPE and a config matches in the deployment share's `scripts\cctk\` folder. Common exit codes:
+CCTK only runs when CCTK binaries are embedded in the LiteTouch WinPE and a config matches in the deployment share's `Applications\Dell-CCTK\configs\` folder. Common exit codes:
 
 | Exit | Meaning | Fix |
 |------|---------|-----|
@@ -117,7 +117,7 @@ CCTK only runs when CCTK binaries are embedded in the LiteTouch WinPE and a conf
 | 149  | Setup password mismatch | Add `--valsetuppwd=<current>` to the .ini so CCTK can authenticate with the existing BIOS password before changing it. |
 | 197  | Setting not supported on this model | Check `cctk --help` against the actual hardware. Some settings are model-specific. |
 
-If CCTK silently skips, verify the deployment share has a `scripts\cctk\` subdirectory containing at least one of `<SERVICETAG>.ini`, `<MODEL>.ini`, or `default.ini`.
+If CCTK silently skips, verify the deployment share has an `Applications\Dell-CCTK\configs\` subdirectory containing at least one of `<SERVICETAG>.ini`, `<MODEL>.ini`, or `default.ini`.
 
 See `docs/CCTK.md` for full configuration details.
 
@@ -176,6 +176,6 @@ in the deployment share. `.gitignore` blocks accidental commits.
 
 ### CCTK passwords sit in plaintext in the deployment share
 Anyone with access to the deployment share (or the ISO/USB built from it)
-can read setup/system passwords from `scripts\cctk\*.ini`. Mitigation is
+can read setup/system passwords from `Applications\Dell-CCTK\configs\*.ini`. Mitigation is
 physical USB security and rotating BIOS passwords post-deploy.
 See [CCTK.md](CCTK.md).

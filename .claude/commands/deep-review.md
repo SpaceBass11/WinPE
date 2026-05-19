@@ -11,6 +11,13 @@ For each function in `Initialize-MDTDeploymentShare.ps1`, trace what happens wit
 - `ts.xml` not found after task sequence creation
 - `Enable-BitLocker.ps1` not found at `$PSScriptRoot`
 
+Also check `Start-MDT.ps1` (interactive launcher) and `START.bat` (UAC elevation shim):
+- Config persistence: does `configs/launcher-config.json` load and save correctly across menu re-entries?
+- PIN validation: does the PIN input path reject invalid values cleanly before passing to Initialize?
+- Output path writability: is the ISO output path checked for write access before kicking off `New-MDTMedia.ps1`?
+- Elevation handling: does `START.bat` correctly detect non-elevated context and re-launch elevated via `runas`/`Start-Process`?
+- Unattend.xml handoff: after step 3 (ISO build), is the unattend.xml path correctly communicated or staged for the operator?
+
 Only list things that would cause wrong behavior, silent failure, or data loss — no style issues.
 
 ### Agent 2: Doc/Code Consistency

@@ -2,7 +2,7 @@ Run a comprehensive review of all scripts in scripts/mdt/. Check ALL of the foll
 
 ## 1. PowerShell Syntax
 
-Run `pwsh -NoProfile -File ./tests/test_parse.ps1` and confirm it passes for all four scripts (Initialize-MDTDeploymentShare.ps1, Import-WimImages.ps1, New-MDTMedia.ps1, Enable-BitLocker.ps1).
+Run `pwsh -NoProfile -File ./tests/test_parse.ps1` and confirm it passes for all four scripts (Initialize-MDTDeploymentShare.ps1, Import-WimImages.ps1, New-MDTMedia.ps1, Enable-BitLocker.ps1). Also confirm that test_parse.ps1 covers Start-MDT.ps1 (the interactive launcher at the repo root) — it should appear in the file list parsed by the test script.
 
 ## 2. MDT Cmdlet Accuracy
 

@@ -1,4 +1,3 @@
-#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Interactive launcher for the MDT Deployment Factory.
@@ -10,17 +9,29 @@
       4  Import additional WIM
       5  Build operator ISO
 
-    Run via START.bat (handles UAC elevation) or directly:
+    Run via START.bat (double-click) or directly:
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File Start-MDT.ps1
 #>
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 
-$mdtScripts = Join-Path $PSScriptRoot 'scripts\mdt'
+#region Self-elevation
+
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process -FilePath 'powershell.exe' `
+        -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" `
+        -Verb RunAs
+    exit
+}
+
+#endregion
+
+$mdtScripts  = Join-Path $PSScriptRoot 'scripts\mdt'
+$cfgFile     = Join-Path $PSScriptRoot 'configs\launcher-config.json'
 
 # Session config -- populated by step 2, consumed by steps 3-5.
-# Persists for the lifetime of this menu session.
 $script:Cfg = @{
     SharePath       = 'C:\MDTDeploymentShare'
     OutputPath      = 'C:\MDTMedia'
@@ -29,6 +40,33 @@ $script:Cfg = @{
     FinishAction    = 'REBOOT'
     OSDComputerName = ''
 }
+
+#region Config persistence
+
+function Load-Config {
+    if (Test-Path $cfgFile) {
+        try {
+            $saved = Get-Content $cfgFile -Raw | ConvertFrom-Json
+            foreach ($key in $script:Cfg.Keys) {
+                if ($null -ne $saved.$key) {
+                    $script:Cfg[$key] = $saved.$key
+                }
+            }
+        } catch { <# silently ignore corrupt config #> }
+    }
+}
+
+function Save-Config {
+    try {
+        $script:Cfg | ConvertTo-Json | Set-Content -Path $cfgFile -Encoding UTF8 -Force
+    } catch {
+        Write-Host "  WARN Could not save config: $_" -ForegroundColor Yellow
+    }
+}
+
+#endregion
+
+Load-Config
 
 # ---------------------------------------------------------------------------
 # Prerequisite detection
@@ -206,13 +244,26 @@ function Invoke-Configure {
     Write-Host ''
     Write-Host '  -- BitLocker --' -ForegroundColor DarkGray
     Write-Host '  Alphanumeric startup PIN used for C: (TPM+PIN) and data drives.' -ForegroundColor DarkGray
-    Write-Host '  Leave blank to disable BitLocker (useful for VMs / no TPM).' -ForegroundColor DarkGray
-    $pin = (Read-Host '  BDEPin (blank = disabled)').Trim()
-    $script:Cfg.BDEPin = $pin
-    if ($pin) {
+    Write-Host '  Minimum 6 characters. Leave blank to disable BitLocker (VMs / no TPM).' -ForegroundColor DarkGray
+
+    while ($true) {
+        $pin = (Read-Host '  BDEPin (blank = disabled)').Trim()
+        if ($pin -eq '') {
+            $script:Cfg.BDEPin = ''
+            Write-Host '  BitLocker disabled.' -ForegroundColor DarkGray
+            break
+        }
+        if ($pin.Length -lt 6) {
+            Write-Host '  PIN must be at least 6 characters. Try again.' -ForegroundColor Yellow
+            continue
+        }
+        if ($pin -notmatch '^[A-Za-z0-9]+$') {
+            Write-Host '  PIN must be alphanumeric (letters and digits only). Try again.' -ForegroundColor Yellow
+            continue
+        }
+        $script:Cfg.BDEPin = $pin
         Write-Host '  BitLocker enabled. C: gets TPM+PIN; data drives get auto-unlock.' -ForegroundColor Green
-    } else {
-        Write-Host '  BitLocker disabled.' -ForegroundColor DarkGray
+        break
     }
 
     Write-Host ''
@@ -227,8 +278,9 @@ function Invoke-Configure {
     $fa = Read-Default 'FinishAction (REBOOT / SHUTDOWN)' $script:Cfg.FinishAction
     $script:Cfg.FinishAction = $fa.ToUpper()
 
+    Save-Config
     Write-Host ''
-    Write-Host '  Settings saved for this session.' -ForegroundColor Green
+    Write-Host '  Settings saved.' -ForegroundColor Green
     Write-Host '  Run step 3 to apply them to the deployment share.' -ForegroundColor DarkGray
 }
 
@@ -247,6 +299,12 @@ function Invoke-Initialize {
     if (-not ($p.MDT -and $p.ADK -and $p.WinPE)) {
         Write-Host '  Prerequisites missing. Complete step 1 before continuing.' -ForegroundColor Red
         return
+    }
+
+    if ($script:Cfg.BDEPin -eq '') {
+        Write-Host '  NOTE: BitLocker is disabled (BDEPin is blank).' -ForegroundColor Yellow
+        Write-Host '        Run step 2 to set a PIN if you want BitLocker on deployed machines.' -ForegroundColor Yellow
+        Write-Host ''
     }
 
     $wimPaths = Read-WimPaths
@@ -269,6 +327,12 @@ function Invoke-Initialize {
             -OSDComputerName $script:Cfg.OSDComputerName
         Write-Host ''
         Write-Host '  Deployment share ready.' -ForegroundColor Green
+        Write-Host ''
+        Write-Host '  OPTIONAL: unattend.xml customization' -ForegroundColor Cyan
+        Write-Host "  Copy configs\unattend.example.xml to $($script:Cfg.SharePath)\Control\unattend.xml"
+        Write-Host '  and edit it to set your organization name, time zone, and autologon account.'
+        Write-Host '  If you skip this, Windows will prompt the operator at first boot (not zero-touch).'
+        Write-Host ''
         Write-Host '  Next: run step 5 to build the operator ISO.' -ForegroundColor DarkGray
     } catch {
         Write-Host "  Initialize failed: $_" -ForegroundColor Red
@@ -329,6 +393,21 @@ function Invoke-BuildIso {
 
     $script:Cfg.SharePath  = Read-Default 'Deployment share path' $script:Cfg.SharePath
     $script:Cfg.OutputPath = Read-Default 'ISO output folder    ' $script:Cfg.OutputPath
+
+    # Verify the output folder is writable before starting a 20+ min build.
+    $testFile = Join-Path $script:Cfg.OutputPath '.write_test'
+    try {
+        if (-not (Test-Path $script:Cfg.OutputPath)) {
+            New-Item -Path $script:Cfg.OutputPath -ItemType Directory -Force | Out-Null
+        }
+        [IO.File]::WriteAllText($testFile, 'ok')
+        Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "  Output folder is not writable: $($script:Cfg.OutputPath)" -ForegroundColor Red
+        Write-Host "  Error: $_" -ForegroundColor Red
+        Write-Host '  Choose a different folder in step 2 or ensure you have write access.' -ForegroundColor Yellow
+        return
+    }
 
     Write-Host ''
     Write-Host '  Building -- do not close this window...' -ForegroundColor DarkGray

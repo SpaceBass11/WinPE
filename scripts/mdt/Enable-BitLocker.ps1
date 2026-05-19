@@ -114,16 +114,7 @@ $cVol = Get-BitLockerVolume -MountPoint 'C:' -ErrorAction SilentlyContinue
 if ($cVol -and $cVol.VolumeStatus -ne 'FullyDecrypted') {
     Write-Host '  Already configured  -- skipping.'
 } else {
-    try {
-        Enable-BitLocker -MountPoint 'C:' -EncryptionMethod XtsAes256 `
-            -TpmAndPinProtector -Pin $pinSecure -SkipHardwareTest | Out-Null
-        Write-Host '  BitLocker enabled (TPM + startup PIN, XTS-AES-256).'
-        Write-Host '  Background encryption will complete after reboot  -- normal behavior.'
-    } catch {
-        Write-Warning "  Enable-BitLocker C: failed: $_"
-        Write-Warning '  Verify: TPM 2.0 enabled and cleared in BIOS, OS drive is NTFS, Windows Pro/Enterprise.'
-    }
-
+    # Save recovery key BEFORE enabling encryption -- consistent with data drive pattern.
     try {
         Add-BitLockerKeyProtector -MountPoint 'C:' -RecoveryPasswordProtector | Out-Null
         $rk = Get-RecoveryPassword -MountPoint 'C:'
@@ -134,6 +125,16 @@ if ($cVol -and $cVol.VolumeStatus -ne 'FullyDecrypted') {
         }
     } catch {
         Write-Warning "  C: recovery key could not be saved: $_"
+    }
+
+    try {
+        Enable-BitLocker -MountPoint 'C:' -EncryptionMethod XtsAes256 `
+            -TpmAndPinProtector -Pin $pinSecure -SkipHardwareTest | Out-Null
+        Write-Host '  BitLocker enabled (TPM + startup PIN, XTS-AES-256).'
+        Write-Host '  Background encryption will complete after reboot  -- normal behavior.'
+    } catch {
+        Write-Warning "  Enable-BitLocker C: failed: $_"
+        Write-Warning '  Verify: TPM 2.0 enabled and cleared in BIOS, OS drive is NTFS, Windows Pro/Enterprise.'
     }
 }
 

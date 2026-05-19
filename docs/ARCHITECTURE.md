@@ -26,7 +26,7 @@ The admin workstation phase covers:
 - Optionally importing driver packages and CCTK config into the share
 - Building the operator ISO with `New-MDTMedia.ps1`
 
-Key items baked in at prep time include **driver** packages (imported via MDT Workbench or `Import-MDTDriver`), **unattend** answer files (staged via the task sequence's `Apply Windows PE` / `Setup Windows` steps), and **CCTK** BIOS config files (placed under `scripts\cctk\` in the deployment share for pre-apply).
+Key items baked in at prep time include **driver** packages (imported via MDT Workbench or `Import-MDTDriver`), **unattend** answer files (staged via the task sequence's `Apply Windows PE` / `Setup Windows` steps), and **CCTK** BIOS config files (placed under `Applications\Dell-CCTK\configs\` in the deployment share for pre-apply).
 
 ### Run time (inside WinPE)
 

@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Added
+- `START.bat` and `Start-MDT.ps1` -- interactive guided launcher with prereq check, session config persistence, PIN validation, and post-build operator handoff instructions
+- `scripts/mdt/Enable-BitLocker.ps1` -- TPM+PIN encryption on C:, password+auto-unlock on D:, recovery keys saved to D:\BitLocker
+- `Add-StigAccountsTsSteps` in `Initialize-MDTDeploymentShare.ps1` -- auto-injects three DoD STIG task sequence steps: rename Administrator->X_Admin (WN11-SO-000030), rename Guest->Visitor (WN11-SO-000040), disable X_Admin (WN11-SO-000025)
+- `-BDEPin`, `-FinishAction`, `-OSDComputerName` parameters on `Initialize-MDTDeploymentShare.ps1`
+
+### Fixed
+- All `.ps1` files converted to pure ASCII -- PowerShell 5.1 on Windows reads files without UTF-8 BOM as Windows-1252, causing cascade parse failures on any non-ASCII character
+
+### Added
 - **MDT 8456 + Windows 11 ADK compatibility fixes** in
   `Initialize-MDTDeploymentShare.ps1`: guards against missing ADK
   environment variables, improved error messaging when the MDT module

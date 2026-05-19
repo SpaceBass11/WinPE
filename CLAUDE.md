@@ -124,6 +124,7 @@ that no longer exist on this branch.
 - `SkipFinalSummary=YES` in CustomSettings.ini is required for zero-touch — suppresses the post-deploy "Deployment Complete" screen
 - `Set-UEFIPartitionScheme` patches individual indexed `<variable>` nodes in `ts.xml` — this is the correct MDT format; don't convert it to a blob
 - CCTK binaries are never committed to the repo — Dell's EULA prohibits redistribution; `.gitignore` blocks common paths but don't rely on it alone
+- `Initialize-MDTDeploymentShare.ps1` accepts `-BDEPin`, `-FinishAction`, and `-OSDComputerName` which are passed through by `Start-MDT.ps1` step 2 (Configure). These get baked into `CustomSettings.ini` in the deployment share.
 
 ## Masterize Process
 
