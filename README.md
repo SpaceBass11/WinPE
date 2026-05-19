@@ -35,6 +35,13 @@ operator handoff.
 
 ---
 
+
+## Alternative: Clonezilla manual imaging
+
+If MDT is heavier than needed for your environment, see the new
+[`manual-clonezilla/`](manual-clonezilla/) feature package for a golden-image
++ self-deploying ISO workflow with first-boot automation hooks.
+
 ## What the ISO does on the target machine
 
 - Partitions the disk: EFI 500 MB + MSR 128 MB + Windows (remainder, GPT) -- no recovery partition
