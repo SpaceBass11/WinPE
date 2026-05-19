@@ -137,6 +137,7 @@ function Read-Default {
 }
 
 function Read-WimPaths {
+    param([bool]$AllowEmpty = $false)
     $list = [System.Collections.Generic.List[string]]::new()
     Write-Host '  Enter the full path to each WIM or ESD file.' -ForegroundColor DarkGray
     Write-Host '  Leave the prompt blank and press Enter when finished.' -ForegroundColor DarkGray
@@ -145,7 +146,7 @@ function Read-WimPaths {
     while ($true) {
         $p = (Read-Host "  WIM #$i").Trim()
         if ($p -eq '') {
-            if ($list.Count -eq 0) {
+            if ($list.Count -eq 0 -and -not $AllowEmpty) {
                 Write-Host '  At least one WIM is required.' -ForegroundColor Yellow
                 continue
             }
@@ -307,7 +308,14 @@ function Invoke-Initialize {
         Write-Host ''
     }
 
-    $wimPaths = Read-WimPaths
+    $shareExists = Test-Path $script:Cfg.SharePath
+    if ($shareExists) {
+        Write-Host '  Deployment share exists. WIM import is optional on re-run.' -ForegroundColor DarkGray
+        Write-Host '  Press Enter immediately to skip import and just update settings.' -ForegroundColor DarkGray
+        Write-Host ''
+    }
+
+    $wimPaths = Read-WimPaths -AllowEmpty:$shareExists
 
     Write-Host ''
     Write-Host '  Starting -- this takes a few minutes...' -ForegroundColor DarkGray
