@@ -6,19 +6,19 @@
     Runs as FirstLogonCommands Order 2 in the MDT task sequence (Order 1
     is LTIBootstrap.vbs). The script must be present on the deployed
     machine at C:\Windows\Setup\Scripts\first-login.ps1 before the first
-    reboot — add it as an MDT Application or bake it into the WIM offline.
+    reboot  -- add it as an MDT Application or bake it into the WIM offline.
 
     Applies the tweak list to TWO targets in one pass:
 
       1. The currently logged-in user (HKCU live hive). This is whoever
-         was named in unattend's <AutoLogon> — typically the maintenance
+         was named in unattend's <AutoLogon>  -- typically the maintenance
          admin (e.g. DERP_Admin). Their profile gets the tweaks now.
 
       2. The Default User hive (C:\Users\Default\NTUSER.DAT). This is
          the template Windows clones when ANY new user logs in for the
          first time. So Level0 / Level1 / Level2 / future users all
          inherit the same tweaks when their profile is created on first
-         logon — without needing this script to re-run per user.
+         logon  -- without needing this script to re-run per user.
 
     OneDrive uninstall and the explorer.exe restart are per-current-user
     only (they need a live profile to act on). The HKCU-style tweaks
@@ -28,7 +28,7 @@
 
 .NOTES
     Safe to re-run. Failures in individual tweaks are logged but don't
-    abort the script — every tweak gets its shot.
+    abort the script  -- every tweak gets its shot.
 #>
 
 $ErrorActionPreference = 'Continue'
@@ -42,38 +42,38 @@ function Log {
 }
 
 # ---------------------------------------------------------------------
-# Tweak list — applied to both current HKCU and Default User hive.
+# Tweak list  -- applied to both current HKCU and Default User hive.
 # 'Path' uses '{root}' which gets substituted at apply time:
 #   - 'HKCU:'            for the currently logged-in user
 #   - 'HKLM:\WimDefault' for the mounted Default User hive
 # ---------------------------------------------------------------------
 $tweaks = @(
-    # ── Keyboard ──────────────────────────────────────────────────
+    # -- Keyboard --------------------------------------------------
     @{ Path='{root}\Control Panel\Keyboard'; Name='InitialKeyboardIndicators'; Value='2'; Type='String'; Label='NumLock on at login' },
 
-    # ── Explorer / file UI ─────────────────────────────────────────
+    # -- Explorer / file UI -----------------------------------------
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name='HideFileExt';    Value=0; Type='DWord'; Label='Show file extensions' },
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name='UseCompactMode'; Value=1; Type='DWord'; Label='Compact view in File Explorer' },
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name='TaskbarDa';      Value=0; Type='DWord'; Label='Hide taskbar Widgets icon' },
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name='TaskbarMn';      Value=0; Type='DWord'; Label='Hide taskbar Chat icon' },
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name='TaskbarEndTask'; Value=1; Type='DWord'; Label='Enable "End task" in taskbar right-click' },
 
-    # ── Taskbar search → icon only ────────────────────────────────
+    # -- Taskbar search -> icon only --------------------------------
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\Search'; Name='SearchboxTaskbarMode'; Value=1; Type='DWord'; Label='Taskbar search: icon only (no big box)' },
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\Search'; Name='BingSearchEnabled';    Value=0; Type='DWord'; Label='Start-menu Bing search off (per-user)' },
 
-    # ── Suggested apps / promoted content (ContentDeliveryManager) ─
+    # -- Suggested apps / promoted content (ContentDeliveryManager) -
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SubscribedContent-338388Enabled'; Value=0; Type='DWord'; Label='Start: suggested apps off' },
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SubscribedContent-338389Enabled'; Value=0; Type='DWord'; Label='Settings: suggestions off' },
-    @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SubscribedContent-338393Enabled'; Value=0; Type='DWord'; Label='Settings → System: suggestions off' },
-    @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SubscribedContent-353694Enabled'; Value=0; Type='DWord'; Label='Settings → Devices: suggestions off' },
-    @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SubscribedContent-353696Enabled'; Value=0; Type='DWord'; Label='Settings → Network: suggestions off' },
+    @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SubscribedContent-338393Enabled'; Value=0; Type='DWord'; Label='Settings -> System: suggestions off' },
+    @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SubscribedContent-353694Enabled'; Value=0; Type='DWord'; Label='Settings -> Devices: suggestions off' },
+    @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SubscribedContent-353696Enabled'; Value=0; Type='DWord'; Label='Settings -> Network: suggestions off' },
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SilentInstalledAppsEnabled';      Value=0; Type='DWord'; Label='Silent app auto-install off' },
     @{ Path='{root}\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SystemPaneSuggestionsEnabled';    Value=0; Type='DWord'; Label='System pane suggestions off' },
 
-    # ── Windows 11 classic right-click menu (no "Show more options") ─
+    # -- Windows 11 classic right-click menu (no "Show more options") -
     # The trick is to set an EMPTY (Default) string value on the
-    # InprocServer32 subkey of the "new-shell-menu" CLSID — that
+    # InprocServer32 subkey of the "new-shell-menu" CLSID  -- that
     # causes Explorer to fall through to the classic menu.
     @{ Path='{root}\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'; Name='(Default)'; Value=''; Type='String'; Label='Classic right-click menu (no "Show more options")' }
 )
@@ -103,7 +103,7 @@ function Apply-Tweak {
 Log "first-login.ps1 starting for user '$env:USERNAME'"
 
 # ---------------------------------------------------------------------
-# Pass 1 — current user (HKCU)
+# Pass 1  -- current user (HKCU)
 # ---------------------------------------------------------------------
 Log "Applying tweaks to current user (HKCU)..."
 foreach ($t in $tweaks) {
@@ -111,7 +111,7 @@ foreach ($t in $tweaks) {
 }
 
 # ---------------------------------------------------------------------
-# Pass 2 — Default User hive, so future logins inherit the tweaks
+# Pass 2  -- Default User hive, so future logins inherit the tweaks
 # ---------------------------------------------------------------------
 $defaultHive = "$env:SystemDrive\Users\Default\NTUSER.DAT"
 $mountKey    = 'WimDefault'
@@ -128,7 +128,7 @@ if (Test-Path $defaultHive) {
             }
         } finally {
             # PowerShell holds onto registry handles past the last property
-            # access — force a collect before unload or reg.exe complains.
+            # access  -- force a collect before unload or reg.exe complains.
             [gc]::Collect()
             [gc]::WaitForPendingFinalizers()
             & reg.exe unload $mountPath 2>&1 | Out-Null
@@ -139,15 +139,15 @@ if (Test-Path $defaultHive) {
             }
         }
     } else {
-        Log "  ERR Default User hive load failed (exit $LASTEXITCODE) — future users won't inherit tweaks"
+        Log "  ERR Default User hive load failed (exit $LASTEXITCODE)  -- future users won't inherit tweaks"
     }
 } else {
-    Log "  WARN Default User hive not found at $defaultHive — skipping Default User pass"
+    Log "  WARN Default User hive not found at $defaultHive  -- skipping Default User pass"
 }
 
 # ---------------------------------------------------------------------
 # OneDrive: uninstall the per-user setup that runs on first sign-in.
-# This is current-user only — Default User can't run an installer.
+# This is current-user only  -- Default User can't run an installer.
 # ---------------------------------------------------------------------
 $oneDriveUninstaller = "$env:SystemRoot\SysWOW64\OneDriveSetup.exe"
 if (-not (Test-Path $oneDriveUninstaller)) {

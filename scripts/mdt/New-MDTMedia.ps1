@@ -11,7 +11,7 @@
       - Operator: Rufus -> USB -> boot laptop -> fully automated deploy
 
     Run this every time you want to publish an updated payload (new WIM,
-    new drivers, changed settings). The ISO is completely self-contained —
+    new drivers, changed settings). The ISO is completely self-contained  --
     no network required when operators use it.
 .PARAMETER SharePath
     Local path to the MDT deployment share.
@@ -21,7 +21,7 @@
     Default: C:\MDTMedia
 .PARAMETER MediaName
     Internal MDT media object name. Changing this creates a separate
-    media entry in Workbench — leave at default unless you manage
+    media entry in Workbench  -- leave at default unless you manage
     multiple media targets.
     Default: MEDIA001
 .PARAMETER SelectionProfile
@@ -30,7 +30,7 @@
     Workbench to limit media size (e.g., one OS only).
     Default: Everything
 .EXAMPLE
-    # Standard build — generates C:\MDTMedia\LiteTouchMedia_x64.iso
+    # Standard build  -- generates C:\MDTMedia\LiteTouchMedia_x64.iso
     .\New-MDTMedia.ps1
 
 .EXAMPLE
@@ -89,7 +89,7 @@ $existing = Get-ChildItem "${drive}:\Media" -ErrorAction SilentlyContinue |
 if (-not $existing) {
     Write-Host "Creating MDT media object: $MediaName"
     New-Item -Path "${drive}:\Media" -Enable $true -Name $MediaName `
-        -Comments 'Operator payload — standalone USB media' `
+        -Comments 'Operator payload  -- standalone USB media' `
         -Root $OutputPath `
         -SelectionProfile $SelectionProfile | Out-Null
     Write-Host "  Media object created at $mediaPath"
@@ -109,7 +109,7 @@ if (-not $existing) {
 #region Build the media
 
 Write-Host ''
-Write-Host 'Building media — this copies the full WIM and WinPE files.' -ForegroundColor Cyan
+Write-Host 'Building media  -- this copies the full WIM and WinPE files.' -ForegroundColor Cyan
 Write-Host 'First build takes 10-30 min depending on WIM size. Subsequent builds are faster.' -ForegroundColor Cyan
 Write-Host ''
 
@@ -138,7 +138,7 @@ if (Test-Path $isoPath) {
     Write-Host '    3. Boot laptop from USB. Walk away.'
     Write-Host '=====================================================' -ForegroundColor Green
 } else {
-    Write-Warning "ISO not found at $isoPath — check MDT/ADK installation and try again."
+    Write-Warning "ISO not found at $isoPath  -- check MDT/ADK installation and try again."
 }
 
 #endregion

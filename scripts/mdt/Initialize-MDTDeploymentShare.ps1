@@ -5,7 +5,7 @@
 .DESCRIPTION
     One-time setup. Creates the deployment share, imports WIM(s), and
     creates a task sequence per OS pre-configured for zero-touch UEFI
-    deployment (EFI 300 MB + MSR 16 MB + Windows — same layout as the
+    deployment (EFI 300 MB + MSR 16 MB + Windows  -- same layout as the
     USB tool's diskpart script).
 
     After running this, build the operator payload with:
@@ -71,23 +71,23 @@ function ConvertTo-SafeName {
 function Invoke-MDTWin11AdkFixes {
     <#
         Applies three compatibility fixes required when using MDT 8456 with
-        Windows 11 ADK (22H2 / 24H2 / 26H1).  All three are idempotent — safe
+        Windows 11 ADK (22H2 / 24H2 / 26H1).  All three are idempotent  -- safe
         to call on an already-patched machine.
 
-        Fix 1 — x86 WinPE_OCs placeholder folder
+        Fix 1  -- x86 WinPE_OCs placeholder folder
             ADK for Windows 11 no longer ships 32-bit WinPE.  MDT probes for
             the x86\WinPE_OCs directory and throws
             System.IO.DirectoryNotFoundException if it is absent.  Creating
-            the empty folder is sufficient — MDT never reads its contents.
+            the empty folder is sufficient  -- MDT never reads its contents.
 
-        Fix 2 — DeploymentTools.xml WSIM path (best-effort)
+        Fix 2  -- DeploymentTools.xml WSIM path (best-effort)
             MDT's Bin\DeploymentTools.xml hard-codes the WSIM (imgmgr.exe)
             path without an architecture sub-folder.  Modern ADK ships only
             an amd64 build of imgmgr.exe under WSIM\amd64.  Patching the
             single <tool name="imgmgr.exe"> line to append \amd64 lets MDT
             open unattend files and generate .clg catalogs.
 
-        Fix 3 — Disable x86 boot image generation
+        Fix 3  -- Disable x86 boot image generation
             Written into Control\Settings.xml after the share is created.
             Prevents Update-MDTDeploymentShare from attempting to build a
             32-bit LiteTouch boot image (which would fail on modern ADK).
@@ -108,7 +108,7 @@ function Invoke-MDTWin11AdkFixes {
             New-Item -Path $x86OCs -ItemType Directory -Force | Out-Null
             Write-Host '  Applied: x86\WinPE_OCs placeholder folder created'
         } catch {
-            Write-Warning "  ADK x86 WinPE_OCs fix skipped — could not create folder: $_"
+            Write-Warning "  ADK x86 WinPE_OCs fix skipped  -- could not create folder: $_"
         }
     }
 
@@ -126,7 +126,7 @@ function Invoke-MDTWin11AdkFixes {
                 Write-Host '  Applied: DeploymentTools.xml imgmgr.exe path patched to WSIM\amd64'
             }
         } catch {
-            Write-Warning "  DeploymentTools.xml WSIM fix skipped — patch failed: $_"
+            Write-Warning "  DeploymentTools.xml WSIM fix skipped  -- patch failed: $_"
         }
     }
 
@@ -141,7 +141,7 @@ function Invoke-MDTWin11AdkFixes {
                 Write-Host '  Applied: SupportX86 set to False in Control\Settings.xml'
             }
         } catch {
-            Write-Warning "  SupportX86 fix skipped — could not update Settings.xml: $_"
+            Write-Warning "  SupportX86 fix skipped  -- could not update Settings.xml: $_"
         }
     }
 }
@@ -150,7 +150,7 @@ function Add-BitLockerTsStep {
     <#
         Appends an "Enable BitLocker" Run Command Line step to the State Restore
         group in ts.xml. The step calls Enable-BitLocker.ps1 with the BDEPin
-        MDT variable and is conditional — it is a no-op when BDEPin is empty.
+        MDT variable and is conditional  -- it is a no-op when BDEPin is empty.
 
         Note: Opening and saving the task sequence in MDT Workbench regenerates
         ts.xml and overwrites this step. Re-run Initialize-MDTDeploymentShare.ps1
@@ -161,7 +161,7 @@ function Add-BitLockerTsStep {
 
     [xml]$xml = Get-Content $TsXmlPath -Raw
 
-    # Idempotent — don't add the step twice
+    # Idempotent  -- don't add the step twice
     if ($xml.SelectSingleNode("//*[@name='Enable BitLocker']")) { return }
 
     # Target the State Restore group; fall back to the root sequence element
@@ -202,10 +202,10 @@ function Add-StigAccountsTsSteps {
         in ts.xml. Steps run in order after BitLocker so all accounts are
         available for the full task sequence, then locked down at the end:
 
-          1. Rename built-in Administrator → X_Admin  (DoD STIG WN11-SO-000030)
-          2. Rename built-in Guest        → Visitor   (DoD STIG WN11-SO-000040)
+          1. Rename built-in Administrator -> X_Admin  (DoD STIG WN11-SO-000030)
+          2. Rename built-in Guest        -> Visitor   (DoD STIG WN11-SO-000040)
           3. Disable X_Admin                          (DoD STIG WN11-SO-000025)
-             Must use the renamed account name — rename runs first.
+             Must use the renamed account name  -- rename runs first.
 
         Note: Opening and saving the task sequence in MDT Workbench regenerates
         ts.xml and overwrites these steps. Re-run Initialize-MDTDeploymentShare.ps1
@@ -216,7 +216,7 @@ function Add-StigAccountsTsSteps {
 
     [xml]$xml = Get-Content $TsXmlPath -Raw
 
-    # Idempotent — skip if already injected
+    # Idempotent  -- skip if already injected
     if ($xml.SelectSingleNode("//*[@name='STIG: Rename Built-in Administrator']")) { return }
 
     $parent = $xml.SelectSingleNode("//group[@name='State Restore']")
@@ -272,7 +272,7 @@ function Set-UEFIPartitionScheme {
             Windows  remainder  NTFS  C:
 
         MDT ts.xml stores partition config as individual indexed scalar variables
-        (OSDPartitions0Type, OSDPartitions1Size, etc.) — not as a blob array.
+        (OSDPartitions0Type, OSDPartitions1Size, etc.)  -- not as a blob array.
         Do NOT edit the task sequence in MDT Workbench after running this script;
         Workbench regenerates ts.xml from its internal representation and will
         overwrite these variables. Re-run this script after any Workbench edits.
@@ -306,7 +306,7 @@ function Set-UEFIPartitionScheme {
     & $setVar 'OSDPartitionStyle'  'GPT'
     & $setVar 'OSDPartitionsCount' '3'
 
-    # Partition 0 — EFI (300 MB, FAT32, S:)
+    # Partition 0  -- EFI (300 MB, FAT32, S:)
     & $setVar 'OSDPartitions0Type'        'EFI'
     & $setVar 'OSDPartitions0Bootable'    'TRUE'
     & $setVar 'OSDPartitions0DriveLetter' 'S:'
@@ -316,12 +316,12 @@ function Set-UEFIPartitionScheme {
     & $setVar 'OSDPartitions0SizeUnits'   'MB'
     & $setVar 'OSDPartitions0VolumeName'  'EFI'
 
-    # Partition 1 — MSR (16 MB, no drive letter)
+    # Partition 1  -- MSR (16 MB, no drive letter)
     & $setVar 'OSDPartitions1Type'      'MSR'
     & $setVar 'OSDPartitions1Size'      '16'
     & $setVar 'OSDPartitions1SizeUnits' 'MB'
 
-    # Partition 2 — Windows (remainder, NTFS, C:)
+    # Partition 2  -- Windows (remainder, NTFS, C:)
     & $setVar 'OSDPartitions2Type'        'Primary'
     & $setVar 'OSDPartitions2Bootable'    'TRUE'
     & $setVar 'OSDPartitions2DriveLetter' 'C:'
@@ -361,7 +361,7 @@ if (-not (Test-Path $SharePath)) {
     New-Item -Path $SharePath -ItemType Directory -Force | Out-Null
 }
 
-# SMB share is used by MDT Workbench on the same machine — not exposed to operators
+# SMB share is used by MDT Workbench on the same machine  -- not exposed to operators
 $shareName = 'MDTDeploymentShare$'
 if (-not (Get-SmbShare -Name $shareName -ErrorAction SilentlyContinue)) {
     New-SmbShare -Name $shareName -Path $SharePath -FullAccess 'Administrators' | Out-Null
@@ -382,7 +382,7 @@ New-PSDrive -Name $drive -PSProvider MDTProvider -Root $SharePath `
 
 Write-Host "  DS001: mounted -> $SharePath"
 
-# Fix 3 requires the share to exist — apply SupportX86=False now
+# Fix 3 requires the share to exist  -- apply SupportX86=False now
 $settingsXml = Join-Path $SharePath 'Control\Settings.xml'
 Invoke-MDTWin11AdkFixes -SettingsXmlPath $settingsXml
 
@@ -432,7 +432,7 @@ if ($imported.Count -gt 0) {
             Where-Object { $_.NodeType -eq 'OperatingSystem' } | Select-Object -First 1
 
         if (-not $mdtOS) {
-            Write-Warning "  OS object not found for $($os.Folder) — skipping TS"
+            Write-Warning "  OS object not found for $($os.Folder)  -- skipping TS"
             continue
         }
 
@@ -465,7 +465,7 @@ $firstTsID = if ($imported.Count -gt 0) {
     'DEPLOY-WIN11-PRO'
 }
 
-# All wizard pages suppressed — operator sees only the progress bar.
+# All wizard pages suppressed  -- operator sees only the progress bar.
 # See configs/mdt/CustomSettings.ini for the annotated version.
 $cs = @"
 [Settings]
@@ -502,9 +502,9 @@ UserLocale=en-US
 SystemLocale=en-US
 TimeZoneName=$TimeZone
 
-; BitLocker startup PIN (alphanumeric enhanced PIN — letters + numbers allowed)
+; BitLocker startup PIN (alphanumeric enhanced PIN  -- letters + numbers allowed)
 ; Same value used for C: startup PIN and data drive password.
-; Leave blank to skip BitLocker — useful for VMs or non-TPM hardware.
+; Leave blank to skip BitLocker  -- useful for VMs or non-TPM hardware.
 BDEPin=
 
 ; Reboot immediately after deploy (activates any queued BIOS changes)
@@ -527,7 +527,7 @@ $bs = @"
 Priority=Default
 
 [Default]
-; Look on the booted media — no network needed
+; Look on the booted media  -- no network needed
 DeployRoot=.
 SkipBDDWelcome=YES
 KeyboardLocale=en-US
@@ -554,7 +554,7 @@ foreach ($rs in $runtimeScripts) {
         Copy-Item -Path $src -Destination $scriptsDir -Force
         Write-Host "  Scripts\$rs copied to deployment share"
     } else {
-        Write-Warning "  $rs not found at $src — task sequence step will fail at runtime"
+        Write-Warning "  $rs not found at $src  -- task sequence step will fail at runtime"
     }
 }
 
@@ -562,7 +562,7 @@ foreach ($rs in $runtimeScripts) {
 
 #region Update deployment share
 
-Write-Step 'Updating deployment share (generating LiteTouchPE_x64.wim — a few minutes)'
+Write-Step 'Updating deployment share (generating LiteTouchPE_x64.wim  -- a few minutes)'
 Update-MDTDeploymentShare -Path "${drive}:" -Force -Verbose:$false
 
 $bootWim = Join-Path $SharePath 'Boot\LiteTouchPE_x64.wim'

@@ -6,7 +6,7 @@
     Adds new operating systems to an MDT deployment share without rebuilding
     the entire share. Optionally creates a task sequence for each imported OS.
 
-    Equivalent to dropping a new .wim into the USB tool's images/ folder —
+    Equivalent to dropping a new .wim into the USB tool's images/ folder  --
     except here you also need to run Update-MDTDeploymentShare afterward
     so the boot.wim picks up any WinPE driver updates.
 .PARAMETER SharePath
@@ -134,7 +134,7 @@ if ($CreateTaskSequences -and $imported.Count -gt 0) {
 
     $templatePath = 'C:\Program Files\Microsoft Deployment Toolkit\Templates\Client.xml'
     if (-not (Test-Path $templatePath)) {
-        Write-Warning "MDT template not found: $templatePath — skipping task sequence creation."
+        Write-Warning "MDT template not found: $templatePath  -- skipping task sequence creation."
     } else {
         foreach ($os in $imported) {
             $tsID = 'DEPLOY-' + ($os.FolderName.ToUpper() -replace '_', '-' -replace '-{2,}', '-')
@@ -143,7 +143,7 @@ if ($CreateTaskSequences -and $imported.Count -gt 0) {
                 Where-Object { $_.NodeType -eq 'OperatingSystem' } | Select-Object -First 1
 
             if (-not $mdtOS) {
-                Write-Warning "  Cannot find MDT OS object for $($os.FolderName) — skipping TS"
+                Write-Warning "  Cannot find MDT OS object for $($os.FolderName)  -- skipping TS"
                 continue
             }
 
@@ -152,7 +152,7 @@ if ($CreateTaskSequences -and $imported.Count -gt 0) {
                 -ID $tsID `
                 -Name "Deploy $($os.EditionName)" `
                 -Template $templatePath `
-                -Comments "Deploy $($os.EditionName) — imported by Import-WimImages.ps1" `
+                -Comments "Deploy $($os.EditionName)  -- imported by Import-WimImages.ps1" `
                 -OperatingSystemPath $mdtOS.PSPath `
                 -FullName 'Windows User' `
                 -OrgName $OrgName `

@@ -9,13 +9,13 @@
     The PIN is prompted at every boot before Windows loads.
 
     Data drives (D: by default) are encrypted with the same string as a BitLocker
-    password and configured for auto-unlock — they open automatically when C:
+    password and configured for auto-unlock  -- they open automatically when C:
     is unlocked at boot. No second PIN entry needed.
 
     Recovery keys are written to $RecoveryPath BEFORE any data drive is encrypted,
     so the key files are accessible even if a data drive needs manual recovery later.
 
-    Skips silently if -Pin is empty — allows the same ISO to be used on hardware
+    Skips silently if -Pin is empty  -- allows the same ISO to be used on hardware
     without TPM 2.0 or on test VMs.
 
     Requirements:
@@ -43,7 +43,7 @@
     Drives that do not exist are silently skipped.
     Default: @('D:')
 .EXAMPLE
-    # From MDT task sequence — pin comes from CustomSettings.ini BDEPin=
+    # From MDT task sequence  -- pin comes from CustomSettings.ini BDEPin=
     .\Enable-BitLocker.ps1 -Pin "%BDEPin%"
 .EXAMPLE
     # Manual run for a specific drive set
@@ -60,7 +60,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($Pin)) {
-    Write-Host 'BDEPin is empty — BitLocker configuration skipped.'
+    Write-Host 'BDEPin is empty  -- BitLocker configuration skipped.'
     exit 0
 }
 
@@ -105,20 +105,20 @@ if (-not (Test-Path $RecoveryPath)) {
 
 #endregion
 
-#region C: — OS drive (TPM + enhanced startup PIN)
+#region C:  -- OS drive (TPM + enhanced startup PIN)
 
 Write-Host ''
 Write-Host '--- C: (OS drive) ---'
 
 $cVol = Get-BitLockerVolume -MountPoint 'C:' -ErrorAction SilentlyContinue
 if ($cVol -and $cVol.VolumeStatus -ne 'FullyDecrypted') {
-    Write-Host '  Already configured — skipping.'
+    Write-Host '  Already configured  -- skipping.'
 } else {
     try {
         Enable-BitLocker -MountPoint 'C:' -EncryptionMethod XtsAes256 `
             -TpmAndPinProtector -Pin $pinSecure -SkipHardwareTest | Out-Null
         Write-Host '  BitLocker enabled (TPM + startup PIN, XTS-AES-256).'
-        Write-Host '  Background encryption will complete after reboot — normal behavior.'
+        Write-Host '  Background encryption will complete after reboot  -- normal behavior.'
     } catch {
         Write-Warning "  Enable-BitLocker C: failed: $_"
         Write-Warning '  Verify: TPM 2.0 enabled and cleared in BIOS, OS drive is NTFS, Windows Pro/Enterprise.'
@@ -146,13 +146,13 @@ foreach ($drive in $DataDrives) {
     Write-Host "--- ${drive} (data drive) ---"
 
     if (-not (Test-Path $drive)) {
-        Write-Host '  Drive not found — skipping.'
+        Write-Host '  Drive not found  -- skipping.'
         continue
     }
 
     $dVol = Get-BitLockerVolume -MountPoint $drive -ErrorAction SilentlyContinue
     if ($dVol -and $dVol.VolumeStatus -ne 'FullyDecrypted') {
-        Write-Host '  Already configured — skipping.'
+        Write-Host '  Already configured  -- skipping.'
         continue
     }
 
@@ -186,7 +186,7 @@ foreach ($drive in $DataDrives) {
         Enable-BitLockerAutoUnlock -MountPoint $drive | Out-Null
         Write-Host '  Auto-unlock enabled (unlocks when C: unlocks at boot).'
     } catch {
-        Write-Warning "  Auto-unlock for ${drive}: failed — enable manually: Enable-BitLockerAutoUnlock -MountPoint '${drive}'"
+        Write-Warning "  Auto-unlock for ${drive}: failed  -- enable manually: Enable-BitLockerAutoUnlock -MountPoint '${drive}'"
     }
 }
 
@@ -197,5 +197,5 @@ Write-Host '=========================================='
 Write-Host ' BitLocker configuration complete.'
 Write-Host "  Recovery keys : $RecoveryPath"
 Write-Host '  C: startup PIN takes effect on next boot.'
-Write-Host '  Data drives auto-unlock with C: — no second PIN needed.'
+Write-Host '  Data drives auto-unlock with C:  -- no second PIN needed.'
 Write-Host '=========================================='
