@@ -94,6 +94,7 @@ that no longer exist on this branch.
 ### MDT Script Conventions
 
 - **PowerShell 5.1+ compatible** (MDT runs scripts via `cscript`/`wscript` wrappers)
+- **ASCII only in `.ps1` files** — PowerShell 5.1 on Windows reads files without a UTF-8 BOM as Windows-1252. Any non-ASCII character (em dashes, smart quotes, arrows, box-drawing) is misread as garbage bytes, corrupting the tokenizer and producing false "missing closing brace" parse errors across the whole file. Use only plain ASCII in all scripts: `--` not `—`, `->` not `→`, straight quotes only.
 - `#region`/`#endregion` blocks for organization
 - Standard MDT module path: `C:\Program Files\Microsoft Deployment Toolkit\bin\MicrosoftDeploymentToolkit.psd1`
 - PSDrive name convention: `DS001`
