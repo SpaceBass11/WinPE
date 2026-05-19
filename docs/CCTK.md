@@ -17,18 +17,24 @@ as an MDT Application -- Applications are for software that gets installed
 and tracked on the client. CCTK just runs once to flip BIOS settings.
 
 CCTK runs in **State Restore** -- inside the newly deployed Windows
-environment, after OS apply. BIOS changes queue in firmware and take effect
-on the reboot at the end of deployment.
+environment, after OS apply. Settings are written to NVRAM immediately, but
+their **effect** generally requires a POST. The reboot at the end of
+deployment is that POST.
 
 ## Timing
 
-CCTK changes activate on the **next POST**, not immediately. The flow is:
+The flow is:
 
 1. Windows is deployed normally
 2. State Restore runs in the new Windows environment
-3. CCTK runs, writes BIOS settings -- they queue, not applied yet
+3. CCTK writes BIOS settings to NVRAM
 4. Task sequence finishes, machine reboots
-5. BIOS settings take effect on that POST -- one reboot, done
+5. Most settings take effect on that POST -- one reboot
+
+**Two-POST settings:** Some changes (TPM clear, SATA mode flips,
+virtualization toggles) require **two POSTs** on certain firmware to fully
+apply. If a setting doesn't stick after the first reboot, reboot once more
+to confirm before troubleshooting further.
 
 **RAID → AHCI:** If the target machine ships with RAID mode enabled, DISM
 will apply the image but Windows won't boot without the RAID driver. This
@@ -51,7 +57,13 @@ After install, the binaries live at:
 C:\Program Files (x86)\Dell\Command Configure\X86_64\
 ```
 
-This folder contains `cctk.exe` and the HAPI driver subdirectory.
+This folder contains `cctk.exe` and (on older releases) a HAPI driver
+subdirectory.
+
+> **HAPI is legacy.** Dell Command | Configure 4.0 and later (your DCC 5.x
+> install) no longer uses HAPI -- it talks to BIOS via WMI-ACPI. The HAPI
+> subdirectory may or may not be present depending on version. Copy whatever
+> is in `X86_64\` as-is; an extra unused HAPI folder is harmless.
 
 ### 2. Copy CCTK into the deployment share
 
@@ -109,7 +121,7 @@ add two Run Command Line steps:
 | Field | Value |
 |-------|-------|
 | Name | Apply CCTK BIOS config |
-| Command line | `"%DEPLOYROOT%\Tools\Dell-CCTK\cctk.exe" --infile="%DEPLOYROOT%\Tools\Dell-CCTK\configs\%CCTKConfig%"` |
+| Command line | `"%DEPLOYROOT%\Tools\Dell-CCTK\cctk.exe" -i "%DEPLOYROOT%\Tools\Dell-CCTK\configs\%CCTKConfig%"` |
 | Start in | `%DEPLOYROOT%\Tools\Dell-CCTK` |
 
 If CCTK exits non-zero, MDT treats the step as a failure and halts the
@@ -157,7 +169,7 @@ Plain CCTK INI. Example `default.ini` for a fresh Dell workstation:
 --wakeonlan=lanonly
 ```
 
-The task sequence invokes `cctk.exe --infile=<path>` and the step fails
+The task sequence invokes `cctk.exe -i <path>` and the step fails
 on any non-zero exit.
 
 ## Changing / Clearing Passwords
@@ -203,8 +215,9 @@ the "boot, walk away" model.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `CCTK returned exit 116` | HAPI driver not loaded | Verify the `HAPI\` subfolder was copied into `Tools\Dell-CCTK\` alongside `cctk.exe` |
-| `CCTK returned exit 149` | Password mismatch | Add `--valsetuppwd=<current>` to the config |
+| `CCTK returned exit 116` | A new password was supplied without the current one | Add `--valsetuppwd=<current>` so CCTK can authenticate before changing |
+| `CCTK returned exit 149` | TPM clear requires the setup password | Set the setup password in BIOS first, or add `--valsetuppwd=<current>` to the config |
+| `CCTK returned exit 117` | HAPI driver load failure (legacy only) | DCC 4.0+ does not use HAPI -- if you see this you are running an older CCTK; upgrade to DCC 5.x |
 | `No CCTK config matched` | None of `<TAG>.ini`/`<MODEL>.ini`/`default.ini` exist | Add a `default.ini` to `Tools\Dell-CCTK\configs\` and rebuild media |
 | BIOS change didn't stick after reboot | Some settings (TPM clear, SATA-to-RAID direction) take two POSTs on certain firmware | Reboot manually a second time to confirm |
 | `%DEPLOYROOT%` not resolving | Step running outside MDT environment | Confirm step is inside State Restore, not before Gather |

@@ -21,7 +21,7 @@ Admin workstation (Deployment Workbench)
   +-- Update Media Content  -->  LiteTouchMedia_x64.iso
                                          |
 Operator: Rufus --> USB --> boot --> LiteTouch WinPE runs:
-  Format and Partition Disk (GPT: EFI 300 MB + MSR 16 MB + Windows)
+  Format and Partition Disk (GPT: EFI 500 MB + MSR 128 MB + Windows; no recovery partition)
   Apply Operating System Image (DISM apply)
   Setup Windows
   --> Reboot --> Windows OOBE / unattend
@@ -36,7 +36,7 @@ The admin workstation phase covers:
   unattend staging, STIG account steps, BitLocker enable
 - Setting zero-touch CustomSettings.ini (all SkipXxx=YES, no prompts)
 - Importing **driver** packages into the Out-of-Box Drivers node
-- Adding **CCTK** BIOS config as an Application in the deployment share
+- Dropping **CCTK** binaries + configs into `Tools\Dell-CCTK\` and calling them from a Run Command Line task sequence step
 - Building the standalone ISO via Media > Update Media Content
 
 ### Run time (inside WinPE)
@@ -61,7 +61,7 @@ When the operator boots from USB, LiteTouch WinPE:
 | `configs/mdt/Bootstrap.ini` | Standalone WinPE boot config (`DeployRoot=.`) |
 | `configs/unattend.example.xml` | Example answer file for OOBE, accounts, autologon |
 | `docs/MDT.md` | Full Workbench walkthrough -- create share, import, configure, build ISO |
-| `docs/CCTK.md` | Dell CCTK BIOS pre-configuration via MDT Application |
+| `docs/CCTK.md` | Dell CCTK BIOS pre-configuration via Run Command Line |
 | `docs/UNATTEND.md` | Unattend.xml reference |
 | `docs/TROUBLESHOOTING.md` | Failure modes, fixes, and known caveats |
 | `docs/ARCHITECTURE.md` | This file |

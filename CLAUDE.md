@@ -8,9 +8,11 @@ no scripts to run or maintain. An admin follows the docs to build a
 self-contained bootable ISO; operators download it, write it to USB with
 Rufus, and boot laptops.
 
-**No PowerShell scripts live here.** The scripted version of this workflow
-lives on the `main` branch. Do not reference scripts, automation, or
-`Start-MDT.ps1` in any content on this branch.
+**No PowerShell scripts live here.** This branch is the docs-only manual
+guide -- the scripted version of this workflow only exists in this repo's
+git history (pre-conversion commits). Do not add or reference scripts,
+automation, or PowerShell helpers like the old `Start-MDT.ps1`,
+`Initialize-MDTDeploymentShare.ps1`, etc.
 
 **What this branch contains:**
 
@@ -36,7 +38,7 @@ See `docs/MDT.md` for the established format to follow.
 | File | Purpose |
 |------|---------|
 | `docs/MDT.md` | Main guide -- full Workbench walkthrough, step by step |
-| `docs/CCTK.md` | Dell CCTK BIOS pre-configuration via MDT Application |
+| `docs/CCTK.md` | Dell CCTK BIOS pre-configuration via Run Command Line |
 | `docs/UNATTEND.md` | Unattend.xml reference |
 | `docs/ARCHITECTURE.md` | Design overview of the MDT payload factory |
 | `docs/TROUBLESHOOTING.md` | Common issues and fixes |

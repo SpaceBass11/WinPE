@@ -197,7 +197,6 @@ SkipFinalSummary=YES
 SkipLocaleSelection=YES
 SkipPackageDisplay=YES
 SkipProductKey=YES
-SkipRoles=YES
 SkipSummary=YES
 SkipTaskSequence=YES
 SkipTimeZone=YES
@@ -248,13 +247,15 @@ reference. The media object (step 12) needs its own copy -- paste it there too.
 
 ## 6. Windows 11 ADK Compatibility Fixes
 
-MDT 8456 predates Windows 11. Three manual fixes are required before running
-**Update Deployment Share** or the WinPE build will fail.
+MDT 8456 predates Windows 11. If you installed KB4564442 in step 1, the
+first run of **Update Deployment Share** usually succeeds without further
+action. If it fails with x86 build errors or WSIM errors, apply the
+fixes below in order until the build succeeds.
 
-### Fix 1 -- Create the x86 WinPE placeholder
+### Fix 1 -- Create the x86 WinPE placeholder (only if Update fails)
 
-MDT checks for `Boot\x86\LiteTouchPE_x86.wim` and aborts if the folder
-does not exist.
+If Update Deployment Share aborts because `Boot\x86\LiteTouchPE_x86.wim`
+doesn't exist:
 
 1. Open Explorer, navigate to `C:\MDTDeploymentShare\Boot\`.
 2. Create folder `x86` (if it does not already exist).
@@ -379,7 +380,7 @@ The correct layout after deleting recovery:
 
 | # | Type | File system | Size | Flag |
 |---|------|-------------|------|------|
-| 1 | EFI System Partition | FAT32 | 499 MB | Boot partition (already flagged) |
+| 1 | EFI System Partition | FAT32 | 500 MB | Boot partition (already flagged) |
 | 2 | MSR (Reserved) | (none) | 128 MB | -- |
 | 3 | Primary | NTFS | 100% of remaining space | -- |
 
@@ -398,17 +399,21 @@ Find the **Apply Operating System Image** step under **Install**.
 
 ### 7d. Rename Built-in Accounts (DoD STIG)
 
-Add these **Run Command Line** steps to State Restore > **Custom Tasks**,
-or after **Tattoo**.
-
-To add a step: right-click **Custom Tasks** >
-**Add** > **General** > **Run Command Line**.
+State Restore contains two "Custom Tasks" groups: **Custom Tasks
+(Pre-Windows Update)** and **Custom Tasks (Post-Windows Update)**. Since
+Windows Update is disabled in this guide, either is fine -- use
+**Custom Tasks (Pre-Windows Update)** for STIG account hardening so it runs
+early. Right-click that group > **Add** > **General** > **Run Command Line**.
 
 | Step name | Command line |
 |-----------|-------------|
-| Rename Administrator to X_Admin | `wmic useraccount where name='Administrator' call rename newname='X_Admin'` |
+| Rename Administrator to X_Admin | `powershell.exe -Command "Rename-LocalUser -Name Administrator -NewName X_Admin"` |
 | Disable X_Admin | `net user X_Admin /active:no` |
-| Rename Guest to Visitor | `wmic useraccount where name='Guest' call rename newname='Visitor'` |
+| Rename Guest to Visitor | `powershell.exe -Command "Rename-LocalUser -Name Guest -NewName Visitor"` |
+
+> `wmic.exe` is deprecated and removed by default in Windows 11 24H2 and
+> later. The PowerShell `Rename-LocalUser` cmdlet is the supported
+> replacement and works on Win11 22H2 onward.
 
 See [DoD STIG Steps](#dod-stig-steps) for the full STIG task list including
 firewall and security policy steps.
@@ -419,16 +424,16 @@ The built-in **Enable BitLocker** step only exposes TPM-only and TPM+USB key
 options -- there is no TPM+PIN option in the GUI. **Disable the built-in step**
 and replace it with four **Run Command Line** steps in State Restore.
 
-Add these steps in order, after your STIG steps and before the end of State
-Restore. Right-click **Custom Tasks** > **Add** > **General** >
-**Run Command Line** for each.
+Add these steps in order at the end of **Custom Tasks (Post-Windows Update)**
+so BitLocker runs after all software installs and configuration. Right-click
+the group > **Add** > **General** > **Run Command Line** for each.
 
 | Step name | Command line |
 |-----------|--------------|
 | BitLocker -- Create recovery folder | `cmd /c md D:\BitLocker 2>nul` |
 | BitLocker -- Add recovery password | `manage-bde -protectors -add C: -RecoveryPassword` |
 | BitLocker -- Save recovery key | `manage-bde -protectors -get C: -Type RecoveryPassword > D:\BitLocker\RecoveryKey.txt` |
-| BitLocker -- Add TPM+PIN and encrypt | `manage-bde -protectors -add C: -TPMAndPIN %BDEPin% & manage-bde -on C: -UsedSpaceOnly -skiphardwaretest` |
+| BitLocker -- Add TPM+PIN and encrypt | `manage-bde -protectors -add C: -TPMAndPIN -tp %BDEPin% & manage-bde -on C: -UsedSpaceOnly -skiphardwaretest` |
 
 The PIN comes from `BDEPin` in CustomSettings.ini -- set it there:
 
@@ -784,9 +789,12 @@ Restore > Add > General > Run Command Line).
 
 | Step name | Command |
 |-----------|---------|
-| Rename Administrator to X_Admin | `wmic useraccount where name='Administrator' call rename newname='X_Admin'` |
+| Rename Administrator to X_Admin | `powershell.exe -Command "Rename-LocalUser -Name Administrator -NewName X_Admin"` |
 | Disable X_Admin | `net user X_Admin /active:no` |
-| Rename Guest to Visitor | `wmic useraccount where name='Guest' call rename newname='Visitor'` |
+| Rename Guest to Visitor | `powershell.exe -Command "Rename-LocalUser -Name Guest -NewName Visitor"` |
+
+> `wmic.exe` is removed by default in Windows 11 24H2+. Use the PowerShell
+> `Rename-LocalUser` cmdlet instead -- it works on Win11 22H2 onward.
 
 ### Local security policy
 

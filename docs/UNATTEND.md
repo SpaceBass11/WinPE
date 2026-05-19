@@ -47,7 +47,7 @@ Never edit it in place — keep the example clean for future reference.
 | Field | Default | Notes |
 |---|---|---|
 | `<ComputerName>` | `*` | `*` = random name. `%SerialNumber%` = service tag. Fixed string = same name on every machine (test only). |
-| `<TimeZone>` | `Coordinated Universal Time` | Run `tzutil /l` on any Windows box to list valid names. |
+| `<TimeZone>` | `Central Standard Time` | Run `tzutil /l` on any Windows box to list valid names. |
 
 That's it. No passwords to encode — `LocalAdmin` is created with no password
 intentionally (deployment-only account). Set a password or disable it
@@ -95,6 +95,8 @@ settings apply regardless of whether the WIM was sysprepped.
 | ComputerName / TimeZone didn't apply | WIM wasn't sysprepped; specialize pass skipped | Recapture with `sysprep /generalize /oobe /shutdown` |
 | MDT ignored the unattend.xml | File not in the right Control subfolder | Path must be `Control\<TaskSequenceID>\unattend.xml`; re-run Update Deployment Share |
 | Windows SIM validation errors | Schema mismatch or typo | Quick check: `[xml](Get-Content unattend.xml)` in PowerShell — throws on bad XML |
+| Win11 PIN/Windows Hello prompt on next logon | AutoLogon (`LogonCount=1`) bypasses the PIN page only for that session; it returns on next interactive logon | Either let users set a PIN, or apply policy `HKLM\SOFTWARE\Policies\Microsoft\PassportForWork\Enabled=0` post-deployment |
+| Blank-password LocalAdmin can't log on after STIG hardening | STIG/security baseline applies `LimitBlankPasswordUse=1` which blocks blank passwords for anything other than console logon | Either set a real password on LocalAdmin in the unattend, or ensure STIG/LGPO runs **after** LTIBootstrap completes |
 
 ---
 

@@ -37,7 +37,7 @@ operator handoff.
 
 ## What the ISO does on the target machine
 
-- Partitions the disk: EFI 300 MB + MSR 16 MB + Windows (remainder, GPT)
+- Partitions the disk: EFI 500 MB + MSR 128 MB + Windows (remainder, GPT) -- no recovery partition
 - Applies the WIM image
 - Runs the zero-touch task sequence:
   - Renames built-in Administrator to `X_Admin` and disables it (DoD STIG)
@@ -68,7 +68,7 @@ deployment:
 | Doc | Purpose |
 |-----|---------|
 | [docs/MDT.md](docs/MDT.md) | Full setup walkthrough, step by step |
-| [docs/CCTK.md](docs/CCTK.md) | Dell BIOS pre-configuration via MDT Application |
+| [docs/CCTK.md](docs/CCTK.md) | Dell BIOS pre-configuration via Run Command Line |
 | [docs/UNATTEND.md](docs/UNATTEND.md) | Unattend.xml reference |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Design overview |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and fixes |

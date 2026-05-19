@@ -40,7 +40,8 @@ or `EnumImageDataEntries` returning "Incorrect function" on files inside
 `Containers\Layers\`.
 
 **Fix (preferred):** Rebuild LiteTouch WinPE via MDT Workbench by running
-`Update-MDTDeploymentShare` (check "Completely regenerate boot image").
+right-click your deployment share > **Update Deployment Share** > select
+**Completely regenerate the boot images**.
 The ADK-built WinPE in MDT includes this reg key.
 
 **Fix (quick test in a running WinPE session):**
@@ -106,16 +107,17 @@ bcdboot C:\Windows /s S: /f UEFI
 
 ### CCTK: "CCTK returned exit code N - aborting deploy"
 
-CCTK only runs when CCTK binaries are embedded in the LiteTouch WinPE and a config matches in the deployment share's `Applications\Dell-CCTK\configs\` folder. Common exit codes:
+CCTK only runs when CCTK binaries are embedded in the LiteTouch WinPE and a config matches in the deployment share's `Tools\Dell-CCTK\configs\` folder. Common exit codes:
 
 | Exit | Meaning | Fix |
 |------|---------|-----|
 | 0    | Success | — |
-| 116  | HAPI driver load error | Rebuild LiteTouch WinPE with HAPI driver present (`Update-MDTDeploymentShare`). |
-| 149  | Setup password mismatch | Add `--valsetuppwd=<current>` to the .ini so CCTK can authenticate with the existing BIOS password before changing it. |
+| 116  | New password supplied without the current one | Add `--valsetuppwd=<current>` so CCTK can authenticate before changing |
+| 117  | HAPI driver load failure (legacy only) | DCC 4.0+ does not use HAPI -- upgrade to DCC 5.x |
+| 149  | TPM clear requires the setup password | Set a setup password in BIOS first, or add `--valsetuppwd=<current>` to the config |
 | 197  | Setting not supported on this model | Check `cctk --help` against the actual hardware. Some settings are model-specific. |
 
-If CCTK silently skips, verify the deployment share has an `Applications\Dell-CCTK\configs\` subdirectory containing at least one of `<SERVICETAG>.ini`, `<MODEL>.ini`, or `default.ini`.
+If CCTK silently skips, verify the deployment share has an `Tools\Dell-CCTK\configs\` subdirectory containing at least one of `<SERVICETAG>.ini`, `<MODEL>.ini`, or `default.ini`.
 
 See `docs/CCTK.md` for full configuration details.
 
@@ -169,6 +171,6 @@ in the deployment share. `.gitignore` blocks accidental commits.
 
 ### CCTK passwords sit in plaintext in the deployment share
 Anyone with access to the deployment share (or the ISO/USB built from it)
-can read setup/system passwords from `Applications\Dell-CCTK\configs\*.ini`. Mitigation is
+can read setup/system passwords from `Tools\Dell-CCTK\configs\*.ini`. Mitigation is
 physical USB security and rotating BIOS passwords post-deploy.
 See [CCTK.md](CCTK.md).

@@ -15,7 +15,7 @@
             stages it to C:\Windows\Panther\unattend.xml automatically.
          b. File-drop: save as
             DeploymentShare\Control\<TaskSequenceID>\unattend.xml — MDT
-            auto-discovers it on the next Update-MDTDeploymentShare.
+            auto-discovers it on the next Update Deployment Share.
 
   What this template does:
     - Sets US English locale (change in the international-core component)
@@ -89,7 +89,7 @@
       <ComputerName>*</ComputerName>
       <!-- Change if you need a different timezone. Run `tzutil /l` to list
            valid names. UTC is a safe default for enterprise deployments. -->
-      <TimeZone>Coordinated Universal Time</TimeZone>
+      <TimeZone>Central Standard Time</TimeZone>
     </component>
 
     <!-- Standalone deployment — not domain-joined. Remove this component
@@ -135,14 +135,14 @@
         <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
         <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
         <NetworkLocation>Work</NetworkLocation>
-        <ProtectYourPC>3</ProtectYourPC>
+        <!-- ProtectYourPC removed: deprecated and ignored on Windows 11. -->
         <!-- SkipMachineOOBE and SkipUserOOBE intentionally omitted —
              deprecated in Windows 11 and can cause unintended side effects.
              MDT's CustomSettings.ini SkipXxx=YES + the HideXxx settings
              above already fully suppress OOBE in an MDT deployment. -->
       </OOBE>
 
-      <TimeZone>Coordinated Universal Time</TimeZone>
+      <TimeZone>Central Standard Time</TimeZone>
 
       <!-- LocalAdmin exists solely to give MDT's LTIBootstrap.vbs a session
            to run under. No password — deployment-only account. Harden or
