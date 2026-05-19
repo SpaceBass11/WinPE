@@ -361,21 +361,27 @@ All other State Restore steps: keep.
 Find the **Format and Partition Disk (UEFI)** step under **Preinstall** >
 **New Computer Only**. Click it.
 
-Set **Disk type** to **GPT** in the right pane.
+GPT and Disk 0 are already set by default -- leave them.
 
-Delete existing partition entries and recreate using **New Partition**:
+MDT's default partition list includes a recovery partition at the end. **Delete
+it.** The recovery partition hosts WinRE, which is a known BitLocker bypass
+attack surface (same reason WinRE is disabled in Postinstall). Removing it
+here prevents it from being created on disk at all.
+
+The correct layout after deleting recovery:
 
 | # | Type | File system | Size | Flag |
 |---|------|-------------|------|------|
-| 1 | EFI System Partition | FAT32 | 300 MB | Check **Make this a boot partition** |
-| 2 | MSR (Reserved) | (none) | 16 MB | -- |
+| 1 | EFI System Partition | FAT32 | 499 MB | Boot partition (already flagged) |
+| 2 | MSR (Reserved) | (none) | 128 MB | -- |
 | 3 | Primary | NTFS | 100% of remaining space | -- |
 
 Click **Apply** to save.
 
 > **Important:** If you open and save the task sequence in Workbench later,
-> MDT may regenerate `ts.xml` and reset the partition layout. Re-verify and
-> re-run Update Media Content before distributing a new ISO.
+> MDT may regenerate `ts.xml` and restore the recovery partition entry.
+> Re-verify the partition list and re-run Update Media Content before
+> distributing a new ISO.
 
 ### 7c. Apply Operating System
 
