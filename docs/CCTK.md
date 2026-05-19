@@ -77,7 +77,9 @@ C:\MDTDeploymentShare\Applications\Dell-CCTK\configs\
 └── 1A2B3C4.ini       ← per-service-tag override
 ```
 
-**Config selection precedence** (MDT task sequence picks the first match):
+**Config selection precedence** -- implemented by the `cmd.exe` if/else step
+below; MDT just runs it. The step checks for config files in this order and
+sets `%CCTKConfig%` to the first one found:
 
 1. `%SerialNumber%.ini` — the machine's BIOS serial number (service tag)
 2. `%Model%.ini` — MDT's `%Model%` variable, non-alphanumerics stripped
