@@ -77,7 +77,8 @@ The deployment share appears under **Deployment Shares** in the tree.
 
 ### From a WIM file (recommended)
 
-1. Expand your deployment share > **Operating Systems**.
+1. In Deployment Workbench, expand **Deployment Shares** > **your share** >
+   **Operating Systems**.
 2. Right-click **Operating Systems** > **Import Operating System**.
 3. Select **Custom image file**.
 4. Browse to your `.wim` file. Click **Next**.
@@ -117,6 +118,9 @@ To deploy a pre-configured image (software already installed):
 ---
 
 ## 4. Create the Task Sequence
+
+In Deployment Workbench, expand **Deployment Shares** > **your share** >
+**Task Sequences**.
 
 1. Right-click **Task Sequences** > **New Task Sequence**.
 2. Fill in the wizard:
@@ -462,12 +466,14 @@ before first Windows boot).
 
 ### Import drivers
 
-1. Expand **Out-of-Box Drivers**.
-2. Create a folder: right-click **Out-of-Box Drivers** > **New Folder** >
-   name it (e.g., `Dell Latitude 5540 Win11`).
-3. Right-click the folder > **Import Drivers**.
-4. Browse to the folder containing extracted driver `.inf` files.
-5. Workbench imports all `.inf` files found recursively. Click **Finish**.
+In Deployment Workbench, expand **Deployment Shares** > **your share** >
+**Out-of-Box Drivers**.
+
+1. Right-click **Out-of-Box Drivers** > **New Folder** > name it for the
+   hardware model (e.g., `Dell Latitude 5540 Win11`).
+2. Right-click the new folder > **Import Drivers**.
+3. Browse to the folder containing extracted driver `.inf` files.
+4. Workbench imports all `.inf` files found recursively. Click **Finish**.
 
 ### Target drivers to specific hardware (recommended)
 
@@ -476,10 +482,13 @@ causing conflicts across hardware models.
 
 **Create a selection profile:**
 
-1. Go to **Advanced Configuration** > **Selection Profiles** > **New
-   Selection Profile**.
+In Deployment Workbench, expand **Deployment Shares** > **your share** >
+**Advanced Configuration** > **Selection Profiles**.
+
+1. Right-click **Selection Profiles** > **New Selection Profile**.
 2. Name it for the hardware (e.g., `Dell Latitude 5540`).
-3. Check only the driver folder for that model.
+3. In the folder tree, check only the driver folder for that model.
+4. Click **Next** > **Finish**.
 
 **Match by model in CustomSettings.ini:**
 
@@ -509,7 +518,10 @@ Use that exact string as the section header (spaces and all).
 
 Applications added here install automatically during State Restore.
 
-1. Expand **Applications** > right-click > **New Application**.
+In Deployment Workbench, expand **Deployment Shares** > **your share** >
+**Applications**.
+
+1. Right-click **Applications** > **New Application**.
 2. Select **Application with source files** (copies files into the share) or
    **Application without source files** (runs a command on the target).
 3. Fill in: Name, Source folder, Installation command, Working directory.
@@ -588,7 +600,8 @@ boots standalone from USB -- no network required at deploy time.
 
 **Create the media object (one-time):**
 
-1. Expand **Advanced Configuration** > right-click **Media** > **New Media**.
+1. In Deployment Workbench, expand **Deployment Shares** > **your share** >
+   **Advanced Configuration** > right-click **Media** > **New Media**.
 2. Fill in:
 
    | Field | Value |
