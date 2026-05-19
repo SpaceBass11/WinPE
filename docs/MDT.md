@@ -522,10 +522,22 @@ In Deployment Workbench, expand **Deployment Shares** > **your share** >
 **Applications**.
 
 1. Right-click **Applications** > **New Application**.
-2. Select **Application with source files** (copies files into the share) or
-   **Application without source files** (runs a command on the target).
-3. Fill in: Name, Source folder, Installation command, Working directory.
-4. Click **Finish**.
+2. Select **Application with source files**.
+3. Fill in the wizard:
+
+   | Field | Value |
+   |-------|-------|
+   | Application name | Notepad++ 8.6 (or whatever) |
+   | Source directory | Folder containing the installer -- **not the .exe itself**, the folder it lives in |
+   | Destination directory | Leave default |
+   | Command line | The installer filename + silent switches, e.g. `npp.8.6.0.Installer.x64.exe /S` |
+   | Working directory | Leave default |
+
+   MDT copies the entire source folder into the deployment share and runs
+   the command line from inside it. You browse to a folder, not a file --
+   put the `.exe` in its own folder first if it isn't already.
+
+4. Click **Next** > **Finish**.
 
 **To install zero-touch**, two options:
 
