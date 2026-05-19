@@ -378,10 +378,6 @@ The correct layout after deleting recovery:
 
 Click **Apply** to save.
 
-> **Important:** If you open and save the task sequence in Workbench later,
-> MDT may regenerate `ts.xml` and restore the recovery partition entry.
-> Re-verify the partition list and re-run Update Media Content before
-> distributing a new ISO.
 
 ### 7c. Apply Operating System
 
@@ -629,9 +625,6 @@ Output: `C:\MDTDeploymentShare\Media\MEDIA001\LiteTouchMedia_x64.iso`
 
 This is the file you upload and distribute to operators.
 
-**After any Workbench save of the task sequence:** MDT may reset partition
-steps in `ts.xml`. Re-verify the partition layout in the task sequence editor
-(step 7a) before re-running Update Media Content.
 
 ---
 
