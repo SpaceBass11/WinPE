@@ -29,6 +29,46 @@ jobs:
         shell: pwsh
         run: ./tests/test_wim_parser.ps1
 
+  pester:
+    name: Pester validation-gate smoke tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Pester version
+        shell: pwsh
+        run: Get-Module -ListAvailable Pester | Select-Object Name, Version | Format-Table
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          # Force Pester v5+ (windows-latest ships v3 alongside v5; we need v5).
+          $pester = Get-Module -ListAvailable Pester |
+            Where-Object { $_.Version.Major -ge 5 } |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+          if (-not $pester) {
+            Write-Host "Installing Pester v5..."
+            Install-Module Pester -MinimumVersion 5.0.0 -Force -Scope CurrentUser -SkipPublisherCheck
+            $pester = Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
+          }
+          Import-Module $pester.Path -Force
+
+          $config = New-PesterConfiguration
+          $config.Run.Path        = './tests/validation-gates.Tests.ps1'
+          $config.Run.Exit        = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = 'pester-results.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload Pester results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-results
+          path: pester-results.xml
+
   pssa:
     name: PSScriptAnalyzer
     runs-on: windows-latest
@@ -175,7 +215,11 @@ jobs:
 
           echo ""
           echo "=== 9. mountvol /d guarded by \$env:SystemDrive ==="
-          if grep -B 6 'mountvol.*\/d' $script | grep -q 'SystemDrive'; then
+          # Window widened from 6 to 14 lines in v4.7.0 to accommodate the
+          # sibling -ProtectedSourceDrive guard that sits between the
+          # SystemDrive check and the mountvol /d call. Both guards must
+          # stay above the call.
+          if grep -B 14 'mountvol.*\/d' $script | grep -q 'SystemDrive'; then
             echo "OK"
           else
             echo "FAIL: mountvol /d call lacks SystemDrive guard above it"
@@ -278,5 +322,60 @@ jobs:
             grep -qF "$s" $script || { echo "  missing: '$s'"; ok=0; }
           done
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: confirmation strings drifted"; fail=1; fi
+
+          echo ""
+          echo "=== 20. BitLocker / data-disk defaults stay opt-in ==="
+          # If either default flips on, the entire fleet is exposed. The
+          # v4.6.x regression had DataDiskNumber=1 and BitLockerPin a
+          # plaintext placeholder; both must stay off in the Config block.
+          ok=1
+          grep -qE 'DataDiskNumber\s*=\s*-1'   $script || { echo "  DataDiskNumber default is not -1"; ok=0; }
+          grep -qE 'EnableBitLocker\s*=\s*\$false' $script || { echo "  EnableBitLocker default is not \$false"; ok=0; }
+          grep -qE 'BitLockerPin\s*=\s*\$null' $script || { echo "  BitLockerPin default is not \$null"; ok=0; }
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: BitLocker / data-disk defaults drifted on"; fail=1; fi
+
+          echo ""
+          echo "=== 21. ForbiddenBitLockerPins must include the v4.6.x placeholder ==="
+          if grep -qE "ForbiddenBitLockerPins\s*=" $script && grep -qF "'ChangeMe123!'" $script; then
+            echo "OK"
+          else
+            echo "FAIL: ForbiddenBitLockerPins list missing or doesn't include ChangeMe123!"
+            fail=1
+          fi
+
+          echo ""
+          echo "=== 22. WIPE DATA typed confirmation present, gated by -Force only ==="
+          # The data-disk format MUST go through a typed prompt; -Force may
+          # skip it (matches the WIPE ALL / ERASE pattern) but -Silent
+          # alone must not.
+          ok=1
+          grep -qF "Type 'WIPE DATA'"        $script || { echo "  missing 'WIPE DATA' typed prompt"; ok=0; }
+          grep -qF "'WIPE DATA' prompt cannot run silently" $script || { echo "  silent mode does not refuse data-disk without -Force"; ok=0; }
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: WIPE DATA gate weakened"; fail=1; fi
+
+          echo ""
+          echo "=== 23. BitLocker recovery keys do NOT default to the encrypted volume ==="
+          # The v4.6.x bug stored C:'s recovery key on D:, which only
+          # auto-unlocks when C: is healthy - exactly the failure mode
+          # recovery keys exist for. The new code escrows to the IMAGES
+          # partition (DEPLOY_IMAGE_DRIVE) or a -BitLockerKeyPath override.
+          if grep -qE "'D:\\\\BitLocker'" $script; then
+            echo "FAIL: hardcoded 'D:\\BitLocker' escrow path present (regression to v4.6.x design)"
+            fail=1
+          else
+            echo "OK"
+          fi
+
+          echo ""
+          echo "=== 24. build_boot_wim.ps1 startnet.cmd reads deploy.args from IMAGES ==="
+          # The per-USB deploy.args mechanism: operator can retarget a USB
+          # without rebuilding boot.wim. A refactor that removes the
+          # startnet.cmd lookup would silently regress every operator's
+          # config without surfacing a build-time error.
+          builder=scripts/build_boot_wim.ps1
+          ok=1
+          grep -qF 'deploy.args' $builder || { echo "  startnet.cmd no longer references deploy.args"; ok=0; }
+          grep -qF 'set /p DEPLOYARGS' $builder || { echo "  startnet.cmd no longer reads deploy.args via set /p"; ok=0; }
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: deploy.args wiring drifted"; fail=1; fi
 
           exit $fail

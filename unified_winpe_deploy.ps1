@@ -43,7 +43,36 @@
     configuration. The file must exist before deployment starts.
 .PARAMETER ListOnly
     Discover and display all available images, then exit. No deployment.
+.PARAMETER DataDiskNumber
+    Disk number of an additional internal drive to wipe and format as an
+    NTFS data volume (D:). Off by default (-1). When set, the disk is
+    validated (must exist, must not be the target disk, must not be USB,
+    must not be the running system disk) and requires a typed
+    'WIPE DATA' confirmation unless -Force is set. Pairs with
+    -EnableBitLocker for a TPM+PIN encrypted C: and recovery-key D:.
+.PARAMETER EnableBitLocker
+    Stage a SetupComplete.cmd script that enables BitLocker on first
+    boot: TPM + Enhanced PIN on C:, recovery key + auto-unlock on D:
+    (D: only if -DataDiskNumber was also given). Requires -BitLockerPin.
+    Recovery keys are escrowed to the IMAGES partition under
+    BitLockerKeys\<servicetag-or-timestamp>\ so they remain reachable
+    even if the encrypted volumes don't mount.
+.PARAMETER BitLockerPin
+    Startup PIN for the TPM+PIN protector on C:. Required when
+    -EnableBitLocker is set. The placeholder 'ChangeMe123!' is rejected.
+    Enhanced PIN policy is enabled, so 6-20 characters of digits,
+    letters, and symbols are accepted.
+.PARAMETER BitLockerKeyPath
+    Override the default IMAGES-partition escrow path for recovery keys.
+    Use a UNC share or a removable-media path for centralized escrow.
+    The default is <DEPLOY_IMAGE_DRIVE>\BitLockerKeys.
 .VERSION
+    4.7.0 - BitLocker / data-disk feature reworked to opt-in:
+            -DataDiskNumber, -EnableBitLocker, -BitLockerPin, and
+            -BitLockerKeyPath parameters. Default no longer wipes a
+            hardcoded second disk; recovery keys escrow to IMAGES
+            partition instead of the encrypted volume. Hardcoded
+            placeholder PIN rejected at runtime.
     4.6.0 - Driver injection support via prepare_wim.ps1 -DriverPath (pre-bake
             drivers offline). Unattend.xml staging via -UnattendFile (dropped
             to C:\Windows\Panther post-apply for first-boot processing: OOBE
@@ -65,6 +94,10 @@ param(
     [string]$WipeDisks,
     [int]$MinImageSizeMB = 100,
     [string]$UnattendFile,
+    [int]$DataDiskNumber = -1,
+    [switch]$EnableBitLocker,
+    [string]$BitLockerPin,
+    [string]$BitLockerKeyPath,
     [switch]$Force,
     [switch]$Silent,
     [switch]$ListOnly
@@ -80,16 +113,21 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.6.0'
+    ScriptVersion = '4.7.0'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')
     CctkPath = 'X:\cctk\cctk.exe'
     CctkConfigDir = 'cctk'
-    # BitLocker: Enhanced PIN used at every boot. Change before building USB.
-    # Set DataDiskNumber to -1 to skip data-disk formatting and BitLocker entirely.
-    BitLockerPin   = 'ChangeMe123!'
-    DataDiskNumber = 1
+    # BitLocker / data-disk are OFF by default. The runtime parameters
+    # -DataDiskNumber, -EnableBitLocker, -BitLockerPin, and -BitLockerKeyPath
+    # overwrite these. See docs/BITLOCKER.md.
+    BitLockerPin    = $null
+    BitLockerKeyDir = 'BitLockerKeys'
+    DataDiskNumber  = -1
+    EnableBitLocker = $false
+    # Reject obvious placeholder PINs even if someone tries to wire them in.
+    ForbiddenBitLockerPins = @('ChangeMe123!', 'password', 'Password1', '123456')
 }
 
 $Script:Colors = @{
@@ -876,18 +914,30 @@ function Select-ImageIndex {
 function New-DiskpartScript {
     param(
         [int]$DiskNumber,
-        [array]$ExtraWipeDisks = @()
+        [array]$ExtraWipeDisks = @(),
+        [string]$ProtectedSourceDrive
     )
 
     # Free up S:, C:, and D: (when formatting data disk) to avoid diskpart conflicts
     $lettersToFree = @('S', 'C')
     if ($Script:Config.DataDiskNumber -ge 0) { $lettersToFree += 'D' }
+    # Normalize protected source drive to 'X' (no colon, no slash) for comparison
+    $protectedLetter = $null
+    if ($ProtectedSourceDrive) {
+        $protectedLetter = ($ProtectedSourceDrive -replace '[^A-Za-z]', '').ToUpperInvariant()
+        if ($protectedLetter.Length -gt 0) { $protectedLetter = $protectedLetter.Substring(0,1) }
+    }
     foreach ($letter in $lettersToFree) {
         if (Test-Path "$($letter):\" ) {
             # NEVER unmount the current system drive
             if ("$($letter):" -eq $env:SystemDrive) {
                 Write-Log "Cannot release $($letter): - it is the current system drive. Diskpart will reassign." -Level Warning
                 continue
+            }
+            # NEVER unmount the WIM source drive - DISM apply would lose access mid-deploy
+            if ($protectedLetter -and $letter -eq $protectedLetter) {
+                Write-Log "Cannot release $($letter): - it hosts the WIM source. Pick a different -DataDiskNumber or re-letter the USB." -Level Error
+                return $false
             }
             Write-Log "Drive letter $($letter): is in use - releasing before partitioning" -Level Warning
             try {
@@ -1401,8 +1451,41 @@ function Select-AdditionalWipeDisks {
 #endregion
 
 #region Main Process
+function Resolve-BitLockerKeyPath {
+    # Pick the escrow location for recovery keys, in precedence order:
+    #   1. -BitLockerKeyPath (operator override; UNC share or removable media)
+    #   2. <DEPLOY_IMAGE_DRIVE>\BitLockerKeys
+    #   3. C:\Windows\Setup\BitLockerKeys  (last resort - keys on the encrypted
+    #      volume, surfaced to the operator with a warning)
+    if ($BitLockerKeyPath) {
+        return @{ Path = $BitLockerKeyPath; Source = 'parameter (-BitLockerKeyPath)' }
+    }
+    if ($env:DEPLOY_IMAGE_DRIVE) {
+        return @{
+            Path = (Join-Path $env:DEPLOY_IMAGE_DRIVE $Script:Config.BitLockerKeyDir)
+            Source = 'IMAGES partition'
+        }
+    }
+    return @{
+        Path = 'C:\Windows\Setup\BitLockerKeys'
+        Source = 'fallback (keys on encrypted C: - print or copy off before locking)'
+    }
+}
+
 function Initialize-BitLockerSetup {
-    if ($Script:Config.DataDiskNumber -lt 0) { return $true }
+    if (-not $Script:Config.EnableBitLocker) { return $true }
+    if (-not $Script:Config.BitLockerPin) {
+        Write-Log "EnableBitLocker set without BitLockerPin - refusing to stage (caught in Start-Deployment validation)" -Level Error
+        return $false
+    }
+
+    $keyDest = Resolve-BitLockerKeyPath
+    $escrowPath = $keyDest.Path
+    $escrowSource = $keyDest.Source
+    Write-Log "BitLocker recovery key escrow: $escrowPath ($escrowSource)" -Level Info
+    if ($escrowSource -like 'fallback*') {
+        Write-Log "  WARNING: keys land on encrypted C: - copy them off before the first reboot or you'll be locked out on TPM reset" -Level Warning
+    }
 
     Write-Log "Staging BitLocker setup script for first boot..." -Level Info
 
@@ -1413,6 +1496,9 @@ function Initialize-BitLockerSetup {
 
     # Escape the PIN for embedding in a here-string (single-quoted PS string — only ' needs doubling)
     $escapedPin = $Script:Config.BitLockerPin -replace "'", "''"
+    # Same for the escrow path (paths can contain ' on weird shares)
+    $escapedEscrow = $escrowPath -replace "'", "''"
+    $stageDataDisk = $Script:Config.DataDiskNumber -ge 0
 
     $bitlockerScript = @"
 `$ErrorActionPreference = 'Continue'
@@ -1426,8 +1512,11 @@ Write-BL 'BitLocker setup starting'
 if (-not (Test-Path `$fvePath)) { New-Item -Path `$fvePath -Force | Out-Null }
 Set-ItemProperty -Path `$fvePath -Name 'UseEnhancedPin' -Value 1 -Type DWord -Force
 
-`$recoveryDir = 'D:\BitLocker'
-if (-not (Test-Path `$recoveryDir)) { New-Item -ItemType Directory -Path `$recoveryDir -Force | Out-Null }
+`$recoveryDir = '$escapedEscrow'
+if (-not (Test-Path `$recoveryDir)) {
+    try { New-Item -ItemType Directory -Path `$recoveryDir -Force | Out-Null }
+    catch { Write-BL "WARN: could not create `$recoveryDir : `$(`$_.Exception.Message)" }
+}
 
 `$pin = ConvertTo-SecureString '$escapedPin' -AsPlainText -Force
 
@@ -1440,13 +1529,18 @@ try {
     exit 1
 }
 
-# C: — recovery key backup protector
+# C: — recovery key backup protector (escrowed off-volume)
 try {
     Add-BitLockerKeyProtector -MountPoint 'C:' -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
     Write-BL "C: recovery key saved to `$recoveryDir"
 } catch {
     Write-BL "WARNING: C: recovery key protector failed: `$(`$_.Exception.Message)"
 }
+"@
+
+    if ($stageDataDisk) {
+        $bitlockerScript += @"
+
 
 # D: — recovery key protector
 try {
@@ -1462,6 +1556,21 @@ try {
     Write-BL 'D: auto-unlock enabled'
 } catch {
     Write-BL "WARNING: D: auto-unlock failed: `$(`$_.Exception.Message)"
+}
+"@
+    }
+
+    $bitlockerScript += @"
+
+
+# Delete this script and the staged SetupComplete.cmd so the plaintext PIN
+# doesn't linger on disk after the encryption that consumed it.
+try {
+    Remove-Item -Path 'C:\Windows\Setup\Scripts\bitlocker-setup.ps1' -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path 'C:\Windows\Setup\Scripts\SetupComplete.cmd'   -Force -ErrorAction SilentlyContinue
+    Write-BL 'Self-deleted staging scripts'
+} catch {
+    Write-BL "WARNING: could not self-delete staging scripts: `$(`$_.Exception.Message)"
 }
 
 Write-BL 'BitLocker setup complete - rebooting'
@@ -1497,6 +1606,37 @@ function Start-Deployment {
     # Initialize system
     Initialize-SystemPaths
 
+    # Wire opt-in BitLocker / data-disk parameters into Script:Config so the
+    # rest of the script reads them through a single place. Off by default;
+    # any caller (silent or interactive) must explicitly opt in.
+    # NOTE: $PSBoundParameters here would be Start-Deployment's (always empty);
+    # we read the script-scope param vars directly via the sentinel defaults.
+    if ($DataDiskNumber -ge 0) { $Script:Config.DataDiskNumber = $DataDiskNumber }
+    if ($EnableBitLocker)      { $Script:Config.EnableBitLocker = $true }
+    if ($BitLockerPin)         { $Script:Config.BitLockerPin   = $BitLockerPin }
+
+    # Reject placeholder PINs - the v4.6.x default 'ChangeMe123!' and a few
+    # common weak strings are blocked outright so they can't leak into a
+    # boot.wim build by accident.
+    if ($Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin -and
+        ($Script:Config.ForbiddenBitLockerPins -contains $Script:Config.BitLockerPin)) {
+        Write-Log "BitLockerPin is a forbidden placeholder ('$($Script:Config.BitLockerPin)') - choose a real PIN" -Level Error
+        return $false
+    }
+
+    if ($Script:Config.EnableBitLocker -and -not $Script:Config.BitLockerPin) {
+        Write-Log "-EnableBitLocker requires -BitLockerPin (no default; placeholder PINs are rejected)" -Level Error
+        return $false
+    }
+    if ($Script:Config.EnableBitLocker -and
+        ($Script:Config.BitLockerPin.Length -lt 6 -or $Script:Config.BitLockerPin.Length -gt 20)) {
+        Write-Log "BitLockerPin must be 6-20 characters (Enhanced PIN policy)" -Level Error
+        return $false
+    }
+    if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
+        Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
+    }
+
     # Silent mode is intended for unattended runs and must not trigger prompts
     if ($Silent -and -not $ListOnly) {
         if (-not $WimFile) {
@@ -1513,6 +1653,13 @@ function Start-Deployment {
         }
         if ($WipeDisks -and $WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
             Write-Log "-WipeDisks must be comma-separated disk numbers (e.g. '1,2') - got '$WipeDisks'" -Level Error
+            return $false
+        }
+        # Silent + data-disk wipe must be explicit. The interactive 'WIPE DATA'
+        # prompt cannot run silently, so a typo'd disk number would otherwise
+        # silently wipe the wrong disk.
+        if ($Script:Config.DataDiskNumber -ge 0 -and -not $Force) {
+            Write-Log "Silent mode with -DataDiskNumber requires -Force (typed 'WIPE DATA' prompt cannot run silently)" -Level Error
             return $false
         }
     }
@@ -1581,9 +1728,49 @@ function Start-Deployment {
     $targetDisk = Select-TargetDisk -Disks $disks
     if (-not $targetDisk) { return $false }
 
+    # Validate -DataDiskNumber against the same exclusion rules as the target:
+    # must be a real, non-USB, non-system, non-target disk, and not already in
+    # the extra-wipe list. Aborts before any destructive op.
+    if ($Script:Config.DataDiskNumber -ge 0) {
+        $ddNum = $Script:Config.DataDiskNumber
+        if ($ddNum -eq $targetDisk.Number) {
+            Write-Log "-DataDiskNumber $ddNum is the same as the target disk - aborting" -Level Error
+            return $false
+        }
+        $dataDisk = $disks | Where-Object { $_.Number -eq $ddNum }
+        if (-not $dataDisk) {
+            Write-Log "-DataDiskNumber $ddNum is not a valid non-USB internal disk - aborting" -Level Error
+            return $false
+        }
+        if ($dataDisk.IsSystemDisk) {
+            Write-Log "-DataDiskNumber $ddNum is the system disk - refusing" -Level Error
+            return $false
+        }
+        Write-Log "Additional data disk: Disk $ddNum - $($dataDisk.Model) ($($dataDisk.Size) GB)" -Level Warning
+        Write-Log "  -> will be CLEANED and FORMATTED as NTFS data volume (D:)" -Level Warning
+        if (-not $Force) {
+            $ddConfirm = Read-Host "Type 'WIPE DATA' to confirm formatting disk $ddNum as data volume"
+            if ($ddConfirm -ne 'WIPE DATA') {
+                Write-Log "Data-disk format cancelled - aborting deploy" -Level Warning
+                return $false
+            }
+        } else {
+            Write-Log "-Force set: skipping 'WIPE DATA' confirmation for disk $ddNum" -Level Warning
+        }
+    }
+
     # Optional: additional disks to wipe (secondary drives, vendor OEM partitions)
     $extraWipeDisks = Select-AdditionalWipeDisks -AllDisks $disks -TargetDisk $targetDisk
     if ($null -eq $extraWipeDisks) { return $false }
+
+    # Reject overlap between the additional-wipe list and the data-disk number
+    # (the diskpart script would clean the same disk twice and end with a data
+    # partition where the extra-wipe wanted a bare 'clean')
+    if ($Script:Config.DataDiskNumber -ge 0 -and
+        ($extraWipeDisks | Where-Object { $_.Number -eq $Script:Config.DataDiskNumber })) {
+        Write-Log "Disk $($Script:Config.DataDiskNumber) is both -DataDiskNumber and in the additional-wipe list - drop one" -Level Error
+        return $false
+    }
 
     Write-Banner "STARTING IMAGE DEPLOYMENT"
     Write-Log "Image: $($selectedImage.Name)" -Level Info
@@ -1623,8 +1810,10 @@ function Start-Deployment {
     }
     Write-Log "Disk size check passed: $($targetDisk.Size) GB available, ~$estimatedSizeGB GB image ($sizeSource)" -Level Success
 
-    # Partition disk (plus any requested additional disk cleans)
-    if (-not (New-DiskpartScript -DiskNumber $targetDisk.Number -ExtraWipeDisks $extraWipeDisks)) { return $false }
+    # Partition disk (plus any requested additional disk cleans). Pass the
+    # WIM source drive so the letter-free pass won't unmount it mid-deploy.
+    $sourceDrive = if ($selectedImage.Path) { Split-Path -Qualifier $selectedImage.Path } else { $null }
+    if (-not (New-DiskpartScript -DiskNumber $targetDisk.Number -ExtraWipeDisks $extraWipeDisks -ProtectedSourceDrive $sourceDrive)) { return $false }
     if (-not (Invoke-Diskpart)) { return $false }
 
     # Verify diskpart created expected drive letters (retry for slow PnP mount manager)

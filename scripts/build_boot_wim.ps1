@@ -295,7 +295,17 @@ goto :launch
 :found
 echo Found image drive: %DEPLOY_IMAGE_DRIVE%
 :launch
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
+:: Optional per-USB args file. One line of PowerShell parameters; lets
+:: operators retarget a USB without rebuilding boot.wim. See docs/DEPLOY_ARGS.md.
+set "DEPLOYARGS="
+if defined DEPLOY_IMAGE_DRIVE (
+    if exist "%DEPLOY_IMAGE_DRIVE%\deploy.args" (
+        set /p DEPLOYARGS=<"%DEPLOY_IMAGE_DRIVE%\deploy.args"
+        echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args:
+        echo   !DEPLOYARGS!
+    )
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
 '@
     Set-Content -Path $startnetPath -Value $startnet -Encoding ASCII -Force
     Write-Ok "Wrote startnet.cmd"

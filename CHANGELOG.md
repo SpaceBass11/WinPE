@@ -8,6 +8,46 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added
+- **Per-USB `deploy.args` file.** `scripts/build_boot_wim.ps1` now
+  writes a `startnet.cmd` that looks for `<IMAGES>\deploy.args` on
+  boot and passes its single-line contents as parameters to
+  `unified_winpe_deploy.ps1`. Lets you retarget a USB (different
+  image, different PIN, interactive vs silent) by editing one text
+  file — no `boot.wim` rebuild. Missing file = fully interactive
+  TUI (unchanged default). New `configs/deploy.args.example`
+  template and `docs/DEPLOY_ARGS.md` walkthrough.
+
+### Changed (security / safety)
+- **BitLocker / data-disk feature is now opt-in.** The v4.6.x BitLocker
+  / data-disk feature (added in PR #33) defaulted `DataDiskNumber = 1`
+  and shipped a hardcoded `BitLockerPin = 'ChangeMe123!'`, meaning every
+  deploy silently wiped a hardcoded second disk and every machine
+  booted with the same factory PIN. Reworked in v4.7.0:
+  - Default `DataDiskNumber` is now `-1` (off). Default
+    `EnableBitLocker` is `$false`. Default `BitLockerPin` is `$null`.
+  - New runtime parameters: `-DataDiskNumber`, `-EnableBitLocker`,
+    `-BitLockerPin`, `-BitLockerKeyPath`.
+  - Placeholder PINs (`ChangeMe123!`, `password`, `Password1`,
+    `123456`) are rejected at runtime.
+  - New typed `WIPE DATA` confirmation gates the data-disk format.
+    `-Force` skips it; `-Silent` requires `-Force`.
+  - `-DataDiskNumber` is validated against the same exclusion rules as
+    the target (must exist, must not be the target, must not be the
+    system disk, must not be USB, must not overlap the
+    additional-wipe list).
+  - Recovery keys escrow to `<IMAGES>\BitLockerKeys` by default
+    instead of `D:\BitLocker` (which lived on the encrypted volume
+    it was meant to recover).
+  - `New-DiskpartScript` refuses to `mountvol /d` the drive letter
+    that hosts the WIM source, so DISM doesn't lose access mid-deploy
+    if the IMAGES partition is auto-assigned to `D:`.
+  - The staged `bitlocker-setup.ps1` and `SetupComplete.cmd`
+    self-delete after the encryption consumes the plaintext PIN.
+- Script version bumped to **4.7.0**.
+- New doc: [`docs/BITLOCKER.md`](docs/BITLOCKER.md). README parameter
+  table, USB layout, and `docs/TROUBLESHOOTING.md` updated to match.
+
 ### Fixed
 - `prepare_wim.ps1` now names the exported WIM after the selected source
   image (`$target.ImageName`) instead of the default `$Edition` literal.

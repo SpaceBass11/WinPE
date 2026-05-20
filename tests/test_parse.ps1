@@ -96,7 +96,8 @@ $requiredFunctions = @(
     'Select-TargetDisk', 'Get-WimImageInfo', 'Select-ImageIndex',
     'New-DiskpartScript', 'Invoke-Diskpart', 'Apply-WindowsImage',
     'Set-BootConfiguration', 'Invoke-CctkConfig',
-    'Select-AdditionalWipeDisks', 'Start-Deployment'
+    'Select-AdditionalWipeDisks', 'Resolve-BitLockerKeyPath',
+    'Initialize-BitLockerSetup', 'Start-Deployment'
 )
 foreach ($func in $requiredFunctions) {
     $found = $content -match "function\s+$func\b"
