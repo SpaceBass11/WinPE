@@ -175,7 +175,11 @@ jobs:
 
           echo ""
           echo "=== 9. mountvol /d guarded by \$env:SystemDrive ==="
-          if grep -B 6 'mountvol.*\/d' $script | grep -q 'SystemDrive'; then
+          # Window widened from 6 to 14 lines in v4.7.0 to accommodate the
+          # sibling -ProtectedSourceDrive guard that sits between the
+          # SystemDrive check and the mountvol /d call. Both guards must
+          # stay above the call.
+          if grep -B 14 'mountvol.*\/d' $script | grep -q 'SystemDrive'; then
             echo "OK"
           else
             echo "FAIL: mountvol /d call lacks SystemDrive guard above it"
