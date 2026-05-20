@@ -8,7 +8,8 @@ Start-Transcript -Path $logFile -Append
 
 try {
     $sensitive = @(
-        (Join-Path $root 'Config\dell-config.cctk')
+        (Join-Path $root 'Config\dell-config.cctk'),
+        (Join-Path $root 'Config\bitlocker-pin.txt')
     )
 
     foreach ($item in $sensitive) {
@@ -18,6 +19,9 @@ try {
         }
     }
 
+    # State\ is intentionally preserved (BitLocker recovery key file lives
+    # there for the operator to grab if needed). Logs\ also preserved for
+    # support triage.
     Write-Host 'Cleanup completed.'
 }
 finally {

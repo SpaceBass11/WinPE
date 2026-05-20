@@ -15,9 +15,24 @@ Place assets before sysprep in `C:\ProgramData\ManualClonezilla`:
 - `Scripts\Apply-DellConfig.ps1`
 - `Scripts\Enable-BitLocker.ps1`
 - `Scripts\Finalize-Cleanup.ps1`
-- `Config\dell-config.cctk` (or generated Dell Command Configure package)
+- `Config\dell-config.cctk` (Dell Command Configure package)
+- `Config\bitlocker-pin.txt` (single-line plaintext PIN for TPM+PIN)
 
-Dell Command | Configure caveats:
+### BitLocker PIN file
+
+`Enable-BitLocker.ps1` reads the PIN from
+`C:\ProgramData\ManualClonezilla\Config\bitlocker-pin.txt` and enables a
+TpmAndPin protector on `C:`. One line, no quoting, no trailing newline
+required. The "Allow enhanced PINs for startup" policy must already be
+enabled in the gold image if the PIN uses non-numeric characters.
+
+The PIN file is **baked into the captured image**, so anyone with the ISO
+can read it. This is an accepted-risk same-PIN-fleet-wide design; if you
+need per-machine PINs, this workflow is the wrong tool. `Finalize-Cleanup.ps1`
+deletes the PIN file at end of `SetupComplete`, so the deployed machine
+does not retain it on disk.
+
+### Dell Command | Configure
 
 - Install Dell Command | Configure in the golden image and verify `cctk.exe`
   exists at `C:\Program Files (x86)\Dell\Command Configure\X86_64\cctk.exe`.
@@ -26,7 +41,7 @@ Dell Command | Configure caveats:
 - If supporting multiple model families, cut separate images or implement a
   model-aware wrapper that maps SMBIOS model to a matching `.cctk` file.
 
-Then copy the SetupComplete launcher to the **required Windows Setup hook path**:
+### Copy the SetupComplete launcher to the required Windows Setup hook path
 
 ```cmd
 mkdir C:\Windows\Setup\Scripts 2>nul
@@ -36,8 +51,8 @@ copy /y C:\ProgramData\ManualClonezilla\Scripts\SetupComplete.cmd C:\Windows\Set
 `SetupComplete.cmd` only auto-runs from `C:\Windows\Setup\Scripts`. If this copy step is skipped,
 none of the post-deploy scripts execute.
 
-Use `configs/unattend.xml` in this repository as the starting point for OOBE
-suppression and local administrator behavior.
+Use `configs/unattend.example.xml` in this repository as the starting point
+for OOBE suppression and local administrator behavior.
 
 ## 3) Sysprep and shutdown
 
@@ -72,7 +87,14 @@ per your workflow).
 - Verify `%WINDIR%\Setup\Scripts\SetupComplete.cmd` exists pre-capture and that
   `C:\ProgramData\ManualClonezilla\Logs\SetupComplete.log` is produced post-restore.
 - Confirm Dell config import status and BIOS token application per model family.
-- Confirm BitLocker protector status and recovery key escrow process.
+- Confirm BitLocker:
+  - `manage-bde -status C:` shows protection enabled (or encryption in progress).
+  - `manage-bde -protectors -get C:` lists both a TPM And PIN protector and a
+    Numerical Password (recovery) protector.
+  - `C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-*.txt` exists
+    and contains a 48-digit recovery password.
+  - PIN file `C:\ProgramData\ManualClonezilla\Config\bitlocker-pin.txt` is
+    gone (Finalize-Cleanup ran).
 - Confirm cleanup removed one-time payloads.
 
 Recommended Dell-specific validation per model family:
@@ -95,11 +117,18 @@ Recommended Dell-specific validation per model family:
    - Fix: Copy it to `C:\Windows\Setup\Scripts\SetupComplete.cmd` before sysprep.
 
 2. **BitLocker timing risk (medium):**
-   - Risk: Enabling BitLocker during `SetupComplete` can fail if TPM is present but not fully provisioned,
-     or if your process requires escrow before encryption starts.
-   - Fix: Keep the TPM readiness guard (already implemented) and validate escrow workflow in staging.
-     If escrow must be guaranteed first, move encryption to a later managed step (for example MDM/GPO startup policy)
-     instead of immediate `SetupComplete`.
+   - Risk: Enabling BitLocker during `SetupComplete` can fail if TPM is present but not fully provisioned.
+   - Fix: TPM readiness guard remains (`Get-Tpm` `TpmPresent`/`TpmReady`). If it
+     fails on a clean machine, clear the TPM in BIOS and redeploy.
+
+5. **Lost recovery key risk (medium):**
+   - Risk: This is an offline, unmanaged workflow. Recovery keys are written to
+     `C:\ProgramData\ManualClonezilla\State\` and stay there until manually
+     collected. A user-initiated reset or reimage wipes them.
+   - Fix: Operator SOP must include "collect the recovery key file off the
+     machine before handing over." If you need centralized escrow, replace
+     `Export-RecoveryKey` in `Enable-BitLocker.ps1` with a write to your
+     shared/SMB/MDM target instead of `State\`.
 
 3. **Cross-model BIOS package risk (medium):**
    - Risk: One Dell CCTK package may not apply cleanly across all model families.

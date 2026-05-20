@@ -12,8 +12,15 @@ Track image metadata at:
 
 - Keep post-deploy scripts idempotent.
 - Hard-fail when BIOS config import is required and fails.
+- Hard-fail when BitLocker TpmPin or RecoveryPassword protectors are missing
+  after `Enable-BitLocker.ps1` runs - an encrypted volume with no recovery
+  protector is worse than no encryption at all.
 - Soft-fail only for non-critical post steps.
 - Persist logs to `C:\ProgramData\ManualClonezilla\Logs`.
+- Persist BitLocker recovery key exports to `C:\ProgramData\ManualClonezilla\State\`.
+  Files are named `BitLocker-RecoveryKey-<hostname>-<timestamp>.txt`.
+  Operators are responsible for collecting these files **off the machine**
+  before user handoff.
 
 ## Dell model compatibility guardrails
 
@@ -58,3 +65,10 @@ Also collect:
 - The ISO filename used during deployment.
 - Device model and BIOS version.
 - Timestamp of deployment attempt.
+
+For BitLocker triage specifically:
+
+- `C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-*.txt` (if any)
+- `manage-bde -status C:` output
+- `manage-bde -protectors -get C:` output
+- `Get-Tpm | Format-List *` output (PowerShell)
