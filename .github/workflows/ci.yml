@@ -34,39 +34,110 @@ jobs:
           fail: true
 
   masterize:
-    name: Masterize (doc consistency)
+    name: Masterize (doc + script invariants)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Phase 1A -- Doc consistency
+      - name: Script invariants
+        run: |
+          set +e
+          fail=0
+          bl=scripts/Enable-BitLocker.ps1
+          fc=scripts/Finalize-Cleanup.ps1
+          sc=scripts/SetupComplete.cmd
+          dc=scripts/Apply-DellConfig.ps1
+
+          echo "=== 1. SetupComplete orchestrates the three PS scripts ==="
+          ok=1
+          for n in Apply-DellConfig.ps1 Enable-BitLocker.ps1 Finalize-Cleanup.ps1; do
+            grep -qF "$n" "$sc" || { echo "  $sc missing $n"; ok=0; }
+          done
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
+
+          echo ""
+          echo "=== 2. Enable-BitLocker uses TpmAndPinProtector (not TpmProtector) ==="
+          if grep -qF -- '-TpmAndPinProtector' "$bl" && ! grep -qE -- '-TpmProtector\b' "$bl"; then
+            echo "OK"
+          else
+            echo "FAIL: TPM+PIN protector check"; fail=1
+          fi
+
+          echo ""
+          echo "=== 3. Enable-BitLocker adds RecoveryPasswordProtector ==="
+          if grep -qF 'Add-BitLockerKeyProtector' "$bl" && grep -qF -- '-RecoveryPasswordProtector' "$bl"; then
+            echo "OK"
+          else
+            echo "FAIL: recovery protector add"; fail=1
+          fi
+
+          echo ""
+          echo "=== 4. Recovery key export path lives under State\\ ==="
+          if grep -qiE 'stateDir' "$bl" && grep -qF 'BitLocker-RecoveryKey-' "$bl" && grep -qE "stateDir\s*=\s*Join-Path\s+\\\$root\s+'State'" "$bl"; then
+            echo "OK"
+          else
+            echo "FAIL: recovery key export path"; fail=1
+          fi
+
+          echo ""
+          echo "=== 5. Protector verification gates present after enable ==="
+          ok=1
+          grep -qF "'TpmPin'" "$bl"            || { echo "  TpmPin gate missing";            ok=0; }
+          grep -qF "'RecoveryPassword'" "$bl"  || { echo "  RecoveryPassword gate missing";  ok=0; }
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
+
+          echo ""
+          echo "=== 6. Finalize-Cleanup removes both secret files ==="
+          ok=1
+          grep -qF 'dell-config.cctk'   "$fc" || { echo "  dell-config.cctk not removed";   ok=0; }
+          grep -qF 'bitlocker-pin.txt'  "$fc" || { echo "  bitlocker-pin.txt not removed";  ok=0; }
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
+
+          echo ""
+          echo "=== 7. Apply-DellConfig hard-fails on missing inputs ==="
+          if grep -qF 'throw "Missing config package' "$dc" && grep -qF 'throw "Missing Dell Command Configure executable' "$dc"; then
+            echo "OK"
+          else
+            echo "FAIL: Apply-DellConfig missing-input guards"; fail=1
+          fi
+
+          exit $fail
+
+      - name: Doc invariants
         run: |
           set +e
           fail=0
 
-          echo "=== 3. Stray E:\\images references ==="
-          stray=$(grep -rn 'E:\\images\|E:/images' docs/ .claude/MASTERIZE.md 2>/dev/null | grep -v 'MASTERIZE.md:' || true)
+          echo "=== 8. No stray MDT references in operational docs ==="
+          # README.md and CLAUDE.md legitimately reference MDT for
+          # comparison framing ("don't use this if you have MDT") -
+          # they are scoped out. Operational docs (RUNBOOK, OPERATIONS,
+          # USB_SETUP) must not describe MDT mechanics.
+          stray=$(grep -rln 'MDT\|Deployment Workbench\|LiteTouch\|LTIBootstrap' docs/RUNBOOK.md docs/OPERATIONS.md docs/USB_SETUP.md 2>/dev/null || true)
           if [ -n "$stray" ]; then echo "FAIL:"; echo "$stray"; fail=1; else echo "OK"; fi
 
           echo ""
-          echo "=== 4. Volume labels (must be IMAGES, WinPE, or Windows) ==="
-          bad=$(grep -rn 'label=' docs/ 2>/dev/null | grep -iv '"IMAGES"\|"WinPE"\|label=Windows' || true)
-          if [ -n "$bad" ]; then echo "FAIL:"; echo "$bad"; fail=1; else echo "OK"; fi
+          echo "=== 9. README points operator at Rufus + ISO ==="
+          if grep -qiE 'rufus' README.md && grep -qiE 'ISO' README.md; then
+            echo "OK"
+          else
+            echo "FAIL: README missing Rufus/ISO operator flow"; fail=1
+          fi
 
           echo ""
-          echo "=== 5. Architecture doc coverage ==="
-          for keyword in 'driver' 'unattend' 'cctk'; do
-            if [ "$keyword" = "driver" ]; then
-              section='Prep time (admin Windows)'
-            else
-              section='Run time (inside WinPE)'
-            fi
-            if grep -A 15 "$section" docs/ARCHITECTURE.md | grep -qi "$keyword"; then
-              echo "OK: '$keyword' in '$section'"
-            else
-              echo "FAIL: '$keyword' missing from '$section'"
-              fail=1
-            fi
-          done
+          echo "=== 10. RUNBOOK documents bitlocker-pin.txt staging ==="
+          if grep -qF 'bitlocker-pin.txt' docs/RUNBOOK.md; then
+            echo "OK"
+          else
+            echo "FAIL: RUNBOOK doesn't document PIN file"; fail=1
+          fi
+
+          echo ""
+          echo "=== 11. OPERATIONS documents recovery key location ==="
+          if grep -qF 'BitLocker-RecoveryKey-' docs/OPERATIONS.md; then
+            echo "OK"
+          else
+            echo "FAIL: OPERATIONS doesn't reference recovery key file"; fail=1
+          fi
 
           exit $fail

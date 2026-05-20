@@ -2,18 +2,20 @@
 <!-- What does this PR change and why? One paragraph. -->
 
 ## Type of change
-- [ ] MDT script fix or improvement (`scripts/mdt/`)
-- [ ] Configuration change (`configs/mdt/`)
+- [ ] Script fix or improvement (`scripts/`)
+- [ ] Configuration change (`configs/`)
 - [ ] Documentation update (`docs/`)
 - [ ] CI / tooling
 
 ## Testing
 <!-- How did you test this? -->
-- [ ] Syntax passes: `pwsh -NoProfile -File ./tests/test_parse.ps1`
-- [ ] PSScriptAnalyzer clean (or warnings noted below)
-- [ ] End-to-end: ran Initialize/Import/New-MDTMedia and booted the resulting ISO (describe hardware or VM below)
+- [ ] PowerShell syntax check: `pwsh -NoProfile -Command "[System.Management.Automation.PSParser]::Tokenize((Get-Content scripts/<file>.ps1 -Raw), [ref]\$null)"`
+- [ ] Bench-tested on a sysprep VM with virtual TPM (for BitLocker changes)
+- [ ] Validated on hardware (describe model + BIOS version below)
+- [ ] CI masterize checks pass locally (the grep block from `.github/workflows/ci.yml`)
 
 ## Checklist
 - [ ] No CCTK binaries or vendor DLLs committed
+- [ ] No plaintext PIN, recovery key, or BIOS password committed
 - [ ] CHANGELOG.md updated under `[Unreleased]`
-- [ ] Docs updated if parameters or behavior changed
+- [ ] Docs updated if behavior or staging paths changed

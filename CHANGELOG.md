@@ -8,6 +8,55 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Changed (pivot)
+- **Repo identity is now manual-clonezilla.** The earlier WinPE per-USB
+  tool (`unified_winpe_deploy.ps1`, `build_boot_wim.ps1`,
+  `prepare_wim.ps1`, `refresh_usb.ps1`) lives on `main` and remains
+  unchanged. The MDT pivot scaffolding (`docs/MDT.md`,
+  `configs/mdt/*`, `scripts/mdt/*`, `Start-MDT.ps1`, `START.bat`,
+  `Initialize-MDTDeploymentShare.ps1`) is removed - that direction was
+  abandoned. The current branch is a self-deploying Clonezilla ISO
+  workflow: build one golden Windows install, sysprep + capture, ship
+  a Rufus-flashable ISO that restores and runs first-boot automation.
+- **Layout flattened.** `manual-clonezilla/scripts/*` ->
+  `scripts/`. `manual-clonezilla/configs/unattend.xml` ->
+  `configs/unattend.example.xml` (replacing the old MDT-flavored
+  208-line one). `manual-clonezilla/docs/*` -> `docs/`.
+
+### Added (BitLocker)
+- `scripts/Enable-BitLocker.ps1` now uses **TPM+PIN** instead of TPM-only.
+  PIN is read from `C:\ProgramData\ManualClonezilla\Config\bitlocker-pin.txt`
+  (single-line plaintext, baked into the gold image). Enhanced PIN
+  policy must be enabled in the gold image if the PIN uses non-numeric
+  characters.
+- **Recovery key export.** After successful enable, the script adds a
+  RecoveryPasswordProtector and writes the 48-digit recovery password
+  to `C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-<host>-<ts>.txt`.
+  No upload, no escrow service - this is an offline, unmanaged workflow.
+  Operator collects the file off-machine per SOP. To redirect to AD/MDM,
+  replace the `Export-RecoveryKey` function body.
+- **Hard-fail protector gates.** Throws if either the TpmPin or
+  RecoveryPassword protector is missing after enable. An encrypted
+  volume with no recovery path is worse than no encryption.
+
+### Added (cleanup)
+- `Finalize-Cleanup.ps1` now also removes `bitlocker-pin.txt` from
+  disk (alongside `dell-config.cctk`). `State\` (recovery key) and
+  `Logs\` (transcripts) are intentionally preserved post-cleanup.
+
+### Removed (MDT pivot abandoned)
+- `docs/MDT.md`, `configs/mdt/Bootstrap.ini`, `configs/mdt/CustomSettings.ini`.
+- Everything MDT-related (`scripts/mdt/*`, `Start-MDT.ps1`, `START.bat`,
+  `Initialize-MDTDeploymentShare.ps1`, `Import-WimImages.ps1`,
+  `New-MDTMedia.ps1`) had already been removed in earlier feature-branch
+  commits but is still listed in older entries below for traceability.
+
+---
+
+The entries below this line are the history of the MDT pivot that this
+branch abandoned. They are preserved for traceability but describe files
+and behavior that no longer exist on this branch.
+
 ### Added
 - `START.bat` and `Start-MDT.ps1` -- interactive guided launcher with prereq check, session config persistence, PIN validation, and post-build operator handoff instructions
 - `scripts/mdt/Enable-BitLocker.ps1` -- TPM+PIN encryption on C:, password+auto-unlock on D:, recovery keys saved to D:\BitLocker

@@ -1,72 +1,95 @@
-# Unattend.xml Answer File
+# unattend.xml Answer File
 
-Windows Setup reads `unattend.xml` on first boot to skip OOBE prompts, create
-the deployment account, set computer name and time zone, configure AutoLogon,
-and run first-boot scripts. MDT links the file to the task sequence and stages
-it automatically.
+Windows Setup reads `unattend.xml` on first boot to skip OOBE prompts,
+create the local account, set computer name and time zone, and run
+first-boot commands. In this workflow you stage the file at
+`C:\Windows\Panther\unattend.xml` on the gold image **before sysprep**;
+the captured Clonezilla image carries it along, and Windows
+automatically picks it up during specialize + oobeSystem passes after
+restore.
 
 ---
 
-## MDT Method
+## Where the file goes
 
-Two ways to attach an unattend.xml to an MDT task sequence:
+On your reference machine, before running `sysprep`:
 
-### Option A — MDT Workbench GUI
+```cmd
+mkdir C:\Windows\Panther 2>nul
+copy /y <your-edited-unattend.xml> C:\Windows\Panther\unattend.xml
+```
 
-1. Open MDT Workbench and expand **Task Sequences**.
-2. Right-click your task sequence → **Properties** → **OS Info** tab.
-3. Click **Edit Unattend.xml** — this opens Windows System Image Manager (SIM).
-4. In SIM, import `configs/unattend.example.xml` (File → Open Answer File),
-   adjust TimeZone / ComputerName as needed, and save. MDT records the path.
-5. Run **Update Deployment Share** to rebuild the boot media.
-
-MDT stages the linked unattend.xml to `C:\Windows\Panther\unattend.xml`
-automatically during the Apply OS step.
-
-> **No Windows SIM?** Use Option B — SIM is only required for the GUI workflow.
-
-### Option B — File-drop method
-
-1. Copy and edit the template (see [Template](#template) below).
-2. Save the finished file to:
-   ```
-   DeploymentShare\Control\<TaskSequenceID>\unattend.xml
-   ```
-3. Run **Update Deployment Share**. MDT auto-discovers any `unattend.xml`
-   placed here and uses it for that task sequence — no Workbench GUI needed.
+The skeleton template lives at
+[`configs/unattend.example.xml`](../configs/unattend.example.xml).
+Don't edit the example in place -- keep it clean for the next image
+cut.
 
 ---
 
 ## Template
 
-Start from [`configs/unattend.example.xml`](../configs/unattend.example.xml).
-Never edit it in place — keep the example clean for future reference.
+The shipped skeleton (`configs/unattend.example.xml`) suppresses OOBE
+pages, sets UTC time zone, and that's it. It is intentionally minimal:
+this workflow's accepted-risk position is "every machine is identical,"
+so account creation, autologon, and FirstLogonCommands are all
+optional add-ons you layer on if your environment needs them.
 
 ### What to change
 
 | Field | Default | Notes |
 |---|---|---|
-| `<ComputerName>` | `*` | `*` = random name. `%SerialNumber%` = service tag. Fixed string = same name on every machine (test only). |
-| `<TimeZone>` | `Central Standard Time` | Run `tzutil /l` on any Windows box to list valid names. |
+| `<TimeZone>` | `UTC` | Run `tzutil /l` on any Windows box to list valid names. Common: `Central Standard Time`, `Pacific Standard Time`. |
+| `<HideEULAPage>` etc. | `true` | Leave at `true` for hands-off boot. |
+| `<RegisteredOrganization>` | `manual-clonezilla` | Cosmetic. Change to your org. |
 
-That's it. No passwords to encode — `LocalAdmin` is created with no password
-intentionally (deployment-only account). Set a password or disable it
-post-deploy per your hardening baseline.
+The skeleton does **not** set `<ComputerName>`. Omitted = Windows
+generates a random `DESKTOP-XXXXXX` name on first specialize. If you
+want a stable pattern, add a `<ComputerName>` element to the
+`Microsoft-Windows-Shell-Setup` component in the `specialize` pass.
+Common values:
 
-### Accounts and passwords
+- `*` -- random (same as omitting)
+- A literal string -- same name on every machine (not recommended; AD
+  join will fail on the second machine if you ever domain-join)
+- `%SerialNumber%` -- service tag on Dell, MAC-derived elsewhere
 
-The template creates one account (`LocalAdmin`, no password) for the sole
-purpose of giving MDT's `LTIBootstrap.vbs` a session to run under.
+---
 
-All other accounts (tech tiers, end-user accounts) belong in the MDT task
-sequence — State Restore group, `net user` / PowerShell steps. Passwords
-for those accounts can be stored as variables in `CustomSettings.ini` and
-passed as MDT task sequence variables, keeping them out of the XML entirely.
+## Adding accounts
 
-The built-in Administrator account is disabled by a State Restore step you
-add to the task sequence (see step 7c in `docs/MDT.md`): `net user
-X_Admin /active:no`. It runs at the end of State Restore so the account is
-available for the full task sequence and then locked down per STIG.
+If your environment needs an admin account created at first boot, add
+a `UserAccounts` block to the `oobeSystem` pass. Example skeleton:
+
+```xml
+<settings pass="oobeSystem">
+  <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
+             publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+    <UserAccounts>
+      <LocalAccounts>
+        <LocalAccount wcm:action="add">
+          <Name>LocalAdmin</Name>
+          <Group>Administrators</Group>
+          <Password>
+            <Value>BASE64_HERE</Value>
+            <PlainText>false</PlainText>
+          </Password>
+        </LocalAccount>
+      </LocalAccounts>
+    </UserAccounts>
+  </component>
+</settings>
+```
+
+The password value is **UTF-16LE-encoded `<plaintext><PASSWORD>Password`**
+base64. PowerShell helper:
+
+```powershell
+$plain = 'YourPassword'
+$concat = "${plain}Password"
+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($concat))
+```
+
+That base64 string goes inside `<Value>`.
 
 ---
 
@@ -74,15 +97,15 @@ available for the full task sequence and then locked down per STIG.
 
 The template uses two Windows Setup passes:
 
-**`specialize`** — runs after the OS is laid down (and after any Sysprep
-generalize pass), before the first user login. This is where `ComputerName`
-and `TimeZone` are set. These settings require a sysprepped (generalized) WIM;
-if you captured an already-configured machine without running
-`sysprep /generalize`, the specialize pass never fires.
+**`specialize`** -- runs after restore (before the first OOBE prompt
+appears). This is where `ComputerName` and `TimeZone` are applied.
+These settings require a sysprepped image. If you captured without
+running `sysprep /generalize`, specialize never fires and these
+settings silently no-op.
 
-**`oobeSystem`** — runs during OOBE on first boot. This is where locale,
-account creation, AutoLogon, and FirstLogonCommands are processed. These
-settings apply regardless of whether the WIM was sysprepped.
+**`oobeSystem`** -- runs during OOBE on first boot. Locale, account
+creation, autologon, and `FirstLogonCommands` are processed here.
+These settings apply regardless of whether the image was sysprepped.
 
 ---
 
@@ -90,13 +113,11 @@ settings apply regardless of whether the WIM was sysprepped.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Lock screen at first boot instead of AutoLogon | AutoLogon block missing or `LocalAdmin` account not created | Check `C:\Windows\Panther\setupact.log` for `unattend` errors |
-| FirstLogonCommands didn't run | Script not present at the path in the CommandLine element | Bake it into the WIM offline or add it as an MDT Application (State Restore, before first reboot) |
-| ComputerName / TimeZone didn't apply | WIM wasn't sysprepped; specialize pass skipped | Recapture with `sysprep /generalize /oobe /shutdown` |
-| MDT ignored the unattend.xml | File not in the right Control subfolder | Path must be `Control\<TaskSequenceID>\unattend.xml`; re-run Update Deployment Share |
-| Windows SIM validation errors | Schema mismatch or typo | Quick check: `[xml](Get-Content unattend.xml)` in PowerShell — throws on bad XML |
-| Win11 PIN/Windows Hello prompt on next logon | AutoLogon (`LogonCount=1`) bypasses the PIN page only for that session; it returns on next interactive logon | Either let users set a PIN, or apply policy `HKLM\SOFTWARE\Policies\Microsoft\PassportForWork\Enabled=0` post-deployment |
-| Blank-password LocalAdmin can't log on after STIG hardening | STIG/security baseline applies `LimitBlankPasswordUse=1` which blocks blank passwords for anything other than console logon | Either set a real password on LocalAdmin in the unattend, or ensure STIG/LGPO runs **after** LTIBootstrap completes |
+| OOBE prompts appear (region, keyboard, EULA) | unattend.xml not at `C:\Windows\Panther\` on the captured image | Check the path on the gold reference machine before sysprep. Recapture. |
+| Account not created | `UserAccounts` block missing or schema-invalid | `[xml](Get-Content unattend.xml)` in PowerShell -- throws on bad XML. Also check `C:\Windows\Panther\setupact.log` on the deployed machine. |
+| ComputerName / TimeZone didn't apply | Image wasn't sysprepped; specialize pass skipped | Recapture with `sysprep /generalize /oobe /shutdown`. |
+| FirstLogonCommands didn't run | Script not present at the path in the CommandLine element | Bake the script into the gold image at a stable path before sysprep. |
+| `[xml]` parse errors | Schema mismatch or typo | Use Windows SIM on an admin workstation (ADK component) to validate the file before baking into the gold image. |
 
 ---
 

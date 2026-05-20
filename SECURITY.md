@@ -2,20 +2,12 @@
 
 ## Scope
 
-This project ships PowerShell scripts that configure MDT and build a
-self-contained deployment ISO. Security issues in this codebase can
-cause irreversible data loss on target machines, which makes responsible
-disclosure important.
-
-## Supported Versions
-
-| Version | Supported          |
-|---------|--------------------|
-| 4.4.x   | :white_check_mark: |
-| < 4.4   | :x:                |
-
-Only the latest minor release receives fixes. Earlier versions are archived
-on Git tags for reference but are not patched.
+This project ships PowerShell scripts and documentation for building a
+self-deploying Clonezilla ISO that restores a golden Windows 11 image
+and runs first-boot automation (Dell BIOS config + BitLocker TPM+PIN
+enable + cleanup). Security issues here can cause data loss on target
+machines or leak BitLocker PINs / BIOS passwords baked into the ISO,
+which makes responsible disclosure important.
 
 ## Reporting a Vulnerability
 
@@ -26,40 +18,54 @@ Please report security vulnerabilities through
 
 When reporting, include:
 
-- The exact version / commit SHA affected
-- A minimal reproduction (command line, environment, sample image if relevant)
-- The observed behavior (e.g., wrong disk selected, safety prompt bypassed,
-  silent-mode contract broken, log redaction failure)
+- The exact commit SHA affected
+- A minimal reproduction (golden-image steps, captured ISO context if
+  relevant)
+- The observed behavior (e.g. BitLocker enables without a recovery
+  protector, PIN file leaks past cleanup, recovery key written to the
+  wrong location, CCTK silently succeeds with a bad config)
 - The expected behavior
 - Any mitigations you've already identified
 
-You should get an initial acknowledgement within **72 hours**. A fix timeline
-will be proposed once the scope is understood. Critical issues (arbitrary
-disk wipe, silent-mode bypass, confirmation bypass) are prioritized.
+You should get an initial acknowledgement within **72 hours**. A fix
+timeline will be proposed once the scope is understood. Critical
+issues (BitLocker enables without recovery, secrets leak past cleanup)
+are prioritized.
 
 ## In Scope
 
-- MDT configuration or task-sequence logic that could cause unintended disk
-  wipes or target the wrong machine
-- Zero-touch config (`CustomSettings.ini`, `Bootstrap.ini`) settings that
-  bypass safety checks in unexpected ways
-- Path/parameter handling in the admin scripts that allows arbitrary command
-  execution
-- Third-party binary inclusion or `.gitignore` gaps that could result in
-  inadvertent redistribution of vendor-licensed tools
+- BitLocker enablement logic that could leave a volume encrypted with
+  no recovery protector
+- Cleanup logic gaps that leave the PIN file, recovery key, or BIOS
+  config package on the deployed machine when they should be removed
+- Idempotency or staging-path errors that cause `SetupComplete.cmd` to
+  succeed silently when it should fail
+- `.gitignore` gaps or doc patterns that could result in inadvertent
+  commit of vendor-licensed CCTK binaries
 
-Note: this branch does not include scripts that modify offline WIM images
-or WinPE boot images directly.
+## Accepted Risk (Not Vulnerabilities)
+
+The following are documented design decisions and accepted risks; do
+**not** report them as vulnerabilities:
+
+- **Same BitLocker PIN across the fleet.** The PIN file is baked into
+  the captured Clonezilla image. See the [BitLocker PIN trust
+  model](README.md#bitlocker-pin-trust-model) in the README.
+- **CCTK BIOS passwords plaintext in the ISO.** See [docs/CCTK.md](docs/CCTK.md).
+- **Recovery keys are local-only.** This is an offline, unmanaged
+  workflow; keys land on the deployed machine for operator pickup
+  rather than being escrowed to AD/MDM.
 
 ## Out of Scope
 
-- Issues that require already having Administrator access on the admin
-  workstation (MDT itself is an administrator-only tool)
-- Missing hardening for threats outside the tool's stated use case
-  (e.g., not a forensics tool, not a secure erase tool)
-- Third-party ADK or MDT components — report those to Microsoft
+- Issues that require already having Administrator access on the gold
+  reference machine (image building is an admin-only operation)
+- Threats outside the tool's stated use case (not a forensics tool,
+  not a secure-erase tool, not a per-machine deployment tool)
+- Third-party Clonezilla / Dell DCC / Windows components -- report
+  those upstream
 
 ## Disclosure
 
-After a fix ships, the advisory is published on the GitHub Security tab with
-credit to the reporter (unless anonymity is requested).
+After a fix ships, the advisory is published on the GitHub Security tab
+with credit to the reporter (unless anonymity is requested).

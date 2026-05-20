@@ -5,220 +5,147 @@
 > Configure does not permit third-party redistribution. Do **not**
 > commit `cctk.exe`, the HAPI driver, or any CCTK DLL to this repo or
 > a fork. Download Dell Command | Configure directly from Dell's
-> support site onto your admin workstation and copy the binaries into
-> the deployment share locally.
-> `.gitignore` blocks `/vendor/`, `/cctk-source/`, `cctk.exe`, and
-> `hapint*.inf/.sys` as a safety net.
+> support site and install it into the **gold image** during the
+> admin build phase. The deployed machine inherits the install through
+> the Clonezilla capture.
 
-CCTK is a one-shot CLI tool, not installed software. The right pattern in MDT
-is to drop the binaries in the deployment share's `Tools\` folder and call
-them from a **Run Command Line** task sequence step. **Do not** import CCTK
-as an MDT Application -- Applications are for software that gets installed
-and tracked on the client. CCTK just runs once to flip BIOS settings.
-
-CCTK runs in **State Restore** -- inside the newly deployed Windows
-environment, after OS apply. Settings are written to NVRAM immediately, but
-their **effect** generally requires a POST. The reboot at the end of
-deployment is that POST.
+CCTK is a one-shot CLI tool that flips BIOS settings via WMI-ACPI (or
+HAPI on legacy versions). In this workflow it runs once per deployed
+machine inside `SetupComplete.cmd`, post-OOBE, via
+[`scripts/Apply-DellConfig.ps1`](../scripts/Apply-DellConfig.ps1).
 
 ## Timing
 
-The flow is:
+The flow on the deployed machine is:
 
-1. Windows is deployed normally
-2. State Restore runs in the new Windows environment
-3. CCTK writes BIOS settings to NVRAM
-4. Task sequence finishes, machine reboots
-5. Most settings take effect on that POST -- one reboot
+1. Clonezilla restores the golden image to the disk.
+2. Windows reboots into specialize + OOBE (which is silent because of
+   `unattend.xml`).
+3. `C:\Windows\Setup\Scripts\SetupComplete.cmd` runs at end of OOBE.
+4. `Apply-DellConfig.ps1` runs `cctk.exe --import=<dell-config.cctk>`.
+5. CCTK writes BIOS settings to NVRAM.
+6. SetupComplete finishes, machine reboots.
+7. Most settings take effect on that POST -- one reboot.
 
 **Two-POST settings:** Some changes (TPM clear, SATA mode flips,
-virtualization toggles) require **two POSTs** on certain firmware to fully
-apply. If a setting doesn't stick after the first reboot, reboot once more
-to confirm before troubleshooting further.
+virtualization toggles) require **two POSTs** on certain firmware to
+fully apply. If a setting doesn't stick after the first reboot, reboot
+once more to confirm before troubleshooting further.
 
-**RAID → AHCI:** If the target machine ships with RAID mode enabled, DISM
-will apply the image but Windows won't boot without the RAID driver. This
-must be fixed **manually in BIOS before starting deployment** -- flip to
-AHCI, then run the USB. CCTK cannot fix this in-band because the disk mode
-needs to change before the OS is applied.
+**RAID -> AHCI:** If the target machine ships with RAID mode enabled,
+**Clonezilla won't see the disk** -- restore fails before any of this
+runs. Operator SOP must include "if Clonezilla reports no disk, switch
+BIOS SATA mode to AHCI and retry." See
+[`docs/USB_SETUP.md`](USB_SETUP.md). CCTK cannot fix this in-band; the
+disk mode must change before Clonezilla restores.
 
-## Setup
+## Setup (admin, on the gold reference machine)
 
-### 1. Get the CCTK binaries
+### 1. Install Dell Command | Configure into the gold image
 
-Install Dell Command | Configure on your admin workstation (not on target
-machines -- you only need the binaries locally). Download from
+On the reference machine (before sysprep), install Dell Command |
+Configure. Download from
 [Dell support](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure)
-and run the installer.
-
-After install, the binaries live at:
+and run the installer. After install, `cctk.exe` lives at:
 
 ```
-C:\Program Files (x86)\Dell\Command Configure\X86_64\
+C:\Program Files (x86)\Dell\Command Configure\X86_64\cctk.exe
 ```
 
-This folder contains `cctk.exe` and (on older releases) a HAPI driver
-subdirectory.
+`Apply-DellConfig.ps1` hard-codes this path and hard-fails if missing.
 
-> **HAPI is legacy.** Dell Command | Configure 4.0 and later (your DCC 5.x
-> install) no longer uses HAPI -- it talks to BIOS via WMI-ACPI. The HAPI
-> subdirectory may or may not be present depending on version. Copy whatever
-> is in `X86_64\` as-is; an extra unused HAPI folder is harmless.
+> **HAPI is legacy.** DCC 4.0 and later (your DCC 5.x install) no
+> longer uses HAPI -- it talks to BIOS via WMI-ACPI. The HAPI
+> subdirectory may or may not be present depending on version.
+> Inconsequential.
 
-### 2. Copy CCTK into the deployment share
+### 2. Generate a BIOS config package
 
-Copy the entire `X86_64\` contents into the deployment share under `Tools\`:
+On a reference Dell, set BIOS to your desired state by hand (or with
+CCTK), then export:
 
-```
-C:\MDTDeploymentShare\Tools\Dell-CCTK\
-├── cctk.exe
-├── HAPI\
-│   ├── ...
-├── configs\
-│   ├── default.ini
-│   ├── OptiPlex7090.ini    (optional, per-model override)
-│   └── 1A2B3C4.ini         (optional, per-service-tag override)
-└── (other files from X86_64)
+```cmd
+cctk.exe --export="C:\temp\dell-config.cctk"
 ```
 
-`Tools\` is part of every MDT deployment share by default and gets baked
-into the media automatically -- no Application import needed. Files in
-`Tools\` are accessible at deploy time via `%DEPLOYROOT%\Tools\...`.
+`--export` produces an opaque binary `.cctk` file (a packaged config
+suitable for `--import`). The plaintext `.ini` form from older docs
+still works for `--import` but `.cctk` is the recommended exchange
+format.
 
-### 3. Add config files
+**Trim the export before using as a deployment config.** A full
+`--export` includes machine-specific values (asset tag, service tag,
+ownership tag) you don't want forced across the fleet. Re-export after
+manually clearing those fields on the reference, or open the file via
+DCC's GUI and re-save to drop the per-machine bits.
 
-Place your CCTK config files under `Tools\Dell-CCTK\configs\` (see structure
-above). Config selection precedence:
+### 3. Stage the config
 
-1. `%SerialNumber%.ini` — the machine's BIOS serial number (service tag)
-2. `%Model%.ini` — MDT's `%Model%` variable, non-alphanumerics stripped
-   (e.g. "OptiPlex 7090" → `OptiPlex7090`)
-3. `default.ini`
-4. None found → CCTK step is skipped, deploy continues
-
-This is implemented by a `cmd.exe` if/else step in the task sequence (next
-section). One ISO can serve a mixed fleet -- most machines get
-`default.ini`, specific models or service tags get overrides when needed.
-
-### 4. Add Run Command Line steps to the task sequence
-
-In Deployment Workbench, open the task sequence editor:
-**Task Sequences** > right-click your task sequence > **Properties** >
-**Task Sequence** tab.
-
-In **State Restore** > **Custom Tasks** (or any position after Tattoo),
-add two Run Command Line steps:
-
-**Step 1 -- Select CCTK config**
-
-| Field | Value |
-|-------|-------|
-| Name | Select CCTK Config |
-| Command line | `cmd.exe /c if exist "%DEPLOYROOT%\Tools\Dell-CCTK\configs\%SerialNumber%.ini" (set CCTKConfig=%SerialNumber%.ini) else if exist "%DEPLOYROOT%\Tools\Dell-CCTK\configs\%Model%.ini" (set CCTKConfig=%Model%.ini) else (set CCTKConfig=default.ini)` |
-
-**Step 2 -- Run CCTK**
-
-| Field | Value |
-|-------|-------|
-| Name | Apply CCTK BIOS config |
-| Command line | `"%DEPLOYROOT%\Tools\Dell-CCTK\cctk.exe" -i "%DEPLOYROOT%\Tools\Dell-CCTK\configs\%CCTKConfig%"` |
-| Start in | `%DEPLOYROOT%\Tools\Dell-CCTK` |
-
-If CCTK exits non-zero, MDT treats the step as a failure and halts the
-task sequence -- desired behavior so a misconfigured BIOS attempt does
-not silently continue.
-
-### 5. Rebuild the media
-
-After adding the binaries and steps, right-click your deployment share >
-**Update Deployment Share**, then right-click **MEDIA001** > **Update Media
-Content** to bake everything into a fresh ISO.
-
-## Exporting a Config from a Reference Machine
-
-To capture a known-good BIOS state from a reference Dell:
+Copy the trimmed config to the gold image at:
 
 ```
-cctk.exe --export=C:\temp\MB18250.ini
+C:\ProgramData\ManualClonezilla\Config\dell-config.cctk
 ```
 
-That produces a complete dump of current BIOS settings. **Trim the file
-before using it as a deployment config** -- a full export includes
-machine-specific values (asset tag, service tag, etc.) you don't want
-to enforce across the fleet.
+`Apply-DellConfig.ps1` hard-codes this path. If the file is missing on
+a deployed machine, the script throws and `SetupComplete` halts (this
+is intentional -- silent BIOS misconfig is worse than a loud failure).
 
-## Config File Format
+## Cross-model compatibility
 
-Plain CCTK INI. Example `default.ini` for a fresh Dell workstation:
+A single `.cctk` package may not apply cleanly across Dell families
+(Latitude vs OptiPlex vs Precision) because available BIOS tokens
+differ by platform and generation. Options:
 
-```ini
-; Secure Boot on, UEFI only
---secureboot=enabled
---bootlist=uefi
+- **Single homogeneous fleet:** one image, one config, one ISO.
+  (This is the workflow's primary use case.)
+- **Multiple families:** cut separate images per family. Each image
+  carries the matching `dell-config.cctk` for that hardware.
+- **Mixed-family single image (advanced):** modify
+  `Apply-DellConfig.ps1` to detect model via `wmic computersystem get
+  model` and pick a model-scoped `.cctk` file. Out of scope for the
+  shipped script.
 
-; TPM on
---tpm=on
---tpmactivation=activate
+## Idempotency
 
-; Passwords (see security section below)
---setuppwd=Setup123!
---syspwd=System123!
+`Apply-DellConfig.ps1` hashes `dell-config.cctk` and stores the SHA256
+at `C:\ProgramData\ManualClonezilla\State\dell-config.applied.sha256`
+after a successful import. Re-runs (e.g. operator manually re-runs
+`SetupComplete.cmd`) compare the current file's hash against the
+marker and skip if unchanged. Replacing the `.cctk` file with a new
+version on an already-deployed machine and re-running picks up the
+change.
 
-; Power / boot behavior
---numlock=on
---wakeonlan=lanonly
-```
+## Cleanup
 
-The task sequence invokes `cctk.exe -i <path>` and the step fails
-on any non-zero exit.
+After successful import, `Finalize-Cleanup.ps1` deletes
+`dell-config.cctk` from the deployed machine. The SHA256 marker stays
+in `State\` for forensic purposes. The deployed endpoint therefore
+does not carry the BIOS config package post-OOBE.
 
-## Changing / Clearing Passwords
+## Security: honest accounting
 
-If the BIOS already has a setup or system password set, CCTK needs
-the current one to authenticate:
+BIOS passwords (`--setuppwd`, `--syspwd`) embedded in the `.cctk` file
+are accessible to anyone with read access to the ISO. This workflow's
+trust model is "the ISO is sensitive media; the deployed machine is
+not." See the [BitLocker PIN trust model](../README.md#bitlocker-pin-trust-model)
+in the README for the same accepted-risk framing.
 
-```ini
---setuppwd=NewSetup123!
---valsetuppwd=OldSetup123!
-```
-
-For **clearing** a password:
-
-```ini
---setuppwd=
---valsetuppwd=CurrentSetup123!
-```
-
-## Security: Honest Accounting
-
-Passwords live in plaintext inside the ISO and on the USB. There is
-**no cryptographic protection available** for an unattended deployment
-flow -- anything CCTK reads, someone with the USB or ISO can also read.
-Your mitigations are:
-
-- **Physical security of the USB and ISO** -- primary control. Treat them
-  like domain-admin credentials.
-- **Unique setup password per machine** (service-tag configs) -- limits
-  blast radius if one USB walks off.
-- **Rotate after deployment** -- change setup/system passwords via
-  CCTK or Windows provisioning after the machine is in service.
-- **CCTK's `--setuppwdencrypted`** -- Dell offers a per-machine-hashed
-  encrypted format. Not useful for fleet ISOs (encryption is keyed to
-  the host generating it), but worth knowing about for one-off
-  provisioning.
-
-If you need real runtime secrecy, the only options are typed prompts,
-USB security keys, or network-fetched passwords. All of those break
-the "boot, walk away" model.
+Mitigations:
+- **Physical security of the USB and ISO.** Primary control.
+- **Rotate setup/system passwords post-deployment** if your environment
+  requires unique passwords per machine.
+- **Don't push the ISO to public storage.** Internal SMB share with
+  ACL, password-protected file drop, or hand-delivery only.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `CCTK returned exit 116` | A new password was supplied without the current one | Add `--valsetuppwd=<current>` so CCTK can authenticate before changing |
-| `CCTK returned exit 149` | TPM clear requires the setup password | Set the setup password in BIOS first, or add `--valsetuppwd=<current>` to the config |
-| `CCTK returned exit 117` | HAPI driver load failure (legacy only) | DCC 4.0+ does not use HAPI -- if you see this you are running an older CCTK; upgrade to DCC 5.x |
-| `No CCTK config matched` | None of `<TAG>.ini`/`<MODEL>.ini`/`default.ini` exist | Add a `default.ini` to `Tools\Dell-CCTK\configs\` and rebuild media |
-| BIOS change didn't stick after reboot | Some settings (TPM clear, SATA-to-RAID direction) take two POSTs on certain firmware | Reboot manually a second time to confirm |
-| `%DEPLOYROOT%` not resolving | Step running outside MDT environment | Confirm step is inside State Restore, not before Gather |
-| CCTK step silently skipped | Config selection step set `%CCTKConfig%` to empty | Check the cmd.exe if/else step output in BDD.log; verify config files exist at expected paths |
+| `Apply-DellConfig.log` shows exit 116 | New password supplied without the current one | Re-export with `--valsetuppwd=<current>` in the source config |
+| `Apply-DellConfig.log` shows exit 149 | TPM clear requires setup password | Pre-set setup password in BIOS, or add `--valsetuppwd=<current>` |
+| `Apply-DellConfig.log` shows exit 117 | HAPI driver load failure (legacy DCC) | Reinstall DCC 5.x into the gold image; recapture |
+| `Missing config package: ...dell-config.cctk` | Config not staged before sysprep | Re-stage at `C:\ProgramData\ManualClonezilla\Config\dell-config.cctk`, recapture, regenerate ISO |
+| `Missing Dell Command Configure executable: ...cctk.exe` | DCC not installed in the gold image | Install DCC on the reference machine before sysprep, recapture |
+| BIOS change didn't stick after reboot | Two-POST setting (TPM clear, SATA flip) | Manual second reboot to confirm |
+| `Apply-DellConfig` silently re-skipped on re-run | SHA256 marker present and matches | Delete `State\dell-config.applied.sha256` to force re-import |

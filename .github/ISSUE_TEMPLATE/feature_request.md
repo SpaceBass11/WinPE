@@ -1,22 +1,24 @@
 ---
 name: Feature request
-about: Suggest an enhancement to the MDT scripts or deployment workflow
+about: Suggest an enhancement to the Clonezilla deploy workflow
 title: "[FEATURE] "
 labels: enhancement
 assignees: ''
 ---
 
 ## Problem
-What's the current pain point? (e.g., "can't import multiple WIMs in one pass",
-"no support for pre-staging BitLocker in the task sequence")
+What's the current pain point? (e.g., "no model-aware CCTK config
+selection", "recovery key escrow only writes locally").
 
 ## Proposed solution
-What you'd like to happen. If it's a CLI change, sketch the parameter
-signature.
+What you'd like to happen. If it's a behavior change, sketch the new
+invariant.
 
-## MDT considerations
-Does this require changes to the task sequence, CustomSettings.ini, or
-Bootstrap.ini? Note any MDT 8456 / ADK compatibility constraints.
+## Compatibility considerations
+- Does this break the BitLocker protector gates?
+- Does this change a staging path that operators or RUNBOOK steps
+  depend on?
+- Does this require the gold image to be recaptured?
 
 ## Alternatives considered
 Other approaches you ruled out, and why.
