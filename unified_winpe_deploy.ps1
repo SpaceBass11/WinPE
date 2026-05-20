@@ -1609,13 +1609,11 @@ function Start-Deployment {
     # Wire opt-in BitLocker / data-disk parameters into Script:Config so the
     # rest of the script reads them through a single place. Off by default;
     # any caller (silent or interactive) must explicitly opt in.
-    if ($PSBoundParameters.ContainsKey('DataDiskNumber')) {
-        $Script:Config.DataDiskNumber = $DataDiskNumber
-    }
-    if ($EnableBitLocker) { $Script:Config.EnableBitLocker = $true }
-    if ($PSBoundParameters.ContainsKey('BitLockerPin')) {
-        $Script:Config.BitLockerPin = $BitLockerPin
-    }
+    # NOTE: $PSBoundParameters here would be Start-Deployment's (always empty);
+    # we read the script-scope param vars directly via the sentinel defaults.
+    if ($DataDiskNumber -ge 0) { $Script:Config.DataDiskNumber = $DataDiskNumber }
+    if ($EnableBitLocker)      { $Script:Config.EnableBitLocker = $true }
+    if ($BitLockerPin)         { $Script:Config.BitLockerPin   = $BitLockerPin }
 
     # Reject placeholder PINs - the v4.6.x default 'ChangeMe123!' and a few
     # common weak strings are blocked outright so they can't leak into a
