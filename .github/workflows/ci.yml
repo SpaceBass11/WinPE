@@ -29,6 +29,46 @@ jobs:
         shell: pwsh
         run: ./tests/test_wim_parser.ps1
 
+  pester:
+    name: Pester validation-gate smoke tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Pester version
+        shell: pwsh
+        run: Get-Module -ListAvailable Pester | Select-Object Name, Version | Format-Table
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          # Force Pester v5+ (windows-latest ships v3 alongside v5; we need v5).
+          $pester = Get-Module -ListAvailable Pester |
+            Where-Object { $_.Version.Major -ge 5 } |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+          if (-not $pester) {
+            Write-Host "Installing Pester v5..."
+            Install-Module Pester -MinimumVersion 5.0.0 -Force -Scope CurrentUser -SkipPublisherCheck
+            $pester = Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
+          }
+          Import-Module $pester.Path -Force
+
+          $config = New-PesterConfiguration
+          $config.Run.Path        = './tests/validation-gates.Tests.ps1'
+          $config.Run.Exit        = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = 'pester-results.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload Pester results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-results
+          path: pester-results.xml
+
   pssa:
     name: PSScriptAnalyzer
     runs-on: windows-latest
