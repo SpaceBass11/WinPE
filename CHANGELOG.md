@@ -8,6 +8,16 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added
+- **Per-USB `deploy.args` file.** `scripts/build_boot_wim.ps1` now
+  writes a `startnet.cmd` that looks for `<IMAGES>\deploy.args` on
+  boot and passes its single-line contents as parameters to
+  `unified_winpe_deploy.ps1`. Lets you retarget a USB (different
+  image, different PIN, interactive vs silent) by editing one text
+  file — no `boot.wim` rebuild. Missing file = fully interactive
+  TUI (unchanged default). New `configs/deploy.args.example`
+  template and `docs/DEPLOY_ARGS.md` walkthrough.
+
 ### Changed (security / safety)
 - **BitLocker / data-disk feature is now opt-in.** The v4.6.x BitLocker
   / data-disk feature (added in PR #33) defaulted `DataDiskNumber = 1`

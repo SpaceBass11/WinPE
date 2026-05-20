@@ -30,7 +30,7 @@ USB Drive Layout:
 3. `unified_winpe_deploy.ps1` — *runtime, every deploy:* the flow below
 
 ### Deployment Flow
-1. Boot from USB → WinPE loads → script auto-starts
+1. Boot from USB → WinPE loads → `startnet.cmd` reads optional `<IMAGES>\deploy.args` and launches the deploy script with those parameters (no file = fully interactive TUI; see `docs/DEPLOY_ARGS.md`)
 2. Administrator check (script requires elevation)
 3. Silent-mode validation (if `-Silent`: requires `-WimFile`, `-TargetDisk`, `-Force`; `-WipeDisks` format validated if given)
 4. Script scans for `.wim`/`.esd` files on non-system drives
@@ -68,6 +68,8 @@ USB Drive Layout:
 | `docs/TROUBLESHOOTING.md` | Common issues, fixes, and known caveats |
 | `docs/CCTK.md` | Dell CCTK pre-apply BIOS configuration |
 | `docs/BITLOCKER.md` | Opt-in BitLocker + data-disk staging |
+| `docs/DEPLOY_ARGS.md` | Per-USB `deploy.args` file consumed by startnet.cmd |
+| `configs/deploy.args.example` | Template for the per-USB args file |
 | `docs/SIGNING.md` | Enterprise code-signing for the deploy script |
 | `.claude/MASTERIZE.md` | Internal release-audit playbook (greps + read pass) |
 

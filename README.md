@@ -164,6 +164,7 @@ USB Drive (32GB+ recommended)
 ├── Partition 1: WinPE Boot (FAT32, ~2GB)
 │   └── Contains WinPE with auto-start configuration
 └── Partition 2: Data (NTFS, remaining space)
+    ├── deploy.args                 (optional one-line param file - see docs/DEPLOY_ARGS.md)
     ├── images/
     │   ├── Win11_Pro_24H2.wim
     │   ├── Win10_Enterprise_LTSC.wim
@@ -260,6 +261,7 @@ The script creates a standard UEFI/GPT partition layout:
 - [Architecture](docs/ARCHITECTURE.md) - Design rationale and data flow
 - [BIOS Configuration (CCTK)](docs/CCTK.md) - Pre-apply BIOS setup for Dell fleets
 - [BitLocker / data-disk setup](docs/BITLOCKER.md) - Opt-in encrypted first-boot config
+- [Per-USB deploy.args](docs/DEPLOY_ARGS.md) - Drop a one-line params file on the USB to retarget without rebuilding boot.wim
 - [Code Signing](docs/SIGNING.md) - Signing the script for enterprise use
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [Known Issues](docs/TROUBLESHOOTING.md#known-caveats) - Intentional design choices and environmental constraints
