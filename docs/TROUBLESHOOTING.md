@@ -257,6 +257,27 @@ If CCTK silently skips (`No CCTK config matched`), check that:
 
 See `docs/CCTK.md` for full configuration details.
 
+### BitLocker / data-disk
+
+Full feature reference: [`docs/BITLOCKER.md`](BITLOCKER.md). Common
+failure modes:
+
+- **`-EnableBitLocker requires -BitLockerPin`** — `-EnableBitLocker`
+  has no default PIN. Pass `-BitLockerPin '<your PIN>'`. The
+  placeholder strings `ChangeMe123!`, `password`, `Password1`,
+  `123456` are rejected at runtime.
+- **`-DataDiskNumber N is the system disk - refusing`** — picked the
+  wrong disk number. Check `diskpart > list disk` and pick a
+  non-system, non-target, non-USB disk.
+- **`Cannot release D: - it hosts the WIM source`** — the USB IMAGES
+  partition was auto-letter-assigned to `D:`. Re-letter the partition
+  to something else (e.g. `I:`) per `docs/USB_SETUP.md`, or skip
+  `-DataDiskNumber`.
+- **First-boot BitLocker fails with "TPM not provisioned"** — enable
+  TPM in BIOS (CCTK can automate this) or run `manage-bde -tpm
+  -takeownership` once Windows is up. Logs land in
+  `C:\Windows\Setup\Scripts\bitlocker-setup.log`.
+
 ### "No additional disks selected" but I expected to see disk N
 
 The additional-wipe menu only shows disks that:

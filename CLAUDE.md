@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a **PowerShell-based WinPE image deployment tool** (v4.6.0) that automates
+This is a **PowerShell-based WinPE image deployment tool** (v4.7.0) that automates
 Windows installation from `.wim`/`.esd` files in a WinPE boot environment. The tool
 is designed to run from a USB drive with a dual-partition layout: a small WinPE boot
 partition and a larger data partition holding Windows images.
@@ -48,8 +48,9 @@ USB Drive Layout:
 16. DISM applies the WIM to C:\ (progress shown inline)
 17. Post-deploy verification (C:\Windows\System32 exists)
 18. **Unattend staging** — if `-UnattendFile` given, copies answer file to `C:\Windows\Panther\unattend.xml` for Windows Setup to process on first boot (OOBE skip, domain join, computer name, autologon)
-19. BCDBoot configures UEFI boot on S: (EFI partition)
-20. Optional shutdown prompt (uses shutdown.exe for WinPE reliability) — final reboot activates any queued CCTK BIOS changes + Windows processes unattend.xml
+19. **BitLocker / data-disk staging (opt-in)** — if `-DataDiskNumber` is set, the diskpart script (step 14) also formats that disk as NTFS `D:` after a typed `WIPE DATA` confirmation; if `-EnableBitLocker` is set, `Initialize-BitLockerSetup` writes `bitlocker-setup.ps1` + `SetupComplete.cmd` to `C:\Windows\Setup\Scripts\` so first boot does TPM+PIN on C: (and recovery key + auto-unlock on D: when present). Recovery keys escrow to `<IMAGES>\BitLockerKeys` by default. See `docs/BITLOCKER.md`.
+20. BCDBoot configures UEFI boot on S: (EFI partition)
+21. Optional shutdown prompt (uses shutdown.exe for WinPE reliability) — final reboot activates any queued CCTK BIOS changes + Windows processes unattend.xml
 
 ## Key Files
 
@@ -66,6 +67,7 @@ USB Drive Layout:
 | `docs/ARCHITECTURE.md` | Design rationale, data flow, non-goals |
 | `docs/TROUBLESHOOTING.md` | Common issues, fixes, and known caveats |
 | `docs/CCTK.md` | Dell CCTK pre-apply BIOS configuration |
+| `docs/BITLOCKER.md` | Opt-in BitLocker + data-disk staging |
 | `docs/SIGNING.md` | Enterprise code-signing for the deploy script |
 | `.claude/MASTERIZE.md` | Internal release-audit playbook (greps + read pass) |
 
@@ -130,6 +132,7 @@ checks 8-19). They run on every push — no local replica needed.
 6. **Drive letters S: and C:** are hardcoded for EFI and Windows partitions respectively
 7. **Never unmount the system drive** - mountvol /d must check $env:SystemDrive first
 8. **Use shutdown.exe, not Stop-Computer** - Stop-Computer is unreliable in WinPE
+9. **BitLocker / data-disk must stay opt-in** - `DataDiskNumber` and `EnableBitLocker` default to `-1` / `$false`. The PIN must never have a non-null default. The `ForbiddenBitLockerPins` list must always include `'ChangeMe123!'` (the v4.6.x placeholder). The `WIPE DATA` typed confirmation must remain.
 
 ## Known Constraints
 

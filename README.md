@@ -170,8 +170,10 @@ USB Drive (32GB+ recommended)
     │   └── (any .wim or .esd files)
     ├── configs/                    (optional, unattend.xml answer files)
     │   └── unattend.xml            (used with -UnattendFile)
-    └── cctk/                       (optional, Dell BIOS configs)
-        └── default.ini             (and/or per-tag, per-model overrides)
+    ├── cctk/                       (optional, Dell BIOS configs)
+    │   └── default.ini             (and/or per-tag, per-model overrides)
+    └── BitLockerKeys/              (auto-created when -EnableBitLocker used)
+        └── <hostname-or-tag>/      (BitLocker recovery key escrow)
 ```
 
 See [docs/USB_SETUP.md](docs/USB_SETUP.md) for step-by-step USB preparation instructions.
@@ -212,7 +214,11 @@ The script launches automatically via `startnet.cmd` when WinPE boots. No manual
 | `-WipeDisks` | String | Comma-separated disk numbers to *also* wipe (clean-only) alongside the primary target (e.g. `"1,2"`). Requires `-Force` in silent mode. |
 | `-MinImageSizeMB` | Int | Auto-discovery minimum image size in MB (default 100). Lower for small lab images. |
 | `-UnattendFile` | String | Path to an `unattend.xml` answer file. Copied to `C:\Windows\Panther\unattend.xml` post-apply so Windows Setup processes it on first boot (OOBE skip, domain join, etc.). |
-| `-Force` | Switch | Skip the typed `ERASE` / `WIPE ALL` confirmations. Never bypasses `DESTROY SYSTEM`. |
+| `-DataDiskNumber` | Int | Disk number of an additional internal drive to wipe and format as an NTFS data volume (`D:`). Off by default (`-1`). Requires a typed `WIPE DATA` confirmation. See [docs/BITLOCKER.md](docs/BITLOCKER.md). |
+| `-EnableBitLocker` | Switch | Stage `SetupComplete.cmd` to enable BitLocker on first boot (TPM + Enhanced PIN on `C:`, recovery key + auto-unlock on `D:` when `-DataDiskNumber` is set). Requires `-BitLockerPin`. |
+| `-BitLockerPin` | String | Startup PIN for the TPM+PIN protector on `C:`. Required when `-EnableBitLocker` is set. 6-20 characters; placeholder PINs (`ChangeMe123!`, etc.) are rejected. |
+| `-BitLockerKeyPath` | String | Optional override for recovery-key escrow. Default: `<IMAGES>\BitLockerKeys`. Use a UNC share or removable-media path for centralized escrow. |
+| `-Force` | Switch | Skip the typed `ERASE` / `WIPE ALL` / `WIPE DATA` confirmations. Never bypasses `DESTROY SYSTEM`. |
 | `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`), and a single-index image. |
 | `-ListOnly` | Switch | Show available images and exit |
 
@@ -253,6 +259,7 @@ The script creates a standard UEFI/GPT partition layout:
 - [Script Reference](docs/SCRIPT_REFERENCE.md) - Detailed function and parameter docs
 - [Architecture](docs/ARCHITECTURE.md) - Design rationale and data flow
 - [BIOS Configuration (CCTK)](docs/CCTK.md) - Pre-apply BIOS setup for Dell fleets
+- [BitLocker / data-disk setup](docs/BITLOCKER.md) - Opt-in encrypted first-boot config
 - [Code Signing](docs/SIGNING.md) - Signing the script for enterprise use
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [Known Issues](docs/TROUBLESHOOTING.md#known-caveats) - Intentional design choices and environmental constraints
@@ -291,6 +298,13 @@ opening one, please:
 see the license for the full disclaimer of warranty.
 
 ## Version
+
+**v4.7.0** - BitLocker / data-disk feature reworked to opt-in: new
+`-DataDiskNumber`, `-EnableBitLocker`, `-BitLockerPin`,
+`-BitLockerKeyPath` parameters. Default no longer wipes a hardcoded
+second disk; recovery keys escrow to the IMAGES partition (or a
+caller-supplied path) instead of the encrypted volume. Placeholder
+PINs are rejected at runtime. See [docs/BITLOCKER.md](docs/BITLOCKER.md).
 
 **v4.6.0** - Driver injection (`prepare_wim.ps1 -DriverPath`) to pre-bake
 drivers into the WIM at prep time. Unattend.xml staging (`-UnattendFile`)
