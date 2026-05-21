@@ -79,72 +79,6 @@ AfterAll {
 }
 
 # ---------------------------------------------------------------------------
-# Helper: set up the standard mock stack for Start-Deployment tests. Mocks
-# every destructive entry point so a successful pass through Start-Deployment
-# never touches a real disk. Validation-gate tests can rely on these mocks
-# to drive execution to the gate of interest.
-# ---------------------------------------------------------------------------
-function Initialize-DeployMocks {
-    param(
-        [array]$Disks = @(
-            [PSCustomObject]@{ Number=0; Size=500; Model='Target NVMe'; InterfaceType='SCSI'; HasPartitions=$false; PartitionInfo='No partitions'; IsSystemDisk=$false }
-            [PSCustomObject]@{ Number=1; Size=500; Model='Data NVMe';   InterfaceType='SCSI'; HasPartitions=$true;  PartitionInfo='Part1:500GB'; IsSystemDisk=$false }
-        ),
-        $TargetDiskOverride = $null,
-        [string]$ReadHostReturn = 'WIPE DATA'
-    )
-
-    Mock -ModuleName DeployUnderTest -CommandName Test-Administrator     -MockWith { $true }
-    Mock -ModuleName DeployUnderTest -CommandName Initialize-SystemPaths -MockWith { }
-    Mock -ModuleName DeployUnderTest -CommandName Find-ImageFiles        -MockWith {
-        @(@{ Path='I:\images\Win.wim'; Name='Win.wim'; Size=10GB; Type='Mock'; LastModified=(Get-Date) })
-    }
-    Mock -ModuleName DeployUnderTest -CommandName Show-ImageSelection    -MockWith {
-        @{ Path='I:\images\Win.wim'; Name='Win.wim'; Size=10GB; Type='Mock'; LastModified=(Get-Date) }
-    }
-    Mock -ModuleName DeployUnderTest -CommandName Get-WimImageInfo       -MockWith {
-        @(@{ Index=1; Name='Test'; Description='Test'; Size='10000000000' })
-    }
-    Mock -ModuleName DeployUnderTest -CommandName Select-ImageIndex      -MockWith { 1 }
-    Mock -ModuleName DeployUnderTest -CommandName Test-WinPEEnvironment  -MockWith { $true }
-    Mock -ModuleName DeployUnderTest -CommandName Test-SystemMemory      -MockWith { $true }
-    Mock -ModuleName DeployUnderTest -CommandName Invoke-CctkConfig      -MockWith { $true }
-    Mock -ModuleName DeployUnderTest -CommandName Get-SystemDisks        -MockWith { ,$Disks }
-    if ($TargetDiskOverride) {
-        Mock -ModuleName DeployUnderTest -CommandName Select-TargetDisk  -MockWith { $TargetDiskOverride }
-    } else {
-        Mock -ModuleName DeployUnderTest -CommandName Select-TargetDisk  -MockWith { $Disks[0] }
-    }
-    Mock -ModuleName DeployUnderTest -CommandName Select-AdditionalWipeDisks -MockWith { ,@() }
-    Mock -ModuleName DeployUnderTest -CommandName New-DiskpartScript     -MockWith { $true }
-    Mock -ModuleName DeployUnderTest -CommandName Invoke-Diskpart        -MockWith { $true }
-    Mock -ModuleName DeployUnderTest -CommandName Apply-WindowsImage     -MockWith { $true }
-    Mock -ModuleName DeployUnderTest -CommandName Set-BootConfiguration  -MockWith { $true }
-    Mock -ModuleName DeployUnderTest -CommandName Initialize-BitLockerSetup -MockWith { $true }
-    # Post-diskpart Test-Path loop expects S:\, C:\, (D:\)
-    Mock -ModuleName DeployUnderTest -CommandName Test-Path -MockWith { $true }
-    # Final shutdown prompt + WIPE DATA confirmation
-    Mock -ModuleName DeployUnderTest -CommandName Read-Host -MockWith { $ReadHostReturn }
-    Mock -ModuleName DeployUnderTest -CommandName Show-MessageBox -MockWith { 'No' }
-    # Capture logs into a module-visible collection for assertions
-    & $script:DeployModule { $Script:CapturedLogs = New-Object System.Collections.ArrayList }
-    Mock -ModuleName DeployUnderTest -CommandName Write-Log -MockWith {
-        param($Message, $Level)
-        [void]$Script:CapturedLogs.Add(@{ Message = $Message; Level = $Level })
-    }
-}
-
-function Get-CapturedLog {
-    & $script:DeployModule { ,$Script:CapturedLogs }
-}
-
-function Test-LogContains {
-    param([string]$Pattern)
-    $logs = Get-CapturedLog
-    return [bool]($logs | Where-Object { $_.Message -match $Pattern })
-}
-
-# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
@@ -251,9 +185,17 @@ Describe "New-DiskpartScript source-drive protection" {
 
 Describe "Start-Deployment validation gates" {
 
+    # All mock setup lives directly in BeforeEach. Pester v5 does not expose
+    # functions defined outside of Pester blocks (script root, BeforeAll) to
+    # BeforeEach during the run phase. Inlining is the only reliable pattern.
     BeforeEach {
-        Initialize-DeployMocks
-        # Reset all CLI param vars to their defaults before each test
+        # Reset log capture. Use $Global: rather than $Script: because Pester v5
+        # mock bodies (with -ModuleName) execute in a scope where neither the
+        # test-script $Script: nor the module's $Script: is reliably visible.
+        # $Global: is unambiguous everywhere.
+        $Global:CapturedLogs = New-Object System.Collections.ArrayList
+
+        # Reset all CLI param vars to their defaults
         & $script:DeployModule {
             $WimFile          = $null
             $ImagePath        = $null
@@ -271,6 +213,47 @@ Describe "Start-Deployment validation gates" {
             $Script:Config.EnableBitLocker = $false
             $Script:Config.BitLockerPin    = $null
         }
+
+        Mock -ModuleName DeployUnderTest -CommandName Test-Administrator     -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Initialize-SystemPaths -MockWith { }
+        Mock -ModuleName DeployUnderTest -CommandName Find-ImageFiles        -MockWith {
+            @(@{ Path='I:\images\Win.wim'; Name='Win.wim'; Size=10GB; Type='Mock'; LastModified=(Get-Date) })
+        }
+        Mock -ModuleName DeployUnderTest -CommandName Show-ImageSelection    -MockWith {
+            @{ Path='I:\images\Win.wim'; Name='Win.wim'; Size=10GB; Type='Mock'; LastModified=(Get-Date) }
+        }
+        Mock -ModuleName DeployUnderTest -CommandName Get-WimImageInfo       -MockWith {
+            @(@{ Index=1; Name='Test'; Description='Test'; Size='10000000000' })
+        }
+        Mock -ModuleName DeployUnderTest -CommandName Select-ImageIndex      -MockWith { 1 }
+        Mock -ModuleName DeployUnderTest -CommandName Test-WinPEEnvironment  -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Test-SystemMemory      -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Invoke-CctkConfig      -MockWith { $true }
+        # Default disk set: disk 0 = target, disk 1 = data. Both non-system, non-USB.
+        # Individual tests that need a different topology re-register just this mock.
+        Mock -ModuleName DeployUnderTest -CommandName Get-SystemDisks -MockWith {
+            ,@(
+                [PSCustomObject]@{ Number=0; Size=500; Model='Target NVMe'; InterfaceType='SCSI'; HasPartitions=$false; PartitionInfo='No partitions'; IsSystemDisk=$false }
+                [PSCustomObject]@{ Number=1; Size=500; Model='Data NVMe';   InterfaceType='SCSI'; HasPartitions=$true;  PartitionInfo='Part1:500GB'; IsSystemDisk=$false }
+            )
+        }
+        Mock -ModuleName DeployUnderTest -CommandName Select-TargetDisk -MockWith {
+            [PSCustomObject]@{ Number=0; Size=500; Model='Target NVMe'; InterfaceType='SCSI'; HasPartitions=$false; PartitionInfo='No partitions'; IsSystemDisk=$false }
+        }
+        Mock -ModuleName DeployUnderTest -CommandName Select-AdditionalWipeDisks -MockWith { ,@() }
+        Mock -ModuleName DeployUnderTest -CommandName New-DiskpartScript     -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Invoke-Diskpart        -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Apply-WindowsImage     -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Set-BootConfiguration  -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Initialize-BitLockerSetup -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Test-Path              -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Read-Host              -MockWith { 'WIPE DATA' }
+        Mock -ModuleName DeployUnderTest -CommandName Show-MessageBox        -MockWith { 'No' }
+        Mock -ModuleName DeployUnderTest -CommandName Start-Sleep            -MockWith { }
+        Mock -ModuleName DeployUnderTest -CommandName Write-Log              -MockWith {
+            param($Message, $Level)
+            [void]$Global:CapturedLogs.Add(@{ Message = $Message; Level = $Level })
+        }
     }
 
     It "Rejects -DataDiskNumber equal to -TargetDisk" {
@@ -283,7 +266,8 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        (Test-LogContains 'same as the target disk') | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'same as the target disk' }) | Should -Not -BeNullOrEmpty
     }
 
     It "Rejects a nonexistent -DataDiskNumber before any destructive op" {
@@ -296,18 +280,19 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        (Test-LogContains 'not a valid non-USB internal disk') | Should -BeTrue
-        # Confirm no destructive call slipped through
-        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'not a valid non-USB internal disk' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
         Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
     }
 
     It "Rejects -DataDiskNumber pointing at the system disk" {
-        $disks = @(
-            [PSCustomObject]@{ Number=0; Size=500; Model='Target'; InterfaceType='SCSI'; HasPartitions=$false; PartitionInfo='No partitions'; IsSystemDisk=$false }
-            [PSCustomObject]@{ Number=1; Size=500; Model='System'; InterfaceType='SCSI'; HasPartitions=$true;  PartitionInfo='Part1:500GB'; IsSystemDisk=$true }
-        )
-        Initialize-DeployMocks -Disks $disks
+        Mock -ModuleName DeployUnderTest -CommandName Get-SystemDisks -MockWith {
+            ,@(
+                [PSCustomObject]@{ Number=0; Size=500; Model='Target'; InterfaceType='SCSI'; HasPartitions=$false; PartitionInfo='No partitions'; IsSystemDisk=$false }
+                [PSCustomObject]@{ Number=1; Size=500; Model='System'; InterfaceType='SCSI'; HasPartitions=$true;  PartitionInfo='Part1:500GB'; IsSystemDisk=$true }
+            )
+        }
         $result = & $script:DeployModule {
             $WimFile        = 'I:\images\Win.wim'
             $TargetDisk     =  0
@@ -317,30 +302,28 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        (Test-LogContains 'is the system disk') | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'is the system disk' }) | Should -Not -BeNullOrEmpty
         Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
     }
 
     It "Excludes USB-only disks from the -DataDiskNumber pick (filtered by Get-SystemDisks)" {
-        # Get-SystemDisks already excludes USB. Verify by giving it a USB-only
-        # set and showing -DataDiskNumber pointing at the USB disk number is
-        # rejected as "not a valid non-USB internal disk".
-        $disks = @(
-            [PSCustomObject]@{ Number=0; Size=500;  Model='Target';  InterfaceType='SCSI'; HasPartitions=$false; PartitionInfo='No partitions'; IsSystemDisk=$false }
-            # USB disk would have been filtered out by Get-SystemDisks - simulate
-            # by simply not including it in the mocked list.
-        )
-        Initialize-DeployMocks -Disks $disks
+        Mock -ModuleName DeployUnderTest -CommandName Get-SystemDisks -MockWith {
+            ,@(
+                [PSCustomObject]@{ Number=0; Size=500; Model='Target'; InterfaceType='SCSI'; HasPartitions=$false; PartitionInfo='No partitions'; IsSystemDisk=$false }
+            )
+        }
         $result = & $script:DeployModule {
             $WimFile        = 'I:\images\Win.wim'
             $TargetDisk     =  0
-            $DataDiskNumber =  1   # The "USB" disk that Get-SystemDisks filtered out
+            $DataDiskNumber =  1   # not returned by Get-SystemDisks mock
             $Force          = $true
             $Silent         = $true
             Start-Deployment
         }
         $result | Should -BeFalse
-        (Test-LogContains 'not a valid non-USB internal disk') | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'not a valid non-USB internal disk' }) | Should -Not -BeNullOrEmpty
     }
 
     It "Rejects -EnableBitLocker without -BitLockerPin" {
@@ -354,10 +337,11 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        (Test-LogContains 'requires -BitLockerPin') | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'requires -BitLockerPin' }) | Should -Not -BeNullOrEmpty
     }
 
-    It "Rejects -EnableBitLocker -BitLockerPin '<5 chars>' (below length floor)" {
+    It "Rejects -EnableBitLocker -BitLockerPin five-char value below length floor" {
         $result = & $script:DeployModule {
             $WimFile         = 'I:\images\Win.wim'
             $TargetDisk      =  0
@@ -368,7 +352,8 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        (Test-LogContains '6-20 characters') | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
     }
 
     It "Rejects each entry in ForbiddenBitLockerPins" -ForEach @(
@@ -377,20 +362,29 @@ Describe "Start-Deployment validation gates" {
         @{ Pin = 'Password1'    }
         @{ Pin = '123456'       }
     ) {
-        Initialize-DeployMocks
-        $captured = & $script:DeployModule {
-            param($p)
+        # Set the pin in module scope via a dynamically-created scriptblock.
+        # String interpolation embeds the literal $Pin value (from the test
+        # scope) into the scriptblock text before Create() evaluates it, so
+        # the module closure sees the actual pin string without any scope
+        # crossing that would leave it $null.
+        $escaped = $Pin -replace "'", "''"
+        & $script:DeployModule ([scriptblock]::Create("`$Script:PinUnderTest = '$escaped'"))
+        # Reset capture for this iteration (BeforeEach has already run for the
+        # first iteration; subsequent ForEach iterations may share state).
+        $Global:CapturedLogs = New-Object System.Collections.ArrayList
+
+        $result = & $script:DeployModule {
             $WimFile         = 'I:\images\Win.wim'
             $TargetDisk      =  0
             $Force           = $true
             $Silent          = $true
             $EnableBitLocker = $true
-            $BitLockerPin    = $p
-            $result = Start-Deployment
-            ,@($result, $Script:CapturedLogs)
-        } $Pin
-        $captured[0] | Should -BeFalse
-        ($captured[1] | Where-Object { $_.Message -match 'forbidden placeholder' }) | Should -Not -BeNullOrEmpty
+            $BitLockerPin    = $Script:PinUnderTest
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'forbidden placeholder' }) | Should -Not -BeNullOrEmpty
     }
 
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
@@ -403,7 +397,8 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        (Test-LogContains 'prompt cannot run silently') | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'requires -Force' }) | Should -Not -BeNullOrEmpty
         Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
     }
 
@@ -417,13 +412,10 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeTrue
-        # The mocks let it run all the way through; no rejection log line
-        (Test-LogContains 'aborting') | Should -BeFalse
-        # But the destructive entry points were called - confirming the gates
-        # actually passed and the path reached them (mocks intercept, no real
-        # disk touched).
-        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 1
-        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 1
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'aborting' }) | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart       -Times 1
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage    -Times 1
         Should -Invoke -ModuleName DeployUnderTest -CommandName Set-BootConfiguration -Times 1
     }
 
