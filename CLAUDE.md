@@ -59,10 +59,12 @@ USB Drive Layout:
 | `unified_winpe_deploy.ps1` | Main deployment script - the core deliverable |
 | `scripts/build_boot_wim.ps1` | Reproducible WinPE boot.wim builder (components + reg tweaks + embed deploy script) |
 | `scripts/prepare_wim.ps1` | Companion WIM prep: ISO -> debloated/customized install.wim ready to deploy |
+| `scripts/build_iso.ps1` | Packages WinPE media + WIM into one bootable ISO for end-user distribution (Rufus) |
 | `scripts/refresh_usb.ps1` | Thin workflow wrapper: new ISO -> prep + (optional) boot.wim rebuild |
 | `tests/test_parse.ps1` | PowerShell syntax validation (all four scripts) |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule excludes used locally and in CI |
 | `docs/USB_SETUP.md` | USB drive preparation guide |
+| `docs/END_USER_DEPLOY.md` | Plain-English Rufus guide for non-IT end users |
 | `docs/SCRIPT_REFERENCE.md` | Full parameter and function reference |
 | `docs/ARCHITECTURE.md` | Design rationale, data flow, non-goals |
 | `docs/TROUBLESHOOTING.md` | Common issues, fixes, and known caveats |
