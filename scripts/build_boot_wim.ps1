@@ -305,6 +305,14 @@ if defined DEPLOY_IMAGE_DRIVE (
         echo   !DEPLOYARGS!
     )
 )
+:: Replace {DRIVE} placeholder with the actual image-drive letter.
+:: build_iso.ps1 uses this so deploy.args paths work regardless of
+:: which drive letter WinPE assigns the USB.
+if defined DEPLOY_IMAGE_DRIVE (
+    if defined DEPLOYARGS (
+        set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"
+    )
+)
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
 '@
     Set-Content -Path $startnetPath -Value $startnet -Encoding ASCII -Force
