@@ -94,6 +94,18 @@ function Initialize-DeployMocks {
         [string]$ReadHostReturn = 'WIPE DATA'
     )
 
+    # Pester executes -ModuleName mock scriptblocks in the module's scope, so
+    # local function variables like $Disks are invisible there. Push all
+    # mock data into $Script: variables on the module first, then reference
+    # them as $Script:MockDisks etc. inside the mock bodies.
+    & $script:DeployModule {
+        param($d, $tdo, $rhr)
+        $Script:CapturedLogs       = New-Object System.Collections.ArrayList
+        $Script:MockDisks          = $d
+        $Script:MockTargetDisk     = $tdo
+        $Script:MockReadHostReturn = $rhr
+    } $Disks $TargetDiskOverride $ReadHostReturn
+
     Mock -ModuleName DeployUnderTest -CommandName Test-Administrator     -MockWith { $true }
     Mock -ModuleName DeployUnderTest -CommandName Initialize-SystemPaths -MockWith { }
     Mock -ModuleName DeployUnderTest -CommandName Find-ImageFiles        -MockWith {
@@ -109,11 +121,11 @@ function Initialize-DeployMocks {
     Mock -ModuleName DeployUnderTest -CommandName Test-WinPEEnvironment  -MockWith { $true }
     Mock -ModuleName DeployUnderTest -CommandName Test-SystemMemory      -MockWith { $true }
     Mock -ModuleName DeployUnderTest -CommandName Invoke-CctkConfig      -MockWith { $true }
-    Mock -ModuleName DeployUnderTest -CommandName Get-SystemDisks        -MockWith { ,$Disks }
+    Mock -ModuleName DeployUnderTest -CommandName Get-SystemDisks        -MockWith { ,$Script:MockDisks }
     if ($TargetDiskOverride) {
-        Mock -ModuleName DeployUnderTest -CommandName Select-TargetDisk  -MockWith { $TargetDiskOverride }
+        Mock -ModuleName DeployUnderTest -CommandName Select-TargetDisk  -MockWith { $Script:MockTargetDisk }
     } else {
-        Mock -ModuleName DeployUnderTest -CommandName Select-TargetDisk  -MockWith { $Disks[0] }
+        Mock -ModuleName DeployUnderTest -CommandName Select-TargetDisk  -MockWith { $Script:MockDisks[0] }
     }
     Mock -ModuleName DeployUnderTest -CommandName Select-AdditionalWipeDisks -MockWith { ,@() }
     Mock -ModuleName DeployUnderTest -CommandName New-DiskpartScript     -MockWith { $true }
@@ -124,11 +136,12 @@ function Initialize-DeployMocks {
     # Post-diskpart Test-Path loop expects S:\, C:\, (D:\)
     Mock -ModuleName DeployUnderTest -CommandName Test-Path -MockWith { $true }
     # Final shutdown prompt + WIPE DATA confirmation
-    Mock -ModuleName DeployUnderTest -CommandName Read-Host -MockWith { $ReadHostReturn }
+    Mock -ModuleName DeployUnderTest -CommandName Read-Host    -MockWith { $Script:MockReadHostReturn }
     Mock -ModuleName DeployUnderTest -CommandName Show-MessageBox -MockWith { 'No' }
-    # Capture logs into a module-visible collection for assertions
-    & $script:DeployModule { $Script:CapturedLogs = New-Object System.Collections.ArrayList }
-    Mock -ModuleName DeployUnderTest -CommandName Write-Log -MockWith {
+    # Start-Sleep appears in the post-diskpart drive-letter retry loop; mock it
+    # so the "Passes validation" test doesn't burn 2-6 real seconds.
+    Mock -ModuleName DeployUnderTest -CommandName Start-Sleep  -MockWith { }
+    Mock -ModuleName DeployUnderTest -CommandName Write-Log    -MockWith {
         param($Message, $Level)
         [void]$Script:CapturedLogs.Add(@{ Message = $Message; Level = $Level })
     }
