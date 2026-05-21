@@ -98,13 +98,19 @@ function Initialize-DeployMocks {
     # local function variables like $Disks are invisible there. Push all
     # mock data into $Script: variables on the module first, then reference
     # them as $Script:MockDisks etc. inside the mock bodies.
-    & $script:DeployModule {
+    #
+    # PSModuleInfo does not forward positional args when called as
+    # `& $module { param($x) } $arg` — $x would be $null. The correct API
+    # is NewBoundScriptBlock, which creates a scriptblock that executes in
+    # the module's scope and accepts parameters like any normal scriptblock.
+    $initData = $script:DeployModule.NewBoundScriptBlock({
         param($d, $tdo, $rhr)
         $Script:CapturedLogs       = New-Object System.Collections.ArrayList
         $Script:MockDisks          = $d
         $Script:MockTargetDisk     = $tdo
         $Script:MockReadHostReturn = $rhr
-    } $Disks $TargetDiskOverride $ReadHostReturn
+    })
+    & $initData $Disks $TargetDiskOverride $ReadHostReturn
 
     Mock -ModuleName DeployUnderTest -CommandName Test-Administrator     -MockWith { $true }
     Mock -ModuleName DeployUnderTest -CommandName Initialize-SystemPaths -MockWith { }
