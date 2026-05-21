@@ -189,8 +189,11 @@ Describe "Start-Deployment validation gates" {
     # functions defined outside of Pester blocks (script root, BeforeAll) to
     # BeforeEach during the run phase. Inlining is the only reliable pattern.
     BeforeEach {
-        # Reset log capture in module scope
-        & $script:DeployModule { $Script:CapturedLogs = New-Object System.Collections.ArrayList }
+        # Reset log capture. Use $Global: rather than $Script: because Pester v5
+        # mock bodies (with -ModuleName) execute in a scope where neither the
+        # test-script $Script: nor the module's $Script: is reliably visible.
+        # $Global: is unambiguous everywhere.
+        $Global:CapturedLogs = New-Object System.Collections.ArrayList
 
         # Reset all CLI param vars to their defaults
         & $script:DeployModule {
@@ -249,7 +252,7 @@ Describe "Start-Deployment validation gates" {
         Mock -ModuleName DeployUnderTest -CommandName Start-Sleep            -MockWith { }
         Mock -ModuleName DeployUnderTest -CommandName Write-Log              -MockWith {
             param($Message, $Level)
-            [void]$Script:CapturedLogs.Add(@{ Message = $Message; Level = $Level })
+            [void]$Global:CapturedLogs.Add(@{ Message = $Message; Level = $Level })
         }
     }
 
@@ -263,7 +266,7 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        $logs = & $script:DeployModule { ,$Script:CapturedLogs }
+        $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match 'same as the target disk' }) | Should -Not -BeNullOrEmpty
     }
 
@@ -277,7 +280,7 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        $logs = & $script:DeployModule { ,$Script:CapturedLogs }
+        $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match 'not a valid non-USB internal disk' }) | Should -Not -BeNullOrEmpty
         Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
         Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
@@ -299,7 +302,7 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        $logs = & $script:DeployModule { ,$Script:CapturedLogs }
+        $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match 'is the system disk' }) | Should -Not -BeNullOrEmpty
         Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
     }
@@ -319,7 +322,7 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        $logs = & $script:DeployModule { ,$Script:CapturedLogs }
+        $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match 'not a valid non-USB internal disk' }) | Should -Not -BeNullOrEmpty
     }
 
@@ -334,11 +337,11 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        $logs = & $script:DeployModule { ,$Script:CapturedLogs }
+        $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match 'requires -BitLockerPin' }) | Should -Not -BeNullOrEmpty
     }
 
-    It "Rejects -EnableBitLocker -BitLockerPin '<5 chars>' (below length floor)" {
+    It "Rejects -EnableBitLocker -BitLockerPin five-char value below length floor" {
         $result = & $script:DeployModule {
             $WimFile         = 'I:\images\Win.wim'
             $TargetDisk      =  0
@@ -349,7 +352,7 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        $logs = & $script:DeployModule { ,$Script:CapturedLogs }
+        $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
     }
 
@@ -366,7 +369,9 @@ Describe "Start-Deployment validation gates" {
         # crossing that would leave it $null.
         $escaped = $Pin -replace "'", "''"
         & $script:DeployModule ([scriptblock]::Create("`$Script:PinUnderTest = '$escaped'"))
-        & $script:DeployModule { $Script:CapturedLogs = New-Object System.Collections.ArrayList }
+        # Reset capture for this iteration (BeforeEach has already run for the
+        # first iteration; subsequent ForEach iterations may share state).
+        $Global:CapturedLogs = New-Object System.Collections.ArrayList
 
         $result = & $script:DeployModule {
             $WimFile         = 'I:\images\Win.wim'
@@ -378,7 +383,7 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        $logs = & $script:DeployModule { ,$Script:CapturedLogs }
+        $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match 'forbidden placeholder' }) | Should -Not -BeNullOrEmpty
     }
 
@@ -392,7 +397,7 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeFalse
-        $logs = & $script:DeployModule { ,$Script:CapturedLogs }
+        $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match 'prompt cannot run silently' }) | Should -Not -BeNullOrEmpty
         Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
     }
@@ -407,7 +412,7 @@ Describe "Start-Deployment validation gates" {
             Start-Deployment
         }
         $result | Should -BeTrue
-        $logs = & $script:DeployModule { ,$Script:CapturedLogs }
+        $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match 'aborting' }) | Should -BeNullOrEmpty
         Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart       -Times 1
         Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage    -Times 1
