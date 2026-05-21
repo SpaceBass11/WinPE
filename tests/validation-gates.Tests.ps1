@@ -398,7 +398,7 @@ Describe "Start-Deployment validation gates" {
         }
         $result | Should -BeFalse
         $logs = $Global:CapturedLogs
-        ($logs | Where-Object { $_.Message -match 'prompt cannot run silently' }) | Should -Not -BeNullOrEmpty
+        ($logs | Where-Object { $_.Message -match 'requires -Force' }) | Should -Not -BeNullOrEmpty
         Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
     }
 
