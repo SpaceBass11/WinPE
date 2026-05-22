@@ -12,13 +12,8 @@ The full workflow supports multiple images on one USB, unattended pipelines, Del
 > [!WARNING]
 > **This tool wipes entire disks.** It calls `diskpart clean` on the target disk, which is irreversible. Always double-check the selected disk number and never run with `-Force -Silent` on a host you have not explicitly targeted. There is no undo.
 
----
-
-## How This Was Built
-
-This repository is **AI-authored**. The code is written by [Claude](https://claude.ai) (Anthropic) based on my requirements, domain knowledge, and iterative feedback. I'm not a PowerShell developer — I provide the deployment context, define the workflows, and test against real hardware. Claude writes the code.
-
-If you're auditing this for production use, read it yourself. I do, but I'm not the one who wrote it. The CI pipeline runs syntax validation and static analysis on every push, and the safety confirmation design is deliberate — but independent review is always warranted for tooling that wipes disks.
+> [!IMPORTANT]
+> **This repository is AI-authored.** The code is written by [Claude](https://claude.ai) (Anthropic) based on my requirements, domain knowledge, and iterative feedback. I'm not a PowerShell developer — I provide the deployment context, define the workflows, and test against real hardware. Claude writes the code. If you're auditing this for production use, read it yourself — independent review is always warranted for tooling that wipes disks.
 
 ---
 
@@ -304,11 +299,11 @@ See [docs/USB_SETUP.md](docs/USB_SETUP.md) for step-by-step partitioning.
 
 ## Safety Features
 
-- Requires Administrator privileges
-- WinPE environment detection
-- System memory validation (8 GB+ recommended)
-- Excludes USB drives from the target disk list
-- System disk detection with red warning
+- **Requires Administrator privileges** — Hard stop, not a soft warning. `diskpart`, DISM, and BCDBoot all require elevation; the script refuses to run without it. In WinPE this is always satisfied automatically. On a live Windows host (e.g. testing outside WinPE), it prevents accidental partial execution if you forget to run as admin.
+- **WinPE environment detection** — A different check serving a different purpose. If the script detects it's not running inside WinPE, it warns and prompts before continuing. This matters when running on a live admin workstation for testing — it reminds you that you're about to do disk operations on a running system, not a safe WinPE RAM environment. It's a soft guard, not a hard stop, because there are legitimate reasons to run the deploy script on a live machine (testing, recovery).
+- **System memory validation** — Warns if less than 8 GB RAM is detected. WinPE runs entirely in memory; low RAM can cause apply failures mid-deploy.
+- **Excludes USB drives from the target disk list** — The USB you booted from is filtered out of disk selection so it can't be accidentally wiped.
+- **System disk detection with red warning** — If the selected target disk contains the current OS, it is highlighted in red and requires typing `DESTROY SYSTEM` to proceed. This confirmation is never bypassed by `-Force`.
 - **Typed-confirmation chain** for every destructive operation:
   - `DESTROY SYSTEM` — system disk (never bypassed by `-Force`)
   - `ERASE` — primary target disk
