@@ -332,7 +332,7 @@ The deploy script creates a standard UEFI/GPT layout on the target machine:
 **Disk protection:**
 
 - USB drives are excluded from the target disk list — the boot USB can't be accidentally selected
-- System disk detection highlights the current OS disk in red and requires typing `DESTROY SYSTEM` to proceed — this is never bypassed by `-Force`
+- System disk detection — if the script's own system drive (`$env:SystemDrive`) is selected as the target, it is highlighted in red and requires typing `DESTROY SYSTEM` to proceed, which `-Force` never bypasses. In WinPE, the system drive is always `X:` (the RAM disk), so a laptop's existing Windows install on disk 0 is just a regular disk from WinPE's perspective — it only requires the normal `ERASE` confirmation, which `-Force` does bypass. The `DESTROY SYSTEM` guard is primarily relevant when running the script on a live Windows host outside WinPE.
 - System memory is validated (warns if < 8 GB; WinPE runs entirely in RAM and low memory causes mid-deploy failures)
 
 **Typed-confirmation chain** — every destructive operation requires a specific phrase:
