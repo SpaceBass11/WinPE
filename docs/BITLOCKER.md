@@ -33,7 +33,7 @@ the PIN, and rejects the v4.6.x placeholder string at runtime.
 | `-DataDiskNumber <int>` | Disk number to wipe + format as `D:`. `-1` (default) means no second disk. Validated: must exist, must not be the target disk, must not be USB, must not be the system disk. |
 | `-EnableBitLocker` | Stage `bitlocker-setup.ps1` + `SetupComplete.cmd` into `C:\Windows\Setup\Scripts\` so Windows runs them after OOBE. |
 | `-BitLockerPin <string>` | Startup PIN for TPM+PIN on `C:`. Required when `-EnableBitLocker`. 6-20 characters. Placeholder PINs (`ChangeMe123!`, `password`, `Password1`, `123456`) are rejected. |
-| `-BitLockerKeyPath <path>` | Override the recovery-key escrow location. Default: `<DEPLOY_IMAGE_DRIVE>\BitLockerKeys`. Accepts a UNC share (e.g. `\\fileserver\BitLockerKeys`) or a removable-media path. |
+| `-BitLockerKeyPath <path>` | Override the recovery-key escrow location. Accepts a UNC share (e.g. `\\fileserver\BitLockerKeys`) or a fixed-disk path on the deployed machine. Default: look up the IMAGES partition by volume label at first-boot time and write to `<letter>:\BitLockerKeys` — requires the USB to remain plugged in through the first reboot. |
 
 `-DataDiskNumber` and `-EnableBitLocker` are independent — you can use
 either alone:
@@ -60,19 +60,32 @@ primary target and additional wipes is unchanged.
 ## Recovery-key escrow
 
 Recovery keys are written via `Add-BitLockerKeyProtector
--RecoveryKeyProtector -RecoveryKeyPath <dir>` on first boot. The
-location is picked at deploy time in this precedence:
+-RecoveryKeyProtector -RecoveryKeyPath <dir>` on first boot, with
+the location picked in this precedence:
 
-1. `-BitLockerKeyPath` if given.
-2. `<DEPLOY_IMAGE_DRIVE>\BitLockerKeys` (the USB IMAGES partition,
-   surfaced via `startnet.cmd`).
-3. `C:\Windows\Setup\BitLockerKeys` as a last resort, with a warning.
+1. **`-BitLockerKeyPath` if given** — literal path. Use a UNC share
+   or a fixed-disk path on the deployed machine. USB can be removed
+   immediately after deploy.
+2. **IMAGES partition (default)** — the staged first-boot script
+   calls `Get-Volume -FileSystemLabel 'IMAGES' | Select -First 1`
+   and writes to `<letter>:\BitLockerKeys`. **The USB must remain
+   plugged in through the first reboot.** Looking up by label
+   (rather than by the WinPE-time drive letter) means escrow works
+   even when Windows reassigns the USB to a different letter than
+   WinPE used — e.g. WinPE `I:` → Windows `D:`.
+3. **`C:\Windows\Setup\BitLockerKeys` (fallback, with warning)** —
+   used at deploy time when `$env:DEPLOY_IMAGE_DRIVE` is unset, and
+   at first-boot time when `Get-Volume -FileSystemLabel 'IMAGES'`
+   returns nothing (USB unplugged, partition relabeled, etc.).
 
-Don't pick option 3 unless you have a process to copy the keys off
-the encrypted volume before the first reboot. If `C:` ever can't
-unlock — TPM reset, board swap, firmware change — the recovery key
-stored on `C:` is unreachable, and the auto-unlock metadata for `D:`
-lives in `C:`'s metadata, so `D:` is unreachable too.
+> [!IMPORTANT]
+> The fallback path (option 3) lands the recovery key on the volume
+> it's protecting. If `C:` ever can't unlock — TPM reset, board
+> swap, firmware change — the recovery key stored on `C:` is
+> unreachable, and the auto-unlock metadata for `D:` lives in `C:`'s
+> metadata, so `D:` is unreachable too. Always check
+> `C:\Windows\Setup\Scripts\bitlocker-setup.log` after first boot to
+> confirm which path was used.
 
 ## How the first-boot stage works
 

@@ -64,9 +64,25 @@
     letters, and symbols are accepted.
 .PARAMETER BitLockerKeyPath
     Override the default IMAGES-partition escrow path for recovery keys.
-    Use a UNC share or a removable-media path for centralized escrow.
-    The default is <DEPLOY_IMAGE_DRIVE>\BitLockerKeys.
+    Use a UNC share (e.g. \\fileserver\BitLockerKeys) or a fixed-disk
+    path on the deployed machine for centralized escrow.
+
+    Default behavior: the staged first-boot script looks up the IMAGES
+    partition by volume label (Get-Volume -FileSystemLabel 'IMAGES')
+    and writes to <letter>:\BitLockerKeys. This survives Windows
+    assigning the USB a different drive letter than WinPE did, but
+    the USB must remain plugged in through the first reboot. If the
+    USB is unplugged or the label doesn't match, escrow falls back
+    to C:\Windows\Setup\BitLockerKeys with a log warning.
 .VERSION
+    4.7.1 - BitLocker recovery-key escrow now resolves the IMAGES
+            partition by volume label at first-boot time instead of
+            baking the WinPE-time drive letter into the staged script.
+            Fixes silent recovery-key escrow failure when Windows
+            assigns the USB a different drive letter on first boot
+            (e.g. WinPE I: -> Windows D:). Falls back to
+            C:\Windows\Setup\BitLockerKeys with a loud log warning
+            if the USB isn't plugged in / labeled IMAGES.
     4.7.0 - BitLocker / data-disk feature reworked to opt-in:
             -DataDiskNumber, -EnableBitLocker, -BitLockerPin, and
             -BitLockerKeyPath parameters. Default no longer wipes a
@@ -113,7 +129,7 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.7.0'
+    ScriptVersion = '4.7.1'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')
@@ -1453,22 +1469,31 @@ function Select-AdditionalWipeDisks {
 #region Main Process
 function Resolve-BitLockerKeyPath {
     # Pick the escrow location for recovery keys, in precedence order:
-    #   1. -BitLockerKeyPath (operator override; UNC share or removable media)
-    #   2. <DEPLOY_IMAGE_DRIVE>\BitLockerKeys
+    #   1. -BitLockerKeyPath (operator override; UNC share or fixed-disk path) - literal
+    #   2. IMAGES partition  - drive letter resolved by label at FIRST BOOT, not now,
+    #      because Windows may assign the USB a different letter than WinPE did
     #   3. C:\Windows\Setup\BitLockerKeys  (last resort - keys on the encrypted
     #      volume, surfaced to the operator with a warning)
     if ($BitLockerKeyPath) {
-        return @{ Path = $BitLockerKeyPath; Source = 'parameter (-BitLockerKeyPath)' }
+        return @{
+            Path       = $BitLockerKeyPath
+            Source     = 'parameter (-BitLockerKeyPath)'
+            LookupMode = 'Literal'
+        }
     }
     if ($env:DEPLOY_IMAGE_DRIVE) {
         return @{
-            Path = (Join-Path $env:DEPLOY_IMAGE_DRIVE $Script:Config.BitLockerKeyDir)
-            Source = 'IMAGES partition'
+            # Path is the deploy-time letter, used only for the operator log line.
+            # The staged first-boot script ignores it and looks up by label instead.
+            Path       = (Join-Path $env:DEPLOY_IMAGE_DRIVE $Script:Config.BitLockerKeyDir)
+            Source     = 'IMAGES partition (resolved by volume label at first boot - keep USB plugged in)'
+            LookupMode = 'ImagesLabel'
         }
     }
     return @{
-        Path = 'C:\Windows\Setup\BitLockerKeys'
-        Source = 'fallback (keys on encrypted C: - print or copy off before locking)'
+        Path       = 'C:\Windows\Setup\BitLockerKeys'
+        Source     = 'fallback (keys on encrypted C: - print or copy off before locking)'
+        LookupMode = 'Literal'
     }
 }
 
@@ -1482,7 +1507,13 @@ function Initialize-BitLockerSetup {
     $keyDest = Resolve-BitLockerKeyPath
     $escrowPath = $keyDest.Path
     $escrowSource = $keyDest.Source
+    $lookupMode = $keyDest.LookupMode
     Write-Log "BitLocker recovery key escrow: $escrowPath ($escrowSource)" -Level Info
+    if ($lookupMode -eq 'ImagesLabel') {
+        Write-Log "  Keep the WinPE USB plugged in through the first reboot - the staged script" -Level Warning
+        Write-Log "  looks up IMAGES by volume label at first boot. If the USB is gone, escrow" -Level Warning
+        Write-Log "  falls back to C:\Windows\Setup\BitLockerKeys (on the encrypted volume)." -Level Warning
+    }
     if ($escrowSource -like 'fallback*') {
         Write-Log "  WARNING: keys land on encrypted C: - copy them off before the first reboot or you'll be locked out on TPM reset" -Level Warning
     }
@@ -1498,7 +1529,31 @@ function Initialize-BitLockerSetup {
     $escapedPin = $Script:Config.BitLockerPin -replace "'", "''"
     # Same for the escrow path (paths can contain ' on weird shares)
     $escapedEscrow = $escrowPath -replace "'", "''"
+    $escapedKeyDir = $Script:Config.BitLockerKeyDir -replace "'", "''"
     $stageDataDisk = $Script:Config.DataDiskNumber -ge 0
+
+    # Pick how the first-boot script resolves $recoveryDir.
+    #   ImagesLabel: look up the USB by volume label at first-boot time, since
+    #                Windows may assign a different drive letter than WinPE did.
+    #                Falls back to C:\Windows\Setup\BitLockerKeys if not found.
+    #   Literal:     bake in the operator-supplied path (or the C:\ fallback) verbatim.
+    if ($lookupMode -eq 'ImagesLabel') {
+        $recoveryDirBlock = @"
+# IMAGES partition lookup - resolve drive letter at first-boot time because
+# Windows may assign a different letter than WinPE did. Requires the USB to
+# still be plugged in. Falls back to the encrypted volume on miss.
+`$imagesVol = Get-Volume -FileSystemLabel 'IMAGES' -ErrorAction SilentlyContinue | Select-Object -First 1
+if (`$imagesVol -and `$imagesVol.DriveLetter) {
+    `$recoveryDir = '{0}:\$escapedKeyDir' -f `$imagesVol.DriveLetter
+    Write-BL "IMAGES partition resolved to `$recoveryDir"
+} else {
+    `$recoveryDir = 'C:\Windows\Setup\BitLockerKeys'
+    Write-BL "WARN: IMAGES partition not found (USB unplugged or unlabeled). Falling back to `$recoveryDir on the encrypted volume - copy the recovery key off before locking."
+}
+"@
+    } else {
+        $recoveryDirBlock = "`$recoveryDir = '$escapedEscrow'"
+    }
 
     $bitlockerScript = @"
 `$ErrorActionPreference = 'Continue'
@@ -1512,7 +1567,7 @@ Write-BL 'BitLocker setup starting'
 if (-not (Test-Path `$fvePath)) { New-Item -Path `$fvePath -Force | Out-Null }
 Set-ItemProperty -Path `$fvePath -Name 'UseEnhancedPin' -Value 1 -Type DWord -Force
 
-`$recoveryDir = '$escapedEscrow'
+$recoveryDirBlock
 if (-not (Test-Path `$recoveryDir)) {
     try { New-Item -ItemType Directory -Path `$recoveryDir -Force | Out-Null }
     catch { Write-BL "WARN: could not create `$recoveryDir : `$(`$_.Exception.Message)" }
