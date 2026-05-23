@@ -5,53 +5,78 @@
 [![PowerShell 5.1+](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://learn.microsoft.com/powershell/)
 [![Platform: WinPE](https://img.shields.io/badge/Platform-WinPE-informational.svg)](https://learn.microsoft.com/windows-hardware/manufacture/desktop/winpe-intro)
 
-A PowerShell-based TUI tool for deploying Windows images (`.wim`/`.esd`) from a bootable USB drive in a WinPE environment. Designed for IT admins, engineers, and field technicians who need reliable, repeatable bare-metal Windows deployments.
+A PowerShell-based TUI tool for deploying Windows images (`.wim`/`.esd`) from a bootable USB drive in a WinPE environment. Built for IT admins and engineers doing bare-metal Windows deployments — air-gapped, security-hardened, Dell enterprise hardware, Windows 11 Enterprise.
+
+The full workflow supports multiple images on one USB, unattended pipelines, Dell BIOS pre-configuration, BitLocker orchestration, and unattend.xml staging. When the workflow is dialed in, the optional ISO packaging step wraps everything into a single file that non-IT end users flash with Rufus.
 
 > [!WARNING]
-> **This tool wipes entire disks.** It calls `diskpart clean` on the target
-> disk, which is irreversible. Always double-check the selected disk number
-> and never run with `-Force -Silent` on a host you have not explicitly
-> targeted. There is no undo.
+> **This tool wipes entire disks.** It calls `diskpart clean` on the target disk, which is irreversible. Always double-check the selected disk number and never run with `-Force -Silent` on a host you have not explicitly targeted. There is no undo.
+
+> [!IMPORTANT]
+> **This repository is AI-authored.** The code is written by [Claude](https://claude.ai) (Anthropic) based on my requirements, domain knowledge, and iterative feedback. I'm not a PowerShell developer — I provide the deployment context, define the workflows, and test against real hardware. Claude writes the code. If you're auditing this for production use, read it yourself — independent review is always warranted for tooling that wipes disks.
+
+---
+
+## Contents
+
+- [Who This Is For](#who-this-is-for)
+- [Workflow Overview](#workflow-overview)
+- [Loop A — One-Time Setup](#loop-a--one-time-setup-30-min)
+- [Loop B — Per-Image Refresh](#loop-b--per-image-refresh-10-20-min)
+- [Loop C — Per-Machine Deploy](#loop-c--per-machine-deploy-5-10-min)
+- [Streamlined End-User Distribution](#streamlined-end-user-distribution-optional)
+- [Manual / Interactive Use](#manual--interactive-use)
+- [USB Drive Layout](#usb-drive-layout)
+- [Disk Partition Layout on Target](#disk-partition-layout-on-target)
+- [Parameters](#parameters)
+- [Safety Features](#safety-features)
+- [Companion Scripts](#companion-scripts)
+- [Documentation](#documentation)
+- [Requirements](#requirements)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
 
 ## Who This Is For
 
 **Use this if you:**
 - Deploy Windows images to bare-metal hardware from a USB stick
-- Want a reproducible WinPE build (no Rufus-and-hope, no hand-edited ISOs)
-- Need unattended deployment (single-disk wipe + image apply + unattend.xml + optional TPM+PIN BitLocker on first boot)
-- Are comfortable reading PowerShell and taking responsibility for the
-  target disk
+- Need a reproducible WinPE build — no hand-edited ISOs, no guesswork
+- Want unattended deployment with unattend.xml, Dell BIOS pre-config, or BitLocker on first boot
+- Are comfortable reading PowerShell and taking responsibility for the target disk
 
 **Don't use this if you:**
-- Need network-based (PXE / WDS / MDT / SCCM) deployment — use MDT/ConfigMgr
-- Expect Windows Sandbox / Hyper-V / dev-VM provisioning — wrong scope
+- Need network-based deployment (PXE / WDS / MDT / SCCM) — use MDT or ConfigMgr
+- Need Windows Sandbox / Hyper-V / dev-VM provisioning — wrong scope
 
-## How This Tool Is Used
+---
 
-Three loops, each runs at a different cadence. Skim this once so the
-rest of the README makes sense.
+## Workflow Overview
 
-| Loop | When | Where | What |
-|------|------|-------|------|
-| **A. One-time setup** | First time on a new admin workstation, or once per WinPE rev | Admin Windows + ADK | Install ADK, clone repo, partition the USB, build `boot.wim`, xcopy media. ~30 min. |
-| **B. Per-image refresh** | New Windows ISO drops, or you want a different debloat profile | Admin Windows | `scripts/refresh_usb.ps1 -SourceIso ...` → produces a `.wim` on the IMAGES partition. ~10–20 min per image. |
-| **C. Per-machine deploy** | Every target laptop / desktop | The USB itself | Plug in, boot from USB. If `deploy.args` is on the USB it runs unattended; otherwise the TUI prompts. ~5–10 min per machine. |
+Three loops, each at a different cadence. Skim this once so the rest of the README makes sense.
+
+| Loop | Cadence | Runs On | What It Does |
+|------|---------|---------|--------------|
+| **A — One-time setup** | Once per admin workstation or WinPE revision | Admin Windows + ADK | Install ADK, partition USB, build `boot.wim`. ~30 min. |
+| **B — Per-image refresh** | Each new Windows ISO or debloat profile | Admin Windows | Debloat ISO → clean `.wim` on the IMAGES partition. ~10–20 min. |
+| **C — Per-machine deploy** | Every target machine | The USB in WinPE | Boot, select image, confirm, done. ~5–10 min. |
 
 Loops A and B run on **your admin workstation** with ADK installed.
 Loop C runs **inside WinPE** on the target hardware.
 
+---
+
 ## Loop A — One-Time Setup (~30 min)
 
-Do this once per admin workstation. You won't repeat it until you
-need a new WinPE revision.
+Do this once per admin workstation. You won't repeat it until you need a new WinPE revision.
 
 ### A1. Install the Windows ADK + WinPE add-on
 
 Download from [Microsoft's ADK page](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install).
-Install only the **Deployment Tools** feature, then install the
-**Windows PE add-on** to the same path.
+Install only the **Deployment Tools** feature, then install the **Windows PE add-on** to the same path.
 
-### A2. Clone the repo on your admin workstation
+### A2. Clone the repo
 
 ```powershell
 git clone https://github.com/spacebass11/WinPE.git
@@ -80,52 +105,36 @@ Full details and warnings: [docs/USB_SETUP.md](docs/USB_SETUP.md).
 
 ### A4. Build the WinPE boot image onto the USB
 
-Open **Deployment and Imaging Tools Environment** as Administrator
-(Start menu → Windows Kits), then from the repo root:
+Open **Deployment and Imaging Tools Environment** as Administrator (Start → Windows Kits), then from the repo root:
 
 ```powershell
 .\scripts\build_boot_wim.ps1 -Clean -UsbDrive P: -ReleaseUsbLetter
 ```
 
-This runs `copype`, installs the required WinPE components, applies
-the `NtfsEnableDirCaseSensitivity` registry fix (needed for Windows
-Containers layer apply), embeds the deploy script at `X:\scripts\`,
-writes a `startnet.cmd` that reads optional per-USB args (see Loop
-C below), and xcopies the media to `P:`. `-ReleaseUsbLetter`
-releases `P:` afterwards (the USB stays bootable, just no longer
-visible in Explorer).
+This runs `copype`, installs the required WinPE components, applies the `NtfsEnableDirCaseSensitivity` registry fix (needed for Windows Containers layer apply), embeds the deploy script, writes `startnet.cmd`, and xcopies media to `P:`. `-ReleaseUsbLetter` releases `P:` when done.
 
+> [!TIP]
 > **Dell fleets:** add `-CctkSource 'C:\Program Files (x86)\Dell\Command Configure\X86_64'`
-> to embed CCTK so the deploy can apply BIOS settings (RAID→AHCI,
-> passwords, boot order) on each target during deploy.
+> to embed CCTK so each deploy can apply BIOS settings (RAID→AHCI, passwords, boot order) on target hardware.
 > See [docs/CCTK.md](docs/CCTK.md).
 
-Done. The USB now boots into WinPE and auto-launches the deploy
-script.
+Done. The USB boots into WinPE and auto-launches the deploy script.
 
 ---
 
 ## Loop B — Per-Image Refresh (~10–20 min)
 
-You're back because Microsoft dropped a new ISO, or because you
-need a different debloat profile. Run this on your admin
-workstation.
+Run this when a new Windows ISO drops or you need a different debloat profile.
 
 ### B1. The simple path
-
-If your USB already exists and you just want to drop a fresher
-image on it:
 
 ```powershell
 .\scripts\refresh_usb.ps1 -SourceIso 'D:\iso\Win11_24H2_English_x64.iso'
 ```
 
-That mounts the ISO, picks the index you want, debloats the
-provisioned AppX list, optionally injects drivers and policy
-tweaks, and writes the resulting `.wim` to `I:\images\` on the
-USB. Output filename is derived from the ISO name.
+Mounts the ISO, picks the index you want, debloats provisioned AppX, optionally injects drivers and policy tweaks, and writes the resulting `.wim` to `I:\images\`.
 
-### B2. The full path (when you need to be explicit)
+### B2. The explicit path
 
 ```powershell
 .\scripts\prepare_wim.ps1 `
@@ -137,103 +146,110 @@ USB. Output filename is derived from the ISO name.
 
 | Flag | Effect |
 |------|--------|
-| `-SourceIso` *or* `-SourceWim` | Start from a stock Windows ISO **or** an already-captured reference WIM. |
-| `-OutputWim` | Where to write the cleaned WIM. Drop it on the IMAGES partition. |
-| `-Index N` | Which image in the source to customize (when multi-edition). |
-| `-Edition 'Windows 11 Enterprise'` | Name-based alternative to `-Index`. |
-| `-DriverPath C:\Drivers\Model` | Pre-bake `.inf` drivers offline. **Recommended for 1–2 hardware models.** See "Driver Strategy" below. |
-| `-DisableCopilot` | Single policy tweak — turn off Copilot. |
-| `-DisableExtraBloat` | Superset of `-DisableCopilot` plus 7 more HKLM policy tweaks (Recall, Widgets, Bing-in-Start, telemetry, consumer apps, Edge first-run, Teams Consumer Chat). Also stages `first-login.ps1` for per-user HKCU tweaks. |
-| `-WhitelistFile path\to\list.txt` | Override the default AppX whitelist (one DisplayName per line). |
+| `-SourceIso` *or* `-SourceWim` | Start from a stock Windows ISO or an already-captured WIM |
+| `-OutputWim` | Where to write the cleaned WIM |
+| `-Index N` | Which image index to use from a multi-edition source |
+| `-Edition 'Windows 11 Enterprise'` | Name-based alternative to `-Index` |
+| `-DriverPath C:\Drivers\Model` | Pre-bake `.inf` drivers offline — recommended for 1–2 hardware models |
+| `-DisableCopilot` | Single policy tweak — disable Copilot |
+| `-DisableExtraBloat` | Broader policy set: Copilot, Recall, Widgets, Bing-in-Start, telemetry, consumer apps, Edge first-run, Teams Consumer Chat. Also stages `first-login.ps1` for per-user HKCU tweaks. |
+| `-WhitelistFile path\to\list.txt` | Override the default AppX whitelist |
 
 ### B3. Driver strategy
 
-| Situation | What to do |
-|-----------|------------|
-| 1–2 hardware models | **Pre-inject.** Build one WIM per model. Smaller, faster deploy, no surprises. Use `-DriverPath` per model. |
-| 3+ hardware models | One WIM with the common driver classes (chipset, NIC, storage). Vendor-specific drivers stay out — Windows Update or post-deploy fills them. |
-| Mixed laptop + desktop | Two WIMs, even if it's only two models. Mismatched drivers cause boot loops. |
+| Situation | Recommendation |
+|-----------|----------------|
+| 1–2 hardware models | Pre-inject with `-DriverPath`. One WIM per model. Smaller, faster, no surprises. |
+| 3+ hardware models | One WIM with common drivers (chipset, NIC, storage). Let Windows Update fill vendor-specific. |
+| Mixed laptop + desktop | Two WIMs even if it's only two models — mismatched drivers cause boot loops. |
 
 ### B4. Unattend / first-boot automation
 
-Copy [`configs/unattend.example.xml`](configs/unattend.example.xml) to your USB
-(e.g. `I:\configs\unattend.xml`), edit it per [docs/UNATTEND.md](docs/UNATTEND.md)
-(account creation, OOBE skip, autologon, FirstLogonCommands), and reference it
-from `deploy.args` (see Loop C) as `-UnattendFile I:\configs\unattend.xml`.
-
-The example XML includes a base64 password helper and references
-`first-login.ps1` for the per-user tweaks that `prepare_wim.ps1
--DisableExtraBloat` stages into the image.
+Copy [`configs/unattend.example.xml`](configs/unattend.example.xml) to your USB, edit per [docs/UNATTEND.md](docs/UNATTEND.md) (account creation, OOBE skip, autologon, `FirstLogonCommands`), and reference it from `deploy.args` as `-UnattendFile I:\configs\unattend.xml`.
 
 ---
 
 ## Loop C — Per-Machine Deploy (~5–10 min)
 
-This happens at the workbench, not on your admin workstation.
+### C1. Configure deploy.args (optional but recommended)
 
-### C1. Configure the per-USB deploy.args (optional but recommended)
+Drop a one-line `deploy.args` file at the root of the IMAGES partition. The bootloader reads it and passes those parameters to the deploy script — no `boot.wim` rebuild required. Without the file, the script runs the interactive TUI.
 
-Drop a one-line `deploy.args` file at the root of the IMAGES
-partition. The bootloader reads it and runs the deploy script with
-those parameters — no `boot.wim` rebuild. Without the file the
-script boots into the interactive TUI.
-
-Copy [`configs/deploy.args.example`](configs/deploy.args.example) to
-the IMAGES partition root as `deploy.args` and edit:
+Copy [`configs/deploy.args.example`](configs/deploy.args.example) and edit:
 
 ```text
--WimFile "I:\images\Win11_Enterprise.wim" -TargetDisk 0 -UnattendFile "I:\configs\unattend.xml" -DataDiskNumber 1 -EnableBitLocker -BitLockerPin "ReplaceWithYourPin42" -Force -Silent
+-WimFile "I:\images\Win11_Enterprise.wim" -TargetDisk 0 -UnattendFile "I:\configs\unattend.xml" -DataDiskNumber 1 -EnableBitLocker -BitLockerPin "YourRealPin42" -Force -Silent
 ```
 
-See [docs/DEPLOY_ARGS.md](docs/DEPLOY_ARGS.md) for the full reference
-and the security caveat (PIN sits in plaintext on the USB — same
-trust model as the CCTK passwords).
+See [docs/DEPLOY_ARGS.md](docs/DEPLOY_ARGS.md) for the full reference and the security note (PIN sits in plaintext on the USB — same trust model as CCTK passwords).
 
 ### C2. Boot from USB
 
-1. Plug the USB into the target machine.
-2. Boot from USB in **UEFI mode** (typically F12 → "UEFI: USB …").
-3. If `deploy.args` is present, the deploy runs unattended. Otherwise
-   you'll be prompted for image → edition → target disk → typed
-   confirmations.
-4. When complete, remove USB and reboot.
+1. Plug the USB into the target machine
+2. Boot from USB in **UEFI mode** (typically F12 → "UEFI: USB …")
+3. If `deploy.args` is present, the deploy runs unattended — otherwise the TUI prompts for image → edition → target disk → confirmations
+4. When complete, remove USB and reboot
 
-### C3. What runs on first boot (post-deploy)
+### C3. What happens on first boot
 
-If your `deploy.args` includes the right flags:
+| Trigger | Behavior |
+|---------|----------|
+| CCTK embedded + matching config on USB | BIOS settings applied (RAID→AHCI, passwords, boot order) |
+| `-UnattendFile` set | OOBE skipped, accounts created, computer name set, autologon (if configured), `first-login.ps1` runs per-user tweaks |
+| `-EnableBitLocker -BitLockerPin` set | `SetupComplete.cmd` enables TPM+PIN on `C:`, recovery key + auto-unlock on `D:` if `-DataDiskNumber` set, keys escrow to `<IMAGES>\BitLockerKeys`, staging scripts self-delete, machine reboots |
 
-| Trigger | Behavior on first POST after deploy |
-|---------|-------------------------------------|
-| CCTK embedded + matching config on USB | BIOS settings applied (RAID→AHCI, passwords, etc). |
-| `-UnattendFile` set | OOBE skipped, accounts created, computer name set, autologon (if configured), `FirstLogonCommands` runs `first-login.ps1` for per-user tweaks. |
-| `-EnableBitLocker -BitLockerPin` set | `SetupComplete.cmd` enables TPM+PIN on `C:` (and recovery-key + auto-unlock on `D:` if `-DataDiskNumber` set), escrows recovery keys to `<IMAGES>\BitLockerKeys`, self-deletes the staging scripts, reboots. |
+---
+
+## Streamlined End-User Distribution (Optional)
+
+Once the workflow is dialed in, you can package everything into a single distributable ISO. This is the path for handing a deployment to **non-IT end users — remote, worldwide, no technical background required.**
+
+### Package into an ISO
+
+```powershell
+.\scripts\build_iso.ps1 `
+    -WimFile   'I:\images\Win11_Enterprise.wim' `
+    -OutputIso 'D:\dist\WinPE_Deploy_Win11.iso'
+```
+
+This bundles the WinPE boot image, your Windows WIM, configs, and any `deploy.args` into one bootable ISO. Bake in a pre-configured `deploy.args` if you want fully unattended operation on the receiving end.
+
+### What end users do
+
+1. Download the ISO
+2. Download [Rufus](https://rufus.ie) — free, no install required
+3. Plug in a USB drive (32 GB+)
+4. Open Rufus, select the ISO, click START
+5. Boot the target machine from USB (F12 → "UEFI: USB …")
+6. Follow the on-screen prompts — or just wait if it's unattended
+7. Remove USB and reboot when done
+
+The full plain-English guide is in [docs/END_USER_DEPLOY.md](docs/END_USER_DEPLOY.md) — include that PDF alongside the ISO download.
 
 ---
 
 ## Manual / Interactive Use
 
-You don't need `deploy.args` to use the tool. If the file is absent
-the script runs interactively. You can also run it manually from a
-WinPE console (or a normal Windows console, for testing):
+No `deploy.args` file needed to use the tool. Without it the script launches the interactive TUI. You can also call it directly from a WinPE console or a regular Windows console for testing:
 
 ```powershell
-# Auto-discover images on all drives (the default WinPE flow)
+# Auto-discover images on all drives (standard WinPE flow)
 .\unified_winpe_deploy.ps1
 
-# Specific image, interactive disk + edition selection
+# Target a specific image, interactive disk + edition selection
 .\unified_winpe_deploy.ps1 -WimFile "I:\images\Win11.wim"
 
 # List available images without deploying
 .\unified_winpe_deploy.ps1 -ListOnly
 
-# Fully automated, single-disk (no data partition, no BitLocker):
+# Fully automated, single-disk
 .\unified_winpe_deploy.ps1 `
     -WimFile      "I:\images\Win11.wim" `
     -TargetDisk   0 `
     -UnattendFile "I:\configs\unattend.xml" `
     -Force -Silent
 
-# Fully automated, dual-disk with BitLocker (the full v4.7.0 stack):
+# Fully automated, dual-disk with BitLocker
 .\unified_winpe_deploy.ps1 `
     -WimFile         "I:\images\Win11_Enterprise.wim" `
     -TargetDisk      0 `
@@ -246,60 +262,44 @@ WinPE console (or a normal Windows console, for testing):
 
 ---
 
-## Distributing To Operators
-
-When you need someone else (a field tech, a remote operator) to
-prep a USB without installing ADK on their machine:
-
-1. **You** (the admin) build the boot.wim and one or more WIM
-   images on your workstation as described in Loop A + Loop B.
-2. **Bundle** the contents of the prepared USB into a zip:
-   `boot.wim` media, `images/`, `configs/`, `cctk/` (if used), and
-   the `deploy.args` template.
-3. **Ship** the zip + a 1-page PDF that says "extract this onto
-   your USB partitions exactly like the layout below, then plug
-   it into the target and boot." Use the [USB Drive Layout](#usb-drive-layout-reference)
-   diagram below as the visual.
-4. **Operator** does not need ADK, does not need PowerShell
-   skills, does not need to read this README. They just need
-   `diskpart` (built into Windows) and 10 minutes.
-
-A wrapper script (`MAKE_USB.ps1`) that does the partition + xcopy
-step in one operator-friendly command is on the roadmap but not
-yet implemented.
-
-> **Don't use Rufus + bootable ISO** for this. ISOs are read-only;
-> you'd lose the dual-partition / `deploy.args` per-USB
-> customization model and have to rebuild `boot.wim` for every
-> deploy variant. Stay with the dual-partition layout.
-
----
-
-## USB Drive Layout (reference)
+## USB Drive Layout
 
 ```
 USB Drive (32 GB+ recommended)
 ├── Partition 1: WinPE Boot (FAT32, ~2 GB, label "WinPE")
-│   └── Contains WinPE media + startnet.cmd
+│   └── WinPE media + startnet.cmd
 │
 └── Partition 2: Data (NTFS, remaining space, label "IMAGES")
-    ├── deploy.args              ← optional one-line params file (Loop C)
+    ├── deploy.args              ← optional one-line params file
     ├── images/
     │   ├── Win11_Pro_24H2.wim
     │   ├── Win10_Enterprise_LTSC.wim
     │   └── (any .wim or .esd files)
-    ├── configs/                 ← unattend.xml answer files
-    │   └── unattend.xml         (referenced via -UnattendFile)
+    ├── configs/
+    │   └── unattend.xml
     ├── cctk/                    ← Dell BIOS configs (optional)
-    │   ├── default.ini          ← catch-all
+    │   ├── default.ini
     │   ├── <SERVICETAG>.ini     ← per-machine override
     │   └── <MODEL>.ini          ← per-model override
     └── BitLockerKeys/           ← auto-created when -EnableBitLocker used
-        └── <hostname-or-tag>/   ← BitLocker recovery key escrow
+        └── <hostname>/          ← recovery key escrow
 ```
 
-See [docs/USB_SETUP.md](docs/USB_SETUP.md) for step-by-step
-partitioning instructions.
+See [docs/USB_SETUP.md](docs/USB_SETUP.md) for step-by-step partitioning instructions.
+
+---
+
+## Disk Partition Layout on Target
+
+The deploy script creates a standard UEFI/GPT layout on the target machine:
+
+| Partition | Size | Format | Drive Letter | Purpose |
+|-----------|------|--------|--------------|---------|
+| EFI System | 300 MB | FAT32 | S: | UEFI boot files |
+| MSR | 16 MB | — | — | Microsoft Reserved |
+| Primary | Remaining | NTFS | C: | Windows installation |
+
+---
 
 ## Parameters
 
@@ -307,122 +307,110 @@ partitioning instructions.
 |-----------|------|-------------|
 | `-ImagePath` | String | Directory to search for images (skips drive scanning) |
 | `-WimFile` | String | Direct path to a `.wim`/`.esd` file |
-| `-TargetDisk` | Int | Disk number to deploy to (skips disk selection) |
-| `-WipeDisks` | String | Comma-separated disk numbers to *also* wipe (clean-only) alongside the primary target (e.g. `"1,2"`). Requires `-Force` in silent mode. |
-| `-MinImageSizeMB` | Int | Auto-discovery minimum image size in MB (default 100). Lower for small lab images. |
-| `-UnattendFile` | String | Path to an `unattend.xml` answer file. Copied to `C:\Windows\Panther\unattend.xml` post-apply so Windows Setup processes it on first boot (OOBE skip, domain join, etc.). |
-| `-DataDiskNumber` | Int | Disk number of an additional internal drive to wipe and format as an NTFS data volume (`D:`). Off by default (`-1`). Requires a typed `WIPE DATA` confirmation. See [docs/BITLOCKER.md](docs/BITLOCKER.md). |
-| `-EnableBitLocker` | Switch | Stage `SetupComplete.cmd` to enable BitLocker on first boot (TPM + Enhanced PIN on `C:`, recovery key + auto-unlock on `D:` when `-DataDiskNumber` is set). Requires `-BitLockerPin`. |
-| `-BitLockerPin` | String | Startup PIN for the TPM+PIN protector on `C:`. Required when `-EnableBitLocker` is set. 6-20 characters; placeholder PINs (`ChangeMe123!`, etc.) are rejected. |
-| `-BitLockerKeyPath` | String | Optional override for recovery-key escrow. Default: `<IMAGES>\BitLockerKeys`. Use a UNC share or removable-media path for centralized escrow. |
-| `-Force` | Switch | Skip the typed `ERASE` / `WIPE ALL` / `WIPE DATA` confirmations. Never bypasses `DESTROY SYSTEM`. |
-| `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, and `-Force` (unless using `-ListOnly`), and a single-index image. |
+| `-TargetDisk` | Int | Disk number to deploy to (skips disk selection TUI) |
+| `-WipeDisks` | String | Comma-separated disk numbers to also wipe (clean-only) alongside the primary target, e.g. `"1,2"`. Requires `-Force` in silent mode. |
+| `-MinImageSizeMB` | Int | Auto-discovery minimum image size in MB (default: 100) |
+| `-UnattendFile` | String | Path to `unattend.xml`. Copied to `C:\Windows\Panther\` post-apply for first-boot OOBE skip, domain join, etc. |
+| `-DataDiskNumber` | Int | Disk number to wipe and format as NTFS `D:`. Off by default (`-1`). Requires typed `WIPE DATA` confirmation. |
+| `-EnableBitLocker` | Switch | Stage `SetupComplete.cmd` to enable BitLocker on first boot. Requires `-BitLockerPin`. |
+| `-BitLockerPin` | String | Startup PIN for the TPM+PIN protector on `C:`. 6–20 characters. Placeholder PINs are rejected at runtime. |
+| `-BitLockerKeyPath` | String | Override recovery-key escrow path. Default: `<IMAGES>\BitLockerKeys`. |
+| `-Force` | Switch | Skip typed `ERASE` / `WIPE ALL` / `WIPE DATA` confirmations. **Never bypasses `DESTROY SYSTEM`.** |
+| `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, `-Force`, and a single-index image. |
 | `-ListOnly` | Switch | Show available images and exit |
 
-## Disk Partition Layout Created
-
-The script creates a standard UEFI/GPT partition layout:
-
-| Partition | Size | Format | Letter | Purpose |
-|-----------|------|--------|--------|---------|
-| EFI System | 300 MB | FAT32 | S: | UEFI boot files |
-| MSR | 16 MB | - | - | Microsoft Reserved |
-| Primary | Remaining | NTFS | C: | Windows installation |
+---
 
 ## Safety Features
 
-- Requires Administrator privileges
-- WinPE environment detection
-- System memory validation (8 GB+ recommended)
-- Excludes USB drives from target disk list
-- System disk detection with red warning
-- **Typed-confirmation chain** for every destructive operation:
-  - Type `DESTROY SYSTEM` for the system disk (NEVER bypassed by `-Force`)
-  - Type `ERASE` for the primary target
-  - Type `WIPE ALL` for the additional-wipe disks (`-WipeDisks`)
-  - Type `WIPE DATA` for the data-disk format (`-DataDiskNumber`)
-- Placeholder BitLocker PINs (`ChangeMe123!` and a handful of common
-  weak strings) are rejected at runtime, even with `-Force -Silent`.
-- Recovery keys escrow off the encrypted volume by default.
+**Two distinct environment checks — different purposes, different behavior:**
+
+- **Administrator privileges** *(hard stop)* — `diskpart`, DISM, and BCDBoot all require elevation. The script refuses to run without it. In WinPE this is always satisfied automatically. On a live Windows host it prevents accidental partial execution.
+
+- **WinPE environment detection** *(soft warning)* — If the script isn't running inside WinPE, it warns and prompts before continuing. This matters when running on a live admin workstation for testing — it's a reminder that disk operations are about to happen on a running system, not a RAM-isolated WinPE environment. It doesn't hard-stop because running outside WinPE has legitimate uses (testing, recovery).
+
+**Disk protection:**
+
+- USB drives are excluded from the target disk list — the boot USB can't be accidentally selected
+- System disk detection — if the script's own system drive (`$env:SystemDrive`) is selected as the target, it is highlighted in red and requires typing `DESTROY SYSTEM` to proceed, which `-Force` never bypasses. In WinPE, the system drive is always `X:` (the RAM disk), so a laptop's existing Windows install on disk 0 is just a regular disk from WinPE's perspective — it only requires the normal `ERASE` confirmation, which `-Force` does bypass. The `DESTROY SYSTEM` guard is primarily relevant when running the script on a live Windows host outside WinPE.
+- System memory is validated (warns if < 8 GB; WinPE runs entirely in RAM and low memory causes mid-deploy failures)
+
+**Typed-confirmation chain** — every destructive operation requires a specific phrase:
+
+| Phrase | Triggers On | Bypassable by `-Force`? |
+|--------|-------------|------------------------|
+| `DESTROY SYSTEM` | System disk | No — never |
+| `ERASE` | Primary target disk | Yes |
+| `WIPE ALL` | Additional wipe disks (`-WipeDisks`) | Yes |
+| `WIPE DATA` | Data disk format (`-DataDiskNumber`) | Yes |
+
+**BitLocker guardrails:**
+- Placeholder PINs (`ChangeMe123!` and similar weak strings) are rejected at runtime, including under `-Force -Silent`
+- Recovery keys escrow off the encrypted volume by default
+
+---
 
 ## Companion Scripts
 
-| Script | Purpose | Runs On |
-|--------|---------|---------|
-| `unified_winpe_deploy.ps1` | The deploy tool. Wipes target, applies WIM, configures UEFI boot. | Inside WinPE (booted from USB) |
-| `scripts/build_boot_wim.ps1` | Builds the WinPE `boot.wim` with the right components, the `NtfsEnableDirCaseSensitivity` reg tweak, and optionally embedded Dell CCTK. | Admin Windows workstation (ADK installed) |
-| `scripts/prepare_wim.ps1` | Takes a stock Windows ISO, debloats provisioned AppX with a whitelist, optionally disables Copilot, exports a clean WIM ready to deploy. | Admin Windows workstation |
-| `scripts/refresh_usb.ps1` | Thin workflow wrapper: new ISO -> prep + (optional) boot.wim rebuild. | Admin Windows workstation |
-| `tests/test_parse.ps1` | Syntax validation for all scripts above. Used by CI. | Any host with PowerShell |
+| Script | What It Does | Runs On |
+|--------|-------------|---------|
+| `unified_winpe_deploy.ps1` | Core deploy — wipes target, applies WIM, configures UEFI boot | WinPE (booted from USB) |
+| `scripts/build_iso.ps1` | Packages WinPE + WIM into a distributable ISO for Rufus | Admin workstation |
+| `scripts/build_boot_wim.ps1` | Builds `boot.wim` with required WinPE components + `NtfsEnableDirCaseSensitivity` reg fix | Admin workstation (ADK required) |
+| `scripts/prepare_wim.ps1` | Debloats a stock Windows ISO into a clean `.wim` | Admin workstation |
+| `scripts/refresh_usb.ps1` | Thin wrapper: new ISO → prep + optional boot.wim rebuild | Admin workstation |
+| `tests/test_parse.ps1` | Syntax validation for all scripts — used by CI | Any host with PowerShell |
+
+---
 
 ## Documentation
 
-- [USB Setup Guide](docs/USB_SETUP.md) - Preparing the bootable USB drive
-- [Script Reference](docs/SCRIPT_REFERENCE.md) - Detailed function and parameter docs
-- [Architecture](docs/ARCHITECTURE.md) - Design rationale and data flow
-- [BIOS Configuration (CCTK)](docs/CCTK.md) - Pre-apply BIOS setup for Dell fleets
-- [BitLocker / data-disk setup](docs/BITLOCKER.md) - Opt-in encrypted first-boot config
-- [Per-USB deploy.args](docs/DEPLOY_ARGS.md) - Drop a one-line params file on the USB to retarget without rebuilding boot.wim
-- [Code Signing](docs/SIGNING.md) - Signing the script for enterprise use
-- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
-- [Known Issues](docs/TROUBLESHOOTING.md#known-caveats) - Intentional design choices and environmental constraints
-- [Contributing](CONTRIBUTING.md) - How to contribute
-- [Code of Conduct](CODE_OF_CONDUCT.md) - Contributor Covenant v2.1
-- [Changelog](CHANGELOG.md) - Version history
-- [Security Policy](SECURITY.md) - Reporting vulnerabilities
+**For admins building and maintaining the USB:**
+- [USB Setup Guide](docs/USB_SETUP.md) — partitioning the drive manually
+- [Script Reference](docs/SCRIPT_REFERENCE.md) — full parameter and function docs
+- [Architecture](docs/ARCHITECTURE.md) — design rationale and data flow
+- [Per-USB deploy.args](docs/DEPLOY_ARGS.md) — one-line params file for unattended deploys
+- [BIOS Configuration (CCTK)](docs/CCTK.md) — Dell fleet pre-apply BIOS setup
+- [BitLocker / Data Disk](docs/BITLOCKER.md) — opt-in encrypted first-boot config
+- [Code Signing](docs/SIGNING.md) — signing the script for enterprise environments
+
+**For end users receiving the USB or ISO:**
+- [End User Deploy Guide](docs/END_USER_DEPLOY.md) — plain-English Rufus guide for non-IT users
+
+**Reference:**
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — common issues and solutions
+- [Changelog](CHANGELOG.md) — version history
+- [Security Policy](SECURITY.md) — reporting vulnerabilities
+
+---
 
 ## Requirements
 
-- Windows PE (WinPE) boot environment
-- PowerShell 5.1+ (included in WinPE)
-- Administrator privileges
-- UEFI-capable target system
-- USB drive 32GB+ (8GB minimum for WinPE + 1 image)
+| Requirement | Notes |
+|-------------|-------|
+| Windows PE (WinPE) | The runtime environment — script runs inside WinPE on boot |
+| PowerShell 5.1+ | Included in WinPE — no separate install needed |
+| Administrator privileges | Always satisfied in WinPE; required explicitly on live hosts |
+| UEFI-capable target system | GPT + UEFI layout only — legacy BIOS/MBR not supported |
+| USB drive 32 GB+ | 8 GB minimum for WinPE + one image; 32 GB comfortable for multiple |
+
+---
 
 ## Contributing
 
-Pull requests welcome, especially for hardware-compatibility fixes. Before
-opening one, please:
+Pull requests welcome, especially hardware-compatibility fixes. Before opening one:
 
-1. Read the safety conventions in [CLAUDE.md](CLAUDE.md) — in particular,
-   never weaken the typed-confirmation chain.
+1. Read the safety conventions in [CLAUDE.md](CLAUDE.md) — in particular, never weaken the typed-confirmation chain.
 2. Run the local syntax validator:
    ```powershell
    pwsh -NoProfile -File ./tests/test_parse.ps1
    ```
-   CI runs PSScriptAnalyzer + the masterize doc / safety greps on push;
-   no need to replicate those locally.
-3. Describe manual test coverage in the PR template — CI only verifies
-   syntax and static analysis, not real WinPE behavior.
+3. Describe manual test coverage in the PR — CI verifies syntax and static analysis, not real WinPE behavior.
+
+---
 
 ## License
 
-[MIT](LICENSE) — © 2026 spacebass11. You use this tool at your own risk;
-see the license for the full disclaimer of warranty.
+[MIT](LICENSE) — © 2026 spacebass11. You use this tool at your own risk; see the license for the full disclaimer of warranty.
 
-## Version
-
-**v4.7.0** - BitLocker / data-disk feature reworked to opt-in: new
-`-DataDiskNumber`, `-EnableBitLocker`, `-BitLockerPin`,
-`-BitLockerKeyPath` parameters. Default no longer wipes a hardcoded
-second disk; recovery keys escrow to the IMAGES partition (or a
-caller-supplied path) instead of the encrypted volume. Placeholder
-PINs are rejected at runtime. See [docs/BITLOCKER.md](docs/BITLOCKER.md).
-
-**v4.6.0** - Driver injection (`prepare_wim.ps1 -DriverPath`) to pre-bake
-drivers into the WIM at prep time. Unattend.xml staging (`-UnattendFile`)
-— answer file is dropped to `C:\Windows\Panther\` post-apply for first-boot
-OOBE skip, computer name, domain join, etc.
-
-**v4.5.0** - Dell CCTK pre-apply BIOS configuration (RAID→AHCI,
-passwords, boot order — embedded in `boot.wim` via
-`build_boot_wim.ps1 -CctkSource`; per-machine `<SERVICETAG>.ini` on
-the IMAGES partition). Multi-disk wipe stage with streamlined
-`WIPE ALL` confirmation and new `-WipeDisks` silent-mode parameter.
-
-**v4.4.0** - Diskpart resilience (`noerr` on readonly clear), Linux/LVM
-partition detection, DISM `/CheckIntegrity` + exit-1 recovery guidance,
-reproducible boot.wim builder (`scripts/build_boot_wim.ps1`) with the
-`NtfsEnableDirCaseSensitivity` fix for Windows Containers layer apply.
-
-See [CHANGELOG.md](CHANGELOG.md) for full history.
+Current version: **v4.7.0** — see [CHANGELOG.md](CHANGELOG.md) for full history.
