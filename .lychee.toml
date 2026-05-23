@@ -14,4 +14,5 @@ accept = ["200..=299", "429"]
 # and on PRs from forks it returns 404 for the fork's badge path.
 exclude = [
   "https://github.com/spacebass11/WinPE/actions",
+  "https://claude.ai",
 ]
