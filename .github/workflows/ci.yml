@@ -378,4 +378,18 @@ jobs:
           grep -qF 'set /p DEPLOYARGS' $builder || { echo "  startnet.cmd no longer reads deploy.args via set /p"; ok=0; }
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: deploy.args wiring drifted"; fail=1; fi
 
+          echo "=== 25. build_boot_wim.ps1 startnet.cmd does not echo raw deploy.args ==="
+          # A BitLocker PIN or other secret embedded in deploy.args must not
+          # appear on the WinPE console at boot (KVM, screencast, over-the-
+          # shoulder). startnet.cmd should confirm the load without printing
+          # the value. Regressing to "echo !DEPLOYARGS!" would silently
+          # restore the leak.
+          builder=scripts/build_boot_wim.ps1
+          if grep -qE '^\s*echo\s+!DEPLOYARGS!' $builder; then
+            echo "FAIL: startnet.cmd echoes raw !DEPLOYARGS! - PIN leak risk"
+            fail=1
+          else
+            echo "OK"
+          fi
+
           exit $fail

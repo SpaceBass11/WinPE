@@ -31,15 +31,18 @@ set "DEPLOYARGS="
 if defined DEPLOY_IMAGE_DRIVE (
     if exist "%DEPLOY_IMAGE_DRIVE%\deploy.args" (
         set /p DEPLOYARGS=<"%DEPLOY_IMAGE_DRIVE%\deploy.args"
-        echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args:
-        echo   !DEPLOYARGS!
+        echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args
+        echo   Parameters loaded. Secrets, if present, are not displayed.
     )
 )
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
 ```
 
-The args are echoed to the WinPE console before launch so the
-operator can sanity-check them.
+The raw args are **not** echoed. `startnet.cmd` confirms only that
+a `deploy.args` was loaded — never its contents — so a BitLocker
+PIN or other secret in the file does not appear on the WinPE
+console, KVM, or any over-the-shoulder view. To inspect the args,
+read the file from the IMAGES partition directly.
 
 ## Constraints
 

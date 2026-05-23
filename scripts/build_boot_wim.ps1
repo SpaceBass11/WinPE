@@ -301,8 +301,8 @@ set "DEPLOYARGS="
 if defined DEPLOY_IMAGE_DRIVE (
     if exist "%DEPLOY_IMAGE_DRIVE%\deploy.args" (
         set /p DEPLOYARGS=<"%DEPLOY_IMAGE_DRIVE%\deploy.args"
-        echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args:
-        echo   !DEPLOYARGS!
+        echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args
+        echo   Parameters loaded. Secrets, if present, are not displayed.
     )
 )
 :: Replace {DRIVE} placeholder with the actual image-drive letter.
