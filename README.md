@@ -421,6 +421,7 @@ Every destructive operation requires a specific typed phrase:
 - [BIOS Configuration (CCTK)](docs/CCTK.md) — Dell fleet pre-apply BIOS setup
 - [BitLocker / Data Disk](docs/BITLOCKER.md) — opt-in encrypted first-boot config
 - [Code Signing](docs/SIGNING.md) — signing the script for enterprise environments
+- [Release Validation](docs/RELEASE_VALIDATION.md) — pre-distribution checklist for hardware/runtime behavior CI can't verify
 
 **For end users receiving the USB or ISO:**
 - [End User Deploy Guide](docs/END_USER_DEPLOY.md) — plain-English Rufus guide for non-IT users
