@@ -134,7 +134,11 @@ Describe "Resolve-BitLockerKeyPath escrow precedence" {
             Resolve-BitLockerKeyPath
         }
         $result.Path   | Should -Be (Join-Path $TestDrive 'BitLockerKeys')
-        $result.Source | Should -Be 'IMAGES partition'
+        # -Match (not -Be) so the test stays green when the human-readable
+        # Source suffix evolves (e.g. v4.7.1 added a "keep USB plugged in"
+        # hint to this string). Same pattern as the parameter-override test
+        # above.
+        $result.Source | Should -Match 'IMAGES partition'
     }
 
     It "NEVER falls back to D:\BitLocker (v4.6.x regression block)" {
