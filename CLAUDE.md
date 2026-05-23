@@ -116,6 +116,13 @@ The deeper safety/diskpart/BCDBoot greps that used to live in
 `validate_script.ps1` are now in the masterize CI job (Phase 1B,
 checks 8-19). They run on every push — no local replica needed.
 
+### Release Validation
+Before tagging or distributing a build (not as a merge gate — `main`
+can hold WIP), run the manual hardware validation steps in
+[`docs/RELEASE_VALIDATION.md`](docs/RELEASE_VALIDATION.md). It covers
+WinPE boot, Hyper-V deploys, Dell+CCTK, BitLocker first-boot, unattend
+handling, and deploy.args parsing — none of which CI exercises.
+
 ## Code Conventions
 
 - **PowerShell 5.1+ compatible** (WinPE environment)

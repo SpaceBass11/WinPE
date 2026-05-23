@@ -4,6 +4,12 @@ A once-per-release audit. **Run when you tag a new version, not every
 session.** Most of what masterize used to do is now automated in CI; the
 manual pass below is what CI can't do — read-driven semantic checks.
 
+> **Companion doc:** [`docs/RELEASE_VALIDATION.md`](../docs/RELEASE_VALIDATION.md)
+> covers the *other* half of pre-distribution work — hardware/runtime
+> behavior validation. Masterize Phase 2 validates docs; release
+> validation validates behavior. Both must pass before tagging or
+> shipping a build to real machines.
+
 **Cadence:**
 - **CI runs on every push:** the `masterize` job in
   [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs all
