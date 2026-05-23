@@ -22,9 +22,13 @@
         # builds. Documented in CLAUDE.md.
         'PSAvoidUsingWMICmdlet',
 
-        # Plain-text passwords / convert-to-secure-string are not used.
-        # This rule fires on build_boot_wim.ps1 string literals that
-        # look like credentials but are registry path fragments.
+        # Excluded because the project intentionally stages an operator-
+        # supplied BitLocker PIN via ConvertTo-SecureString -AsPlainText
+        # in Initialize-BitLockerSetup (unified_winpe_deploy.ps1). This
+        # is the air-gapped operator USB trust model documented in
+        # docs/BITLOCKER.md, and the PIN is guarded by runtime validation
+        # (length, complexity, ForbiddenBitLockerPins). Do NOT extend
+        # plaintext-secret usage to any other code path.
         'PSAvoidUsingConvertToSecureStringWithPlainText'
     )
 }
