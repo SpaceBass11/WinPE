@@ -195,7 +195,10 @@ See [docs/DEPLOY_ARGS.md](docs/DEPLOY_ARGS.md) for the full reference and the se
 1. Plug the USB into the target machine
 2. Boot from USB in **UEFI mode** (typically F12 → "UEFI: USB …")
 3. If `deploy.args` is present, the deploy runs unattended — otherwise the TUI prompts for image → edition → target disk → confirmations
-4. When complete, remove USB and reboot
+4. When complete, remove USB and reboot — **unless you're using BitLocker with default escrow** (see note below)
+
+> [!IMPORTANT]
+> **Keep the USB plugged in through the first reboot when `-EnableBitLocker` is used *without* `-BitLockerKeyPath`.** The recovery key escrows to the IMAGES partition on first boot. If you pull the USB before then, the staged script falls back to writing the key to `C:\Windows\Setup\BitLockerKeys` — on the volume it's protecting — with only a log warning. Use `-BitLockerKeyPath \\fileserver\share` to escrow over the network instead and pull the USB normally.
 
 ### C3. What happens on first boot
 
@@ -230,6 +233,9 @@ This bundles the WinPE boot image, your Windows WIM, configs, and any `deploy.ar
 5. Boot the target machine from USB (F12 → "UEFI: USB …")
 6. Follow the on-screen prompts — or just wait if it's unattended
 7. Remove USB and reboot when done
+
+> [!TIP]
+> If your packaged `deploy.args` enables BitLocker with default escrow, the on-screen prompt at the end will tell the user to leave the USB plugged in through the next reboot, then remove it. For zero-touch builds where the USB must come out immediately, pre-bake `-BitLockerKeyPath \\share\path` (UNC escrow) into the `deploy.args` so escrow doesn't depend on the USB at first boot.
 
 The full plain-English guide is in [docs/END_USER_DEPLOY.md](docs/END_USER_DEPLOY.md) — include that PDF alongside the ISO download.
 
@@ -386,7 +392,9 @@ Every destructive operation requires a specific typed phrase:
 ### BitLocker guardrails
 
 - Placeholder PINs (`ChangeMe123!` and similar weak strings) are rejected at runtime, including under `-Force -Silent`
-- Recovery keys escrow off the encrypted volume by default
+- Recovery keys escrow off the encrypted volume by default — to the IMAGES partition, resolved by volume label at first boot so it survives Windows reassigning the USB drive letter
+- If the IMAGES partition can't be found at first boot (USB unplugged), escrow falls back to `C:\Windows\Setup\BitLockerKeys` (on the encrypted volume) with a loud log warning — verify `C:\Windows\Setup\Scripts\bitlocker-setup.log` after first reboot
+- Use `-BitLockerKeyPath \\fileserver\share` for centralized escrow that doesn't depend on the USB staying plugged in
 
 ---
 
@@ -453,4 +461,4 @@ Pull requests welcome, especially hardware-compatibility fixes. Before opening o
 
 [MIT](LICENSE) — © 2026 spacebass11. You use this tool at your own risk; see the license for the full disclaimer of warranty.
 
-Current version: **v4.7.0** — see [CHANGELOG.md](CHANGELOG.md) for full history.
+Current version: **v4.7.1** — see [CHANGELOG.md](CHANGELOG.md) for full history.
