@@ -10,8 +10,8 @@ cause irreversible data loss, which makes responsible disclosure important.
 
 | Version | Supported          |
 |---------|--------------------|
-| 4.4.x   | :white_check_mark: |
-| < 4.4   | :x:                |
+| 4.7.x   | :white_check_mark: |
+| < 4.7   | :x:                |
 
 Only the latest minor release receives fixes. Earlier versions are archived
 on Git tags for reference but are not patched.

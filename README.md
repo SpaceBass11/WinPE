@@ -182,13 +182,13 @@ Copy [`configs/unattend.example.xml`](configs/unattend.example.xml) to your USB,
 
 Drop a one-line `deploy.args` file at the root of the IMAGES partition. The bootloader reads it and passes those parameters to the deploy script — no `boot.wim` rebuild required. Without the file, the script runs the interactive TUI.
 
-Copy [`configs/deploy.args.example`](configs/deploy.args.example) and edit:
+Copy [`configs/deploy.args.example`](configs/deploy.args.example) and edit. The example below is the **air-gapped operator USB pattern** — full silent deploy with a pre-staged BitLocker PIN. The USB itself becomes the credential. See [docs/BITLOCKER.md](docs/BITLOCKER.md) for the trade-offs (USB-as-credential, unique PIN per batch, physical-handling expectations):
 
 ```text
 -WimFile "I:\images\Win11_Enterprise.wim" -TargetDisk 0 -UnattendFile "I:\configs\unattend.xml" -DataDiskNumber 1 -EnableBitLocker -BitLockerPin "YourRealPin42" -Force -Silent
 ```
 
-See [docs/DEPLOY_ARGS.md](docs/DEPLOY_ARGS.md) for the full reference and the security note (PIN sits in plaintext on the USB — same trust model as CCTK passwords).
+See [docs/DEPLOY_ARGS.md](docs/DEPLOY_ARGS.md) for the full parameter reference.
 
 ### C2. Boot from USB
 
