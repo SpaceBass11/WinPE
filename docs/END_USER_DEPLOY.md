@@ -90,8 +90,15 @@ Quick example:
 .\scripts\build_iso.ps1 `
     -WimFile      'C:\build\Win11_Custom.wim' `
     -OutputIso    'D:\release\Win11_Deploy.iso' `
-    -UnattendFile 'I:\configs\unattend.xml'
+    -UnattendFile 'I:\configs\unattend.xml' `
+    -ConfirmSilentDestructiveIso
 ```
+
+`-ConfirmSilentDestructiveIso` is mandatory unless you also pass
+`-Interactive`. It acknowledges that the ISO will wipe whichever
+physical disk Windows enumerates as `-TargetDisk` (default: `0`) on
+the end-user's machine, with no operator confirmation. The builder
+refuses to run silently without it.
 
 The resulting ISO is ~4–6 GB. Send it via a file-sharing link (OneDrive,
 Google Drive, etc.). Minimum USB size is 8 GB.
