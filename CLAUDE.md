@@ -108,13 +108,29 @@ Use `/review` to run a comprehensive check of the deployment script covering:
 
 ### Running Checks
 ```bash
-# Syntax validation
+# Syntax validation - runs anywhere with pwsh installed
 pwsh -NoProfile -Command "& ./tests/test_parse.ps1"
 ```
 
 The deeper safety/diskpart/BCDBoot greps that used to live in
 `validate_script.ps1` are now in the masterize CI job (Phase 1B,
 checks 8-19). They run on every push — no local replica needed.
+
+**Pester (`tests/validation-gates.Tests.ps1`) runs in CI only.** The
+Claude Code on the Web container's network policy typically blocks
+outbound access to PSGallery, so `Install-Module Pester` fails with
+"No match was found for the specified search criteria." `pwsh` itself
+is also not preinstalled in the container — install it once per
+session with:
+```bash
+curl -fsSL https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz \
+  -o /tmp/pwsh.tgz && mkdir -p /opt/pwsh && tar -xzf /tmp/pwsh.tgz -C /opt/pwsh && chmod +x /opt/pwsh/pwsh
+/opt/pwsh/pwsh --version
+```
+For Pester logic changes, verify the assertion behavior manually
+against the real values (`pwsh -c "..."` with the real return type)
+and rely on CI to run the suite end-to-end. Don't waste time
+retrying `Install-Module` in a loop.
 
 ### Release Validation
 Before tagging or distributing a build (not as a merge gate — `main`
@@ -139,7 +155,15 @@ handling, and deploy.args parsing — none of which CI exercises.
 2. **Never let -Force bypass system disk protection** - DESTROY SYSTEM must always be typed
 3. **Test syntax after every edit** - run `pwsh -c "[System.Management.Automation.PSParser]::Tokenize((Get-Content unified_winpe_deploy.ps1 -Raw), [ref]$null)"`
 4. **Keep WinPE compatibility** - no modules that aren't available in WinPE (no Az, no ImportExcel, etc.)
-5. **Version field** lives in `$Script:Config.ScriptVersion` (line ~39) AND in the header comment block
+5. **Version field** lives in **four** places that must all match — masterize CI check #1 enforces this:
+   - `$Script:Config.ScriptVersion` in `unified_winpe_deploy.ps1` (~line 39)
+   - The `.VERSION` block in the script's header comment
+   - CLAUDE.md line 5 (`(v4.X.Y)` in the Project Overview paragraph)
+   - CHANGELOG.md (any mention of the new version anywhere in the file)
+   - README.md (the footer "Current version: **vX.Y.Z**" line)
+
+   Bumping the version means touching all of these in the same commit.
+   If masterize CI #1 is red, this is almost always the cause.
 6. **Drive letters S: and C:** are hardcoded for EFI and Windows partitions respectively
 7. **Never unmount the system drive** - mountvol /d must check $env:SystemDrive first
 8. **Use shutdown.exe, not Stop-Computer** - Stop-Computer is unreliable in WinPE
