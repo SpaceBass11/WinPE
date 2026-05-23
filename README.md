@@ -237,7 +237,7 @@ The full plain-English guide is in [docs/END_USER_DEPLOY.md](docs/END_USER_DEPLO
 
 ## Direct Script Invocation
 
-Most of the time you let `startnet.cmd` launch the script for you — with or without a `deploy.args` file. These examples are for the cases where you call it yourself: testing on an admin workstation, dropping to the WinPE console to override what `deploy.args` did, or scripting a one-off deploy.
+Without a `deploy.args` file, the script falls back to an interactive TUI. The examples below show calling the script directly — useful for testing on an admin workstation or running it from the WinPE console.
 
 ```powershell
 # Auto-discover images on all drives (standard WinPE flow)
