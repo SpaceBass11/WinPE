@@ -44,11 +44,30 @@ tagged GitHub releases are published.
     if the IMAGES partition is auto-assigned to `D:`.
   - The staged `bitlocker-setup.ps1` and `SetupComplete.cmd`
     self-delete after the encryption consumes the plaintext PIN.
-- Script version bumped to **4.7.0**.
+- Script version bumped to **4.7.0**, then **4.7.1** for the
+  BitLocker recovery-key escrow fix below.
 - New doc: [`docs/BITLOCKER.md`](docs/BITLOCKER.md). README parameter
   table, USB layout, and `docs/TROUBLESHOOTING.md` updated to match.
 
 ### Fixed
+- **BitLocker recovery-key escrow drive-letter mismatch (v4.7.1).**
+  The v4.7.0 implementation of `Resolve-BitLockerKeyPath` baked the
+  WinPE-time drive letter of the IMAGES partition (typically `I:`)
+  into the staged first-boot `bitlocker-setup.ps1`. On first boot
+  Windows is free to assign the USB IMAGES partition a different
+  letter, which silently failed the `Add-BitLockerKeyProtector
+  -RecoveryKeyPath` call inside a `try/catch` — leaving the volume
+  with TPM+PIN only and no recovery key. A subsequent TPM reset,
+  board swap, or firmware update would have left the volume
+  unrecoverable. v4.7.1 looks up the IMAGES partition by volume
+  label (`Get-Volume -FileSystemLabel 'IMAGES'`) at first-boot time
+  so escrow works regardless of how Windows assigns letters; falls
+  back to `C:\Windows\Setup\BitLockerKeys` with a loud `Write-BL`
+  warning if the label can't be resolved (USB unplugged or
+  relabeled). The USB must remain plugged in through the first
+  reboot when default escrow is used. README (Loop C step C2, ISO
+  flow, Safety Features) and `docs/BITLOCKER.md` updated to call
+  this out; `-BitLockerKeyPath` docstring rewritten.
 - `prepare_wim.ps1` now names the exported WIM after the selected source
   image (`$target.ImageName`) instead of the default `$Edition` literal.
   Before: `-SourceWim foo.wim -Index 1` always produced a WIM labeled

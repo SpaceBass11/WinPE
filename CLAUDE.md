@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a **PowerShell-based WinPE image deployment tool** (v4.7.0) that automates
+This is a **PowerShell-based WinPE image deployment tool** (v4.7.1) that automates
 Windows installation from `.wim`/`.esd` files in a WinPE boot environment. The tool
 is designed to run from a USB drive with a dual-partition layout: a small WinPE boot
 partition and a larger data partition holding Windows images.
@@ -107,14 +107,40 @@ Use `/review` to run a comprehensive check of the deployment script covering:
 - Disk size validation
 
 ### Running Checks
+
+The repo has three test files; know which is which before changing one:
+
+| File | What it covers | Where it runs |
+|------|----------------|---------------|
+| `tests/test_parse.ps1` | PowerShell syntax + function presence + version consistency across the four deploy scripts | Anywhere with `pwsh` (also CI) |
+| `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` regex parser used by `Get-WimImageInfo` — guards against silent edition mis-attribution | Anywhere with `pwsh` (also CI) |
+| `tests/validation-gates.Tests.ps1` | **Pester suite.** v4.7.0 BitLocker default-config invariants, `Resolve-BitLockerKeyPath` precedence, `New-DiskpartScript` source-drive protection, `Start-Deployment` validation gates | **CI only** — see Pester note below |
+
 ```bash
-# Syntax validation
-pwsh -NoProfile -Command "& ./tests/test_parse.ps1"
+# Syntax + parser fixtures - runs anywhere with pwsh installed
+pwsh -NoProfile -File ./tests/test_parse.ps1
+pwsh -NoProfile -File ./tests/test_wim_parser.ps1
 ```
 
 The deeper safety/diskpart/BCDBoot greps that used to live in
 `validate_script.ps1` are now in the masterize CI job (Phase 1B,
 checks 8-19). They run on every push — no local replica needed.
+
+**Pester (`tests/validation-gates.Tests.ps1`) runs in CI only.** The
+Claude Code on the Web container's network policy typically blocks
+outbound access to PSGallery, so `Install-Module Pester` fails with
+"No match was found for the specified search criteria." `pwsh` itself
+is also not preinstalled in the container — install it once per
+session with:
+```bash
+curl -fsSL https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz \
+  -o /tmp/pwsh.tgz && mkdir -p /opt/pwsh && tar -xzf /tmp/pwsh.tgz -C /opt/pwsh && chmod +x /opt/pwsh/pwsh
+/opt/pwsh/pwsh --version
+```
+For Pester logic changes, verify the assertion behavior manually
+against the real values (`pwsh -c "..."` with the real return type)
+and rely on CI to run the suite end-to-end. Don't waste time
+retrying `Install-Module` in a loop.
 
 ### Release Validation
 Before tagging or distributing a build (not as a merge gate — `main`
@@ -139,11 +165,39 @@ handling, and deploy.args parsing — none of which CI exercises.
 2. **Never let -Force bypass system disk protection** - DESTROY SYSTEM must always be typed
 3. **Test syntax after every edit** - run `pwsh -c "[System.Management.Automation.PSParser]::Tokenize((Get-Content unified_winpe_deploy.ps1 -Raw), [ref]$null)"`
 4. **Keep WinPE compatibility** - no modules that aren't available in WinPE (no Az, no ImportExcel, etc.)
-5. **Version field** lives in `$Script:Config.ScriptVersion` (line ~39) AND in the header comment block
+5. **Version field** lives in **four** places that must all match — masterize CI check #1 enforces this:
+   - `$Script:Config.ScriptVersion` in `unified_winpe_deploy.ps1` (~line 39)
+   - The `.VERSION` block in the script's header comment
+   - CLAUDE.md line 5 (`(v4.X.Y)` in the Project Overview paragraph)
+   - CHANGELOG.md (any mention of the new version anywhere in the file)
+   - README.md (the footer "Current version: **vX.Y.Z**" line)
+
+   Bumping the version means touching all of these in the same commit.
+   If masterize CI #1 is red, this is almost always the cause.
+
+   **CHANGELOG convention:** this repo doesn't cut tagged GitHub
+   releases. Add new version entries inside the `## Unreleased`
+   section (which accumulates everything since the last
+   `## X.Y.Z - YYYY-MM-DD` heading). Don't introduce a new
+   `## 4.7.1` heading just because the script version bumped —
+   add a `### Fixed` / `### Changed` bullet that names the
+   version in its prose, the way 4.7.0 was recorded.
 6. **Drive letters S: and C:** are hardcoded for EFI and Windows partitions respectively
 7. **Never unmount the system drive** - mountvol /d must check $env:SystemDrive first
 8. **Use shutdown.exe, not Stop-Computer** - Stop-Computer is unreliable in WinPE
 9. **BitLocker / data-disk must stay opt-in** - `DataDiskNumber` and `EnableBitLocker` default to `-1` / `$false`. The PIN must never have a non-null default. The `ForbiddenBitLockerPins` list must always include `'ChangeMe123!'` (the v4.6.x placeholder). The `WIPE DATA` typed confirmation must remain.
+
+## When Editing Docs
+
+- **GitHub anchor slugs strip em/en-dashes without replacement.** A
+  heading like `## Loop B — Per-Image Refresh (~10–20 min)` slugs to
+  `#loop-b--per-image-refresh-1020-min`, NOT `#loop-b--per-image-refresh-10-20-min`.
+  GitHub's algorithm: lowercase, drop everything that isn't a letter /
+  digit / hyphen / underscore / space, then replace spaces with hyphens.
+  An em-dash (`—`) surrounded by spaces becomes `--`; an en-dash (`–`)
+  inside `10–20` becomes nothing, collapsing to `1020`. When editing a
+  TOC, verify the anchor matches what GitHub will actually generate —
+  the existing TOC entries are not guaranteed to be correct.
 
 ## Known Constraints
 
@@ -218,7 +272,15 @@ guardrail.
 exponential backoff — they will all fail. Push to a side branch the
 first time.
 
-**Don't create multiple side branches per session** if avoidable —
-add new commits to the existing one (`git checkout -b <name>
-origin/<name>`, commit, push) so the user has one PR to review,
-not several.
+**One branch per topic, not per session.** Same topic = same
+branch (add commits to the existing one, push, the PR updates).
+Different independent topic = different branch (e.g. a runtime
+code fix and a docs cleanup don't belong together — they need to
+be independently reviewable and mergeable, since one may need
+hardware testing and the other may not). It is fine to have
+multiple side branches in flight from a single session.
+
+What this is not: "always create multiple branches." If you find
+yourself adding to a branch named after a now-stale topic, that's
+the signal to start a fresh branch — not a directive to start one
+every time you push.
