@@ -219,10 +219,13 @@ Once the workflow is dialed in, you can package everything into a single distrib
 ```powershell
 .\scripts\build_iso.ps1 `
     -WimFile   'I:\images\Win11_Enterprise.wim' `
-    -OutputIso 'D:\dist\WinPE_Deploy_Win11.iso'
+    -OutputIso 'D:\dist\WinPE_Deploy_Win11.iso' `
+    -ConfirmSilentDestructiveIso
 ```
 
 This bundles the WinPE boot image, your Windows WIM, configs, and any `deploy.args` into one bootable ISO. Bake in a pre-configured `deploy.args` if you want fully unattended operation on the receiving end.
+
+The `-ConfirmSilentDestructiveIso` switch is **mandatory** when building a silent ISO. It acknowledges that the resulting ISO will wipe whichever physical disk Windows enumerates as `-TargetDisk` (default: `0`) on the end-user's machine, with **no operator confirmation**. Use `-Interactive` instead to build an ISO that prompts the operator for disk selection and confirmations.
 
 ### What end users do
 

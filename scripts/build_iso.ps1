@@ -58,8 +58,17 @@
     When set, the generated deploy.args only pre-sets -ImagePath so the
     deploy script auto-discovers the WIM but still prompts the user for
     edition, target disk, and confirmations. Useful for lab/testing USBs
-    where you want the TUI. When not set (default), a fully silent
-    deploy.args is generated.
+    where you want the TUI. When not set, a fully silent destructive
+    deploy.args is generated and -ConfirmSilentDestructiveIso must be
+    passed to acknowledge that.
+
+.PARAMETER ConfirmSilentDestructiveIso
+    Required acknowledgement when neither -Interactive is set. The
+    silent deploy.args writes -TargetDisk N -Force -Silent, so anyone
+    who boots the resulting ISO wipes whichever physical disk Windows
+    enumerates as N on their hardware, with no operator confirmation.
+    Pass this switch to confirm that is the intended outcome. Without
+    it, the script throws before any file copy.
 
 .PARAMETER AdkPath
     Override ADK install root. Default:
@@ -82,10 +91,13 @@
     Delete WorkDir before starting for a guaranteed-fresh build.
 
 .EXAMPLE
-    # Minimal: WinPE media + WIM -> single silent ISO (disk 0, no BitLocker)
+    # Minimal: WinPE media + WIM -> single silent ISO (disk 0, no BitLocker).
+    # -ConfirmSilentDestructiveIso is required to acknowledge that the
+    # resulting ISO wipes disk 0 with no operator prompt.
     .\scripts\build_iso.ps1 `
         -WimFile 'I:\images\Win11_Pro_Custom.wim' `
-        -OutputIso 'D:\release\Win11_Deploy.iso'
+        -OutputIso 'D:\release\Win11_Deploy.iso' `
+        -ConfirmSilentDestructiveIso
 
 .EXAMPLE
     # With unattend (account creation, OOBE skip) and BitLocker
@@ -93,10 +105,12 @@
         -WimFile    'I:\images\Win11_Pro_Custom.wim' `
         -OutputIso  'D:\release\Win11_Deploy.iso' `
         -UnattendFile 'I:\configs\unattend.xml' `
-        -BitLockerPin 'Acme2025#7'
+        -BitLockerPin 'Acme2025#7' `
+        -ConfirmSilentDestructiveIso
 
 .EXAMPLE
-    # Interactive ISO: TUI prompts the operator, WIM pre-located for them
+    # Interactive ISO: TUI prompts the operator, WIM pre-located for them.
+    # No -ConfirmSilentDestructiveIso needed - the operator sees prompts.
     .\scripts\build_iso.ps1 `
         -WimFile   'I:\images\Win11_Pro_Custom.wim' `
         -OutputIso 'D:\release\Win11_Deploy_Interactive.iso' `
@@ -108,7 +122,8 @@
         -WimFile   'I:\images\Win11_Pro_Custom.wim' `
         -OutputIso 'D:\release\Win11_Deploy.iso' `
         -MediaDir  'E:\MyWinPEBuild\media' `
-        -AdkPath   'D:\ADK'
+        -AdkPath   'D:\ADK' `
+        -ConfirmSilentDestructiveIso
 #>
 [CmdletBinding()]
 param(
@@ -121,6 +136,7 @@ param(
     [int]$DataDiskNumber = -1,
     [string]$WipeDisks,
     [switch]$Interactive,
+    [switch]$ConfirmSilentDestructiveIso,
     [string]$AdkPath = 'C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit',
     [ValidateSet('amd64','x86','arm64')]
     [string]$Architecture = 'amd64',
@@ -134,6 +150,25 @@ $ErrorActionPreference = 'Stop'
 function Write-Step { param([string]$m) Write-Host "[iso] $m" -ForegroundColor Cyan }
 function Write-Ok   { param([string]$m) Write-Host "[ ok] $m" -ForegroundColor Green }
 function Write-Warn { param([string]$m) Write-Host "[wrn] $m" -ForegroundColor Yellow }
+
+# --- Destructive-intent gate ---
+# Without -Interactive, the generated deploy.args contains -Force -Silent
+# and a fixed -TargetDisk. The resulting ISO wipes whichever physical
+# disk Windows enumerates as $TargetDisk on the end-user's hardware,
+# with NO operator confirmation. Require explicit acknowledgement so a
+# non-IT user flashing the ISO can't trigger this by accident, and so
+# nobody runs the builder with default flags and gets a silent wiper.
+if (-not $Interactive -and -not $ConfirmSilentDestructiveIso) {
+    throw @"
+build_iso.ps1 would generate a fully silent disk-wiping ISO:
+  -TargetDisk $TargetDisk -Force -Silent
+Anyone who boots the resulting ISO wipes whichever physical disk
+Windows enumerates as $TargetDisk on their hardware, with NO operator
+confirmation. To proceed, re-run with one of:
+  -Interactive                         (TUI prompts on deploy)
+  -ConfirmSilentDestructiveIso         (silent + destructive, intended)
+"@
+}
 
 # --- Input validation ---
 
