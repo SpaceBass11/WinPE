@@ -5,9 +5,16 @@
 [![PowerShell 5.1+](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://learn.microsoft.com/powershell/)
 [![Platform: WinPE](https://img.shields.io/badge/Platform-WinPE-informational.svg)](https://learn.microsoft.com/windows-hardware/manufacture/desktop/winpe-intro)
 
-A PowerShell-based TUI tool for deploying Windows images (`.wim`/`.esd`) from a bootable USB drive in a WinPE environment. Built for IT admins and engineers doing bare-metal Windows deployments — air-gapped, security-hardened, Dell enterprise hardware, Windows 11 Enterprise.
+A PowerShell-based TUI tool for deploying Windows images (`.wim`/`.esd`) from a bootable USB drive in a WinPE environment. Built for IT admins doing bare-metal Windows deployments — air-gapped, security-hardened, Dell enterprise hardware, Windows 11 Enterprise.
 
-The full workflow supports multiple images on one USB, unattended pipelines, Dell BIOS pre-configuration, BitLocker orchestration, and unattend.xml staging. When the workflow is dialed in, the optional ISO packaging step wraps everything into a single file that non-IT end users flash with Rufus.
+**What you get:**
+
+- One USB, many images — pick at deploy time from a TUI
+- Unattended pipelines via a per-USB `deploy.args` file (no `boot.wim` rebuild)
+- Dell BIOS pre-apply via CCTK (RAID→AHCI, passwords, boot order)
+- BitLocker on first boot (TPM+PIN on `C:`, recovery key + auto-unlock on `D:`)
+- Unattend.xml staging for OOBE skip, computer name, domain join, autologon
+- Optional ISO packaging — when the workflow is dialed in, wrap everything into one file that non-IT end users flash with Rufus
 
 > [!WARNING]
 > **This tool wipes entire disks.** It calls `diskpart clean` on the target disk, which is irreversible. Always double-check the selected disk number and never run with `-Force -Silent` on a host you have not explicitly targeted. There is no undo.
@@ -22,10 +29,10 @@ The full workflow supports multiple images on one USB, unattended pipelines, Del
 - [Who This Is For](#who-this-is-for)
 - [Workflow Overview](#workflow-overview)
 - [Loop A — One-Time Setup](#loop-a--one-time-setup-30-min)
-- [Loop B — Per-Image Refresh](#loop-b--per-image-refresh-10-20-min)
-- [Loop C — Per-Machine Deploy](#loop-c--per-machine-deploy-5-10-min)
+- [Loop B — Per-Image Refresh](#loop-b--per-image-refresh-1020-min)
+- [Loop C — Per-Machine Deploy](#loop-c--per-machine-deploy-510-min)
 - [Streamlined End-User Distribution](#streamlined-end-user-distribution-optional)
-- [Manual / Interactive Use](#manual--interactive-use)
+- [Direct Script Invocation](#direct-script-invocation)
 - [USB Drive Layout](#usb-drive-layout)
 - [Disk Partition Layout on Target](#disk-partition-layout-on-target)
 - [Parameters](#parameters)
@@ -228,9 +235,9 @@ The full plain-English guide is in [docs/END_USER_DEPLOY.md](docs/END_USER_DEPLO
 
 ---
 
-## Manual / Interactive Use
+## Direct Script Invocation
 
-No `deploy.args` file needed to use the tool. Without it the script launches the interactive TUI. You can also call it directly from a WinPE console or a regular Windows console for testing:
+Most of the time you let `startnet.cmd` launch the script for you — with or without a `deploy.args` file. These examples are for the cases where you call it yourself: testing on an admin workstation, dropping to the WinPE console to override what `deploy.args` did, or scripting a one-off deploy.
 
 ```powershell
 # Auto-discover images on all drives (standard WinPE flow)
@@ -303,48 +310,81 @@ The deploy script creates a standard UEFI/GPT layout on the target machine:
 
 ## Parameters
 
+Full reference with examples lives in [docs/SCRIPT_REFERENCE.md](docs/SCRIPT_REFERENCE.md). Grouped here for quick scanning.
+
+### Image selection
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `-ImagePath` | String | Directory to search for images (skips drive scanning) |
 | `-WimFile` | String | Direct path to a `.wim`/`.esd` file |
+| `-ImagePath` | String | Directory to search for images (skips drive scanning) |
+| `-MinImageSizeMB` | Int | Auto-discovery minimum image size in MB (default: 100) |
+| `-ListOnly` | Switch | Show available images and exit |
+
+### Target disk
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
 | `-TargetDisk` | Int | Disk number to deploy to (skips disk selection TUI) |
 | `-WipeDisks` | String | Comma-separated disk numbers to also wipe (clean-only) alongside the primary target, e.g. `"1,2"`. Requires `-Force` in silent mode. |
-| `-MinImageSizeMB` | Int | Auto-discovery minimum image size in MB (default: 100) |
+
+### Automation
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `-Force` | Switch | Skip typed `ERASE` / `WIPE ALL` / `WIPE DATA` confirmations. **Never bypasses `DESTROY SYSTEM`.** |
+| `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, `-Force`, and a single-index image. |
+
+### First-boot staging
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
 | `-UnattendFile` | String | Path to `unattend.xml`. Copied to `C:\Windows\Panther\` post-apply for first-boot OOBE skip, domain join, etc. |
+
+### BitLocker / data disk (opt-in)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
 | `-DataDiskNumber` | Int | Disk number to wipe and format as NTFS `D:`. Off by default (`-1`). Requires typed `WIPE DATA` confirmation. |
 | `-EnableBitLocker` | Switch | Stage `SetupComplete.cmd` to enable BitLocker on first boot. Requires `-BitLockerPin`. |
 | `-BitLockerPin` | String | Startup PIN for the TPM+PIN protector on `C:`. 6–20 characters. Placeholder PINs are rejected at runtime. |
 | `-BitLockerKeyPath` | String | Override recovery-key escrow path. Default: `<IMAGES>\BitLockerKeys`. |
-| `-Force` | Switch | Skip typed `ERASE` / `WIPE ALL` / `WIPE DATA` confirmations. **Never bypasses `DESTROY SYSTEM`.** |
-| `-Silent` | Switch | Unattended mode. Requires `-WimFile`, `-TargetDisk`, `-Force`, and a single-index image. |
-| `-ListOnly` | Switch | Show available images and exit |
 
 ---
 
 ## Safety Features
 
-**Two distinct environment checks — different purposes, different behavior:**
+### Environment checks
 
-- **Administrator privileges** *(hard stop)* — `diskpart`, DISM, and BCDBoot all require elevation. The script refuses to run without it. In WinPE this is always satisfied automatically. On a live Windows host it prevents accidental partial execution.
+Two distinct checks with different purposes — and different behaviors.
 
-- **WinPE environment detection** *(soft warning)* — If the script isn't running inside WinPE, it warns and prompts before continuing. This matters when running on a live admin workstation for testing — it's a reminder that disk operations are about to happen on a running system, not a RAM-isolated WinPE environment. It doesn't hard-stop because running outside WinPE has legitimate uses (testing, recovery).
+| Check | Behavior | Why |
+|-------|----------|-----|
+| Administrator privileges | **Hard stop** | `diskpart`, DISM, and BCDBoot all require elevation. Always satisfied in WinPE; the check prevents partial execution on a live Windows host. |
+| Running inside WinPE | **Soft warning** | Running outside WinPE has legitimate uses (testing, recovery), so the script only warns and prompts. It's a reminder that disk operations are about to hit a running system. |
 
-**Disk protection:**
+### Disk protection
 
-- USB drives are excluded from the target disk list — the boot USB can't be accidentally selected
-- System disk detection — if the script's own system drive (`$env:SystemDrive`) is selected as the target, it is highlighted in red and requires typing `DESTROY SYSTEM` to proceed, which `-Force` never bypasses. In WinPE, the system drive is always `X:` (the RAM disk), so a laptop's existing Windows install on disk 0 is just a regular disk from WinPE's perspective — it only requires the normal `ERASE` confirmation, which `-Force` does bypass. The `DESTROY SYSTEM` guard is primarily relevant when running the script on a live Windows host outside WinPE.
-- System memory is validated (warns if < 8 GB; WinPE runs entirely in RAM and low memory causes mid-deploy failures)
+- USB drives are excluded from the target list — the boot USB can't be accidentally selected
+- System memory is validated (warns if < 8 GB; WinPE runs entirely in RAM)
+- System-disk detection — if `$env:SystemDrive` is selected as the target, the prompt requires typing `DESTROY SYSTEM`, which `-Force` never bypasses
 
-**Typed-confirmation chain** — every destructive operation requires a specific phrase:
+> [!IMPORTANT]
+> In WinPE, `$env:SystemDrive` is **always `X:` (the RAM disk)**, so a laptop's existing Windows install on disk 0 is just a regular disk to the script. It triggers only the normal `ERASE` confirmation — which `-Force` **does** bypass. The `DESTROY SYSTEM` guard primarily protects you when running the script on a live Windows host outside WinPE.
+
+### Typed-confirmation chain
+
+Every destructive operation requires a specific typed phrase:
 
 | Phrase | Triggers On | Bypassable by `-Force`? |
 |--------|-------------|------------------------|
-| `DESTROY SYSTEM` | System disk | No — never |
+| `DESTROY SYSTEM` | System disk | **No — never** |
 | `ERASE` | Primary target disk | Yes |
 | `WIPE ALL` | Additional wipe disks (`-WipeDisks`) | Yes |
 | `WIPE DATA` | Data disk format (`-DataDiskNumber`) | Yes |
 
-**BitLocker guardrails:**
+### BitLocker guardrails
+
 - Placeholder PINs (`ChangeMe123!` and similar weak strings) are rejected at runtime, including under `-Force -Silent`
 - Recovery keys escrow off the encrypted volume by default
 
