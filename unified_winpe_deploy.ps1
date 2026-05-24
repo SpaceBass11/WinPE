@@ -59,12 +59,12 @@
     even if the encrypted volumes don't mount.
 .PARAMETER BitLockerPin
     Startup PIN for the TPM+PIN protector on C:. Required when
-    -EnableBitLocker is set. The placeholder 'ChangeMe123!' is rejected.
-    Enhanced PIN policy is enabled, so 6-20 characters of digits,
-    letters, and symbols are accepted. In non-silent mode, omitting
-    this parameter prompts at the WinPE console via Read-Host
-    -AsSecureString so the PIN never appears on screen or in the
-    command-line. Silent mode requires the parameter (no prompt).
+    -EnableBitLocker is set. Enhanced PIN policy is enabled, so 6-20
+    characters of digits, letters, and symbols are accepted. PIN
+    content is the admin's call - the script enforces only the
+    Windows length policy. In non-silent mode, omitting this parameter
+    prompts at the WinPE console via Read-Host; silent mode requires
+    the parameter (no prompt - would deadlock unattended deploys).
 .PARAMETER BitLockerKeyPath
     Override the default IMAGES-partition escrow path for recovery keys.
     Use a UNC share (e.g. \\fileserver\BitLockerKeys) or a fixed-disk
@@ -145,8 +145,6 @@ $Script:Config = @{
     BitLockerKeyDir = 'BitLockerKeys'
     DataDiskNumber  = -1
     EnableBitLocker = $false
-    # Reject obvious placeholder PINs even if someone tries to wire them in.
-    ForbiddenBitLockerPins = @('ChangeMe123!', 'password', 'Password1', '123456')
 }
 
 $Script:Colors = @{
@@ -1674,34 +1672,20 @@ function Start-Deployment {
     if ($BitLockerPin)         { $Script:Config.BitLockerPin   = $BitLockerPin }
 
     # Non-silent fallback: if -EnableBitLocker is set without -BitLockerPin
-    # and the operator is at the WinPE console, prompt for the PIN with
-    # Read-Host -AsSecureString so it never appears on screen or in the
-    # command-line history. Silent mode does not prompt - the existing
-    # hard-fail below still applies, so unattended deploys with missing
-    # PIN exit fast instead of blocking on a hidden prompt.
+    # and the operator is at the WinPE console, prompt for the PIN. Plain
+    # Read-Host (no -AsSecureString) so the operator can see what they
+    # type - the PIN is staged plaintext into bitlocker-setup.ps1 on C:
+    # downstream anyway, and may be plaintext in deploy.args, so hiding
+    # at the prompt is theater that just makes typos invisible. Silent
+    # mode does not prompt - the hard-fail below applies so unattended
+    # deploys with missing PIN exit fast instead of blocking.
     if ($Script:Config.EnableBitLocker -and -not $Script:Config.BitLockerPin -and -not $Silent) {
         Write-Log "-EnableBitLocker set without -BitLockerPin; prompting at WinPE console" -Level Info
-        $securePin = Read-Host -Prompt 'Enter BitLocker startup PIN (6-20 chars)' -AsSecureString
-        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePin)
-        try {
-            $Script:Config.BitLockerPin = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-        } finally {
-            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-        }
-    }
-
-    # Reject placeholder PINs - the v4.6.x default 'ChangeMe123!' and a few
-    # common weak strings are blocked outright so they can't leak into a
-    # boot.wim build by accident. Runs after the prompt above so a typed
-    # forbidden PIN is caught the same way as one supplied via -BitLockerPin.
-    if ($Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin -and
-        ($Script:Config.ForbiddenBitLockerPins -contains $Script:Config.BitLockerPin)) {
-        Write-Log "BitLockerPin is a forbidden placeholder ('$($Script:Config.BitLockerPin)') - choose a real PIN" -Level Error
-        return $false
+        $Script:Config.BitLockerPin = Read-Host -Prompt 'Enter BitLocker startup PIN (6-20 chars)'
     }
 
     if ($Script:Config.EnableBitLocker -and -not $Script:Config.BitLockerPin) {
-        Write-Log "-EnableBitLocker requires -BitLockerPin (no default; placeholder PINs are rejected)" -Level Error
+        Write-Log "-EnableBitLocker requires -BitLockerPin" -Level Error
         return $false
     }
     if ($Script:Config.EnableBitLocker -and

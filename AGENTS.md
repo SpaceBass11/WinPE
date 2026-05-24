@@ -30,8 +30,10 @@ signal.
   - `DataDiskNumber = -1`
   - `EnableBitLocker = $false`
   - `BitLockerPin = $null`
-  The `ForbiddenBitLockerPins` list must always include
-  `'ChangeMe123!'` (the v4.6.x placeholder).
+  PIN *content* policy (forbidden lists, character classes) is
+  intentionally NOT enforced — admins decide. The only PIN check
+  is Windows' 6-20 character window so a malformed PIN fails at
+  deploy time instead of first boot.
 - **Never commit real secrets.** No real BitLocker PINs, CCTK BIOS
   passwords, unattend.xml admin passwords or product keys, domain
   credentials, or signing certificates. Use placeholders and

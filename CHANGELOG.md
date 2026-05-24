@@ -8,18 +8,29 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Removed
+- **`ForbiddenBitLockerPins` list and PIN content policy.** Earlier
+  builds rejected `ChangeMe123!`, `password`, `Password1`, and `123456`
+  as BitLocker startup PINs. That list was paternalism — the
+  `ChangeMe123!` "placeholder" wasn't a real historical default in
+  this repo, and the others were second-guessing admins who know
+  their threat model. The script now passes the PIN through; only
+  the Windows-mandated 6-20 character window is checked (so a
+  malformed PIN still fails at deploy time, not first boot). Same
+  removal applied to `scripts/build_iso.ps1`. Removed the
+  corresponding Pester rows and CI masterize check #21.
+
 ### Added
 - **TUI PIN prompt for BitLocker in non-silent mode.** When
   `-EnableBitLocker` is set without `-BitLockerPin` in non-silent
-  mode, the script now prompts at the WinPE console via
-  `Read-Host -AsSecureString` — the PIN never appears on screen,
-  never lives in CLI args, never enters shell history. Silent mode
-  still hard-fails (a hidden prompt would deadlock an unattended
-  deploy). Closes a gap where the manual-technician workflow had to
-  expose the PIN as a CLI arg. Existing `ForbiddenBitLockerPins` and
-  6-20 char validation still apply to the typed value. See
-  `docs/RELEASE_VALIDATION.md` scenario #11 and
-  `docs/BITLOCKER.md` "Example invocations".
+  mode, the script now prompts at the WinPE console via `Read-Host`.
+  PIN is visible on screen so the operator can verify the typed
+  value — and is staged plaintext into `bitlocker-setup.ps1` on `C:`
+  downstream anyway, so hiding at the prompt would be theater that
+  just makes typos invisible. Silent mode still hard-fails (a prompt
+  would deadlock an unattended deploy). 6-20 char validation still
+  applies to the typed value. See `docs/RELEASE_VALIDATION.md`
+  scenario #11 and `docs/BITLOCKER.md` "Example invocations".
 - **Per-USB `deploy.args` file.** `scripts/build_boot_wim.ps1` now
   writes a `startnet.cmd` that looks for `<IMAGES>\deploy.args` on
   boot and passes its single-line contents as parameters to

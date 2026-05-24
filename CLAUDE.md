@@ -185,7 +185,7 @@ handling, and deploy.args parsing — none of which CI exercises.
 6. **Drive letters S: and C:** are hardcoded for EFI and Windows partitions respectively
 7. **Never unmount the system drive** - mountvol /d must check $env:SystemDrive first
 8. **Use shutdown.exe, not Stop-Computer** - Stop-Computer is unreliable in WinPE
-9. **BitLocker / data-disk must stay opt-in** - `DataDiskNumber` and `EnableBitLocker` default to `-1` / `$false`. The PIN must never have a non-null default. The `ForbiddenBitLockerPins` list must always include `'ChangeMe123!'` (the v4.6.x placeholder). The `WIPE DATA` typed confirmation must remain.
+9. **BitLocker / data-disk must stay opt-in** - `DataDiskNumber` and `EnableBitLocker` default to `-1` / `$false`. The PIN must never have a non-null default. The `WIPE DATA` typed confirmation must remain. PIN *content* policy (forbidden lists, character classes) is intentionally NOT enforced - admins decide; the script only checks Windows' 6-20 char window so a malformed PIN fails at deploy time instead of first boot.
 
 ## When Editing Docs
 
