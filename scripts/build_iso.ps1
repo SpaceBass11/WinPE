@@ -40,7 +40,10 @@
 
 .PARAMETER BitLockerPin
     If set, the generated deploy.args enables BitLocker with this PIN.
-    The placeholder 'ChangeMe123!' is rejected.
+    Must be 6-20 characters (Enhanced PIN policy). Placeholder PINs
+    ('ChangeMe123!', 'password', 'Password1', '123456') are rejected.
+    This mirrors the deploy script's own validation so a bad PIN fails
+    at build time, not after the end-user has booted from USB.
     Security note: the PIN is stored in plaintext in the ISO/on the USB —
     the USB is the trust boundary. Use a unique PIN per USB.
 
@@ -201,8 +204,16 @@ if ($UnattendFile) {
 }
 
 if ($BitLockerPin) {
-    if ($BitLockerPin -eq 'ChangeMe123!') {
-        throw "BitLockerPin 'ChangeMe123!' is a placeholder and is rejected. Use a real PIN."
+    # Mirror unified_winpe_deploy.ps1's Start-Deployment PIN gates so a
+    # bad PIN fails here, not after the end-user has booted from USB.
+    # Keep this list in sync with $Script:Config.ForbiddenBitLockerPins
+    # in unified_winpe_deploy.ps1 (~line 146).
+    $forbiddenPins = @('ChangeMe123!', 'password', 'Password1', '123456')
+    if ($forbiddenPins -contains $BitLockerPin) {
+        throw "BitLockerPin '$BitLockerPin' is a forbidden placeholder. Choose a real PIN."
+    }
+    if ($BitLockerPin.Length -lt 6 -or $BitLockerPin.Length -gt 20) {
+        throw "BitLockerPin must be 6-20 characters (Enhanced PIN policy). Got: $($BitLockerPin.Length) chars."
     }
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."

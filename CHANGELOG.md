@@ -48,6 +48,15 @@ tagged GitHub releases are published.
   BitLocker recovery-key escrow fix below.
 - New doc: [`docs/BITLOCKER.md`](docs/BITLOCKER.md). README parameter
   table, USB layout, and `docs/TROUBLESHOOTING.md` updated to match.
+- **`build_iso.ps1` PIN validation now mirrors the deploy script.**
+  Previously `-BitLockerPin` only rejected the literal `'ChangeMe123!'`.
+  The deploy script rejects four placeholders (`ChangeMe123!`,
+  `password`, `Password1`, `123456`) and enforces 6-20 characters
+  (Enhanced PIN policy). A weak PIN that built cleanly would then be
+  refused by `unified_winpe_deploy.ps1` at runtime — after the
+  end-user had already booted from USB. `build_iso.ps1` now applies
+  the same rules at build time so the failure surfaces before
+  shipping.
 
 ### Fixed
 - **BitLocker recovery-key escrow drive-letter mismatch (v4.7.1).**

@@ -5,6 +5,81 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-05-24 — `build_iso.ps1` BitLocker PIN validation parity
+
+**Investigated:** Open PRs (#46 only — test_parse coverage extension)
+and the routine-log backlog. Then audited the BitLocker PIN handling
+across the three places it appears: `unified_winpe_deploy.ps1`
+(`Start-Deployment` validation, line 1676-1693), `docs/BITLOCKER.md`
+(parameter table, line 35), and `scripts/build_iso.ps1` (build-time
+gate, line 203-211 pre-edit).
+
+**Found:** The deploy script rejects four placeholder PINs
+(`ChangeMe123!`, `password`, `Password1`, `123456`) and enforces a
+6-20 character Enhanced-PIN-policy length window. The docs in
+`BITLOCKER.md` state both rules. But `build_iso.ps1` only rejected
+the literal `'ChangeMe123!'` and never checked length. Concrete
+failure mode: someone runs
+`build_iso.ps1 -BitLockerPin password ...` — build succeeds, ISO is
+flashed, end-user boots, and `Start-Deployment` aborts with
+"BitLockerPin is a forbidden placeholder" after WinPE has already
+loaded. The check should fail at build time, not on the target.
+
+**Changed:**
+- `scripts/build_iso.ps1` — expanded the `if ($BitLockerPin)` block
+  to mirror the deploy script's two extra gates: the forbidden-list
+  membership check (same four PINs, hardcoded in a local
+  `$forbiddenPins` array with a comment pointing to the source of
+  truth in `unified_winpe_deploy.ps1` line 146) and the 6-20
+  character length window. The original placeholder warning now
+  emits via the forbidden-list path; the "no UnattendFile" warning
+  is unchanged. `.PARAMETER BitLockerPin` doc block rewritten to
+  state both rules.
+- `CHANGELOG.md` — bullet appended to `## Unreleased / ### Changed
+  (security / safety)` describing the build-time-vs-runtime gap and
+  why mirroring matters. No version bump (build-time validation
+  improvement, no `$Script:Config.ScriptVersion` touch).
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once for this session per the CLAUDE.md
+  note. Both local tests stay green:
+  - `pwsh -NoProfile -File ./tests/test_parse.ps1` → 39/0 (unchanged).
+  - `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+    (unchanged).
+- Direct AST parse of `scripts/build_iso.ps1` via
+  `[System.Management.Automation.Language.Parser]::ParseFile` →
+  parsed OK.
+- Behavioral test of the new logic with 11 edge cases (each of the
+  4 forbidden PINs, 3 too-short / too-long values, and 4 accepted
+  values at the boundaries) → 11/11 pass. The acceptance cases reach
+  the next pipeline step as expected.
+- End-to-end invocation test: ran the script (with `#Requires` line
+  stripped on a /tmp copy) against fake WimFile + MediaDir. Each
+  forbidden PIN throws with the new message and the right PIN
+  proceeds past the gate. No false positives, no false negatives.
+
+**Risks:** Minimal. Build-time validation only — no change to any
+destructive code path (diskpart, DISM apply, BCDBoot) and no change
+to the deploy script. Worst case: someone using a 5-character or
+21-character PIN that previously built cleanly now sees a clear
+throw at build time, which is exactly the desired behavior.
+PSv5.1-safe (only `-contains`, `.Length`, `throw`).
+
+**Next recommended improvement:**
+- Outstanding routine-backlog item: fixture test for
+  `Get-SystemDisks` partition enumeration paralleling PR #24's WIM
+  parser test (the last untested parser in the deploy script,
+  carried forward across PRs #24/#25/#27-#30 and the
+  test_parse-coverage PR #46).
+- Consider whether `build_iso.ps1`'s ADK / oscdimg lookup deserves
+  the same kind of fail-fast helpfulness — today a wrong `-AdkPath`
+  throws "oscdimg.exe not found", which is fine; a wrong
+  `-Architecture` value with a valid ADK silently looks at the
+  wrong subdir. Smaller payoff than the PIN gap.
+
+---
+
 ## 2026-05-17 — `-UnattendFile` well-formedness validation
 
 **Investigated:** the deploy script's pre-flight validation for the
