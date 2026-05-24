@@ -61,7 +61,7 @@ USB Drive Layout:
 | `scripts/prepare_wim.ps1` | Companion WIM prep: ISO -> debloated/customized install.wim ready to deploy |
 | `scripts/build_iso.ps1` | Packages WinPE media + WIM into one bootable ISO for end-user distribution (Rufus) |
 | `scripts/refresh_usb.ps1` | Thin workflow wrapper: new ISO -> prep + (optional) boot.wim rebuild |
-| `tests/test_parse.ps1` | PowerShell syntax validation (all four scripts) |
+| `tests/test_parse.ps1` | PowerShell syntax validation (every shipped .ps1 in the pipeline) |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule excludes used locally and in CI |
 | `docs/USB_SETUP.md` | USB drive preparation guide |
 | `docs/END_USER_DEPLOY.md` | Plain-English Rufus guide for non-IT end users |
@@ -112,7 +112,7 @@ The repo has three test files; know which is which before changing one:
 
 | File | What it covers | Where it runs |
 |------|----------------|---------------|
-| `tests/test_parse.ps1` | PowerShell syntax + function presence + version consistency across the four deploy scripts | Anywhere with `pwsh` (also CI) |
+| `tests/test_parse.ps1` | PowerShell syntax + function presence + version consistency across every shipped pipeline script (`unified_winpe_deploy.ps1` + the five under `scripts/`) | Anywhere with `pwsh` (also CI) |
 | `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` regex parser used by `Get-WimImageInfo` — guards against silent edition mis-attribution | Anywhere with `pwsh` (also CI) |
 | `tests/validation-gates.Tests.ps1` | **Pester suite.** v4.7.0 BitLocker default-config invariants, `Resolve-BitLockerKeyPath` precedence, `New-DiskpartScript` source-drive protection, `Start-Deployment` validation gates | **CI only** — see Pester note below |
 
