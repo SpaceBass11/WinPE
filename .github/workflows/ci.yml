@@ -392,4 +392,22 @@ jobs:
             echo "OK"
           fi
 
+          echo "=== 26. BitLocker PIN prompt exists and is silent-gated ==="
+          # The TUI PIN prompt (-EnableBitLocker without -BitLockerPin in
+          # non-silent mode) must be guarded by '-not $Silent' so silent /
+          # unattended deploys never block on a hidden Read-Host. A regression
+          # that drops the Silent guard would deadlock every air-gapped
+          # operator USB that omitted the PIN by mistake.
+          ok=1
+          grep -qF "prompting at WinPE console" $script || { echo "  TUI PIN prompt log line missing"; ok=0; }
+          grep -qF "Read-Host -Prompt 'Enter BitLocker startup PIN" $script || { echo "  Read-Host PIN prompt missing"; ok=0; }
+          # The Read-Host must be guarded by -not $Silent on a nearby preceding
+          # line. Use grep -- to stop flag parsing since the pattern starts
+          # with a dash.
+          if ! grep -B 3 "Read-Host -Prompt 'Enter BitLocker startup PIN" $script | grep -qF -- '-not $Silent'; then
+            echo "  PIN prompt is not gated by -not \$Silent (would deadlock unattended deploys)"
+            ok=0
+          fi
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: BitLocker TUI PIN prompt drifted"; fail=1; fi
+
           exit $fail

@@ -48,8 +48,12 @@ Run the downloaded file — no installation needed.
 The screen will show a progress bar and status messages. **Do not turn off or
 unplug the laptop** while this is happening.
 
-When it is finished the laptop will restart on its own. Remove the USB when the
-screen goes black during the restart.
+When it is finished the laptop will restart on its own. **Follow the on-screen
+instructions** — your admin may have set this up so the USB must stay plugged in
+for a second restart while disk encryption finishes (this is normal for BitLocker
+deployments). If the on-screen instructions say it is safe to remove, take the
+USB out when the screen goes black during the restart. Otherwise leave it
+plugged in until the laptop restarts a second time on its own, then remove it.
 
 The laptop will then finish setting up Windows. This can take a few minutes.
 

@@ -137,7 +137,14 @@ After the encryption initializes, the script reboots the machine
     -EnableBitLocker `
     -BitLockerPin 'CorrectHorse42'
 
-# Silent / scripted: -Force is mandatory for the WIPE DATA bypass
+# Interactive with TUI PIN prompt: omit -BitLockerPin in non-silent mode
+# and the script prompts via Read-Host -AsSecureString. PIN never appears
+# on screen and is not in CLI args or shell history.
+.\unified_winpe_deploy.ps1 -DataDiskNumber 1 -EnableBitLocker
+
+# Silent / scripted: -Force is mandatory for the WIPE DATA bypass.
+# Silent mode requires -BitLockerPin - it does NOT prompt (would deadlock
+# an unattended deploy).
 .\unified_winpe_deploy.ps1 -Silent -Force `
     -WimFile 'I:\images\Win11_Enterprise.wim' `
     -TargetDisk 0 `

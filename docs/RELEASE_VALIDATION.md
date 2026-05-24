@@ -86,7 +86,7 @@ handles all three gracefully — verify behavior by inspecting the log):
 | # | Scenario | Setup | Expected | Pass criteria |
 |---|----------|-------|----------|---------------|
 | 10 | BitLocker disabled (default) | No `-EnableBitLocker` | No first-boot BitLocker staging | `C:\Windows\Setup\Scripts\bitlocker-setup.ps1` and `SetupComplete.cmd` absent after deploy |
-| 11 | Interactive PIN entry | `-EnableBitLocker` only (no `-BitLockerPin`); script prompts in TUI | Operator types PIN at keyboard at deploy time | Deploy log shows escrow path + source; first-boot log shows recovery key saved; recovery key file exists at the chosen path; staged scripts self-delete; machine reboots cleanly into encrypted OS |
+| 11 | TUI PIN prompt (non-silent) | `-EnableBitLocker` only (no `-BitLockerPin`), no `-Silent`; script prompts via `Read-Host -AsSecureString` at the WinPE console | Operator types PIN at keyboard at deploy time; PIN never visible on screen, never in CLI args | Deploy log shows `"prompting at WinPE console"`, then escrow path + source; first-boot log shows recovery key saved; recovery key file exists at the chosen path; staged scripts self-delete; machine reboots cleanly into encrypted OS. Verify: re-run silent (`-Silent -Force`) with the same missing-PIN combo and confirm it hard-fails instead of prompting |
 | 12 | Pre-staged PIN (air-gapped operator USB) | `-EnableBitLocker -BitLockerPin '<test-pin>' -Force -Silent` via `deploy.args` | Fully unattended; PIN comes from USB | Same observable conditions as #11; see [Air-gapped operator USB](#air-gapped-operator-usb--advanced) below for the security trade-off |
 
 For all BitLocker scenarios, the four observables are:
@@ -127,7 +127,7 @@ release validation matrix exercises both paths.
 
 | Mode | Use when | Trade-off |
 |------|----------|-----------|
-| **Interactive PIN entry** (no `-BitLockerPin` in `deploy.args`) | High-assurance / manual-technician workflows. The deploying user is trusted to type at the keyboard. | Requires an operator who knows the PIN. Not suitable for hand-off to a non-IT field operator. |
+| **TUI PIN prompt** (`-EnableBitLocker` without `-BitLockerPin`, non-silent) | High-assurance / manual-technician workflows. The script prompts via `Read-Host -AsSecureString` so the PIN is never visible on screen or in CLI args. | Requires an operator who knows the PIN and is physically present. Not suitable for hand-off to a non-IT field operator. |
 | **Pre-staged PIN** (`-BitLockerPin '...'` in `deploy.args`, plus `-Force -Silent`) | Offline, non-endpoint-managed, non-IT operator workflows. The USB *is* the credential. | Plaintext PIN on removable media until first boot. The USB/ISO must be treated as a credential — physical custody is the only protection. |
 
 **Hardening recommendations for the pre-staged path:**
@@ -147,8 +147,8 @@ release validation matrix exercises both paths.
   when default escrow is used; see
   [BITLOCKER.md](BITLOCKER.md#recovery-key-escrow).
 
-When running release validation, exercise both #11 (interactive PIN)
-and #12 (pre-staged PIN) so the air-gapped operator flow stays
+When running release validation, exercise both #11 (TUI PIN prompt)
+and #12 (pre-staged PIN) so both supported credential paths stay
 covered as the code evolves.
 
 ## Recording results
@@ -174,7 +174,7 @@ Matrix:
 - [ ] 8.  Schema-valid unattend (stages; first-boot behavior verified)
 - [ ] 9.  Multi-index WIM + -Silent (fails fast)
 - [ ] 10. BitLocker disabled (no staged scripts left)
-- [ ] 11. BitLocker + interactive PIN
+- [ ] 11. BitLocker + TUI PIN prompt (non-silent)
 - [ ] 12. BitLocker + pre-staged PIN (air-gapped operator path)
 - [ ] 13. deploy.args missing (TUI)
 - [ ] 14. deploy.args present (unattended)

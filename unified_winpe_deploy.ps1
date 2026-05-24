@@ -61,7 +61,10 @@
     Startup PIN for the TPM+PIN protector on C:. Required when
     -EnableBitLocker is set. The placeholder 'ChangeMe123!' is rejected.
     Enhanced PIN policy is enabled, so 6-20 characters of digits,
-    letters, and symbols are accepted.
+    letters, and symbols are accepted. In non-silent mode, omitting
+    this parameter prompts at the WinPE console via Read-Host
+    -AsSecureString so the PIN never appears on screen or in the
+    command-line. Silent mode requires the parameter (no prompt).
 .PARAMETER BitLockerKeyPath
     Override the default IMAGES-partition escrow path for recovery keys.
     Use a UNC share (e.g. \\fileserver\BitLockerKeys) or a fixed-disk
@@ -1670,9 +1673,27 @@ function Start-Deployment {
     if ($EnableBitLocker)      { $Script:Config.EnableBitLocker = $true }
     if ($BitLockerPin)         { $Script:Config.BitLockerPin   = $BitLockerPin }
 
+    # Non-silent fallback: if -EnableBitLocker is set without -BitLockerPin
+    # and the operator is at the WinPE console, prompt for the PIN with
+    # Read-Host -AsSecureString so it never appears on screen or in the
+    # command-line history. Silent mode does not prompt - the existing
+    # hard-fail below still applies, so unattended deploys with missing
+    # PIN exit fast instead of blocking on a hidden prompt.
+    if ($Script:Config.EnableBitLocker -and -not $Script:Config.BitLockerPin -and -not $Silent) {
+        Write-Log "-EnableBitLocker set without -BitLockerPin; prompting at WinPE console" -Level Info
+        $securePin = Read-Host -Prompt 'Enter BitLocker startup PIN (6-20 chars)' -AsSecureString
+        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePin)
+        try {
+            $Script:Config.BitLockerPin = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+        } finally {
+            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        }
+    }
+
     # Reject placeholder PINs - the v4.6.x default 'ChangeMe123!' and a few
     # common weak strings are blocked outright so they can't leak into a
-    # boot.wim build by accident.
+    # boot.wim build by accident. Runs after the prompt above so a typed
+    # forbidden PIN is caught the same way as one supplied via -BitLockerPin.
     if ($Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin -and
         ($Script:Config.ForbiddenBitLockerPins -contains $Script:Config.BitLockerPin)) {
         Write-Log "BitLockerPin is a forbidden placeholder ('$($Script:Config.BitLockerPin)') - choose a real PIN" -Level Error
