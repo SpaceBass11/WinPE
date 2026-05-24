@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Added
+- **TUI PIN prompt for BitLocker in non-silent mode.** When
+  `-EnableBitLocker` is set without `-BitLockerPin` in non-silent
+  mode, the script now prompts at the WinPE console via
+  `Read-Host -AsSecureString` — the PIN never appears on screen,
+  never lives in CLI args, never enters shell history. Silent mode
+  still hard-fails (a hidden prompt would deadlock an unattended
+  deploy). Closes a gap where the manual-technician workflow had to
+  expose the PIN as a CLI arg. Existing `ForbiddenBitLockerPins` and
+  6-20 char validation still apply to the typed value. See
+  `docs/RELEASE_VALIDATION.md` scenario #11 and
+  `docs/BITLOCKER.md` "Example invocations".
 - **Per-USB `deploy.args` file.** `scripts/build_boot_wim.ps1` now
   writes a `startnet.cmd` that looks for `<IMAGES>\deploy.args` on
   boot and passes its single-line contents as parameters to
