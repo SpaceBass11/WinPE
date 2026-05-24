@@ -263,9 +263,10 @@ Full feature reference: [`docs/BITLOCKER.md`](BITLOCKER.md). Common
 failure modes:
 
 - **`-EnableBitLocker requires -BitLockerPin`** — `-EnableBitLocker`
-  has no default PIN. Pass `-BitLockerPin '<your PIN>'`. The
-  placeholder strings `ChangeMe123!`, `password`, `Password1`,
-  `123456` are rejected at runtime.
+  has no default PIN. Pass `-BitLockerPin '<your PIN>'`, or omit it
+  in non-silent mode and the script prompts at the WinPE console.
+  PIN content is the admin's call; the only enforcement is Windows'
+  6-20 character window for Enhanced PIN.
 - **`-DataDiskNumber N is the system disk - refusing`** — picked the
   wrong disk number. Check `diskpart > list disk` and pick a
   non-system, non-target, non-USB disk.

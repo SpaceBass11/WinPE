@@ -21,10 +21,10 @@ passes the matching parameters.
 ## Why opt-in
 
 Older v4.6.x snapshots hard-coded `DataDiskNumber = 1` and shipped a
-default startup PIN (`'ChangeMe123!'`). Either could surprise an
-operator with a silent extra-disk wipe or leak a known PIN into the
-fleet. v4.7.0 changes both to off, requires the operator to supply
-the PIN, and rejects the v4.6.x placeholder string at runtime.
+default startup PIN. Either could surprise an operator with a silent
+extra-disk wipe or leak a known PIN into the fleet. v4.7.0 changes
+both to off and requires the operator to supply the PIN at deploy
+time.
 
 ## Parameters
 
@@ -32,7 +32,7 @@ the PIN, and rejects the v4.6.x placeholder string at runtime.
 |-----------|--------|
 | `-DataDiskNumber <int>` | Disk number to wipe + format as `D:`. `-1` (default) means no second disk. Validated: must exist, must not be the target disk, must not be USB, must not be the system disk. |
 | `-EnableBitLocker` | Stage `bitlocker-setup.ps1` + `SetupComplete.cmd` into `C:\Windows\Setup\Scripts\` so Windows runs them after OOBE. |
-| `-BitLockerPin <string>` | Startup PIN for TPM+PIN on `C:`. Required when `-EnableBitLocker`. 6-20 characters. Placeholder PINs (`ChangeMe123!`, `password`, `Password1`, `123456`) are rejected. |
+| `-BitLockerPin <string>` | Startup PIN for TPM+PIN on `C:`. Required when `-EnableBitLocker`. 6-20 characters (Windows Enhanced PIN window — the only thing the script enforces; PIN content is the admin's call). In non-silent mode, the script prompts at the WinPE console if this is omitted. |
 | `-BitLockerKeyPath <path>` | Override the recovery-key escrow location. Accepts a UNC share (e.g. `\\fileserver\BitLockerKeys`) or a fixed-disk path on the deployed machine. Default: look up the IMAGES partition by volume label at first-boot time and write to `<letter>:\BitLockerKeys` — requires the USB to remain plugged in through the first reboot. |
 
 `-DataDiskNumber` and `-EnableBitLocker` are independent — you can use
@@ -138,8 +138,9 @@ After the encryption initializes, the script reboots the machine
     -BitLockerPin 'CorrectHorse42'
 
 # Interactive with TUI PIN prompt: omit -BitLockerPin in non-silent mode
-# and the script prompts via Read-Host -AsSecureString. PIN never appears
-# on screen and is not in CLI args or shell history.
+# and the script prompts via Read-Host. PIN is visible on screen so the
+# operator can verify what they typed (and is plaintext downstream in
+# bitlocker-setup.ps1 anyway, so hiding it would be theater).
 .\unified_winpe_deploy.ps1 -DataDiskNumber 1 -EnableBitLocker
 
 # Silent / scripted: -Force is mandatory for the WIPE DATA bypass.

@@ -40,9 +40,11 @@
 
 .PARAMETER BitLockerPin
     If set, the generated deploy.args enables BitLocker with this PIN.
-    The placeholder 'ChangeMe123!' is rejected.
-    Security note: the PIN is stored in plaintext in the ISO/on the USB —
-    the USB is the trust boundary. Use a unique PIN per USB.
+    PIN content is the admin's call - no placeholder or length policy
+    is enforced here; the deploy script enforces only Windows' 6-20
+    char window at runtime. Security note: the PIN is stored in
+    plaintext in the ISO/on the USB - the USB is the trust boundary.
+    Use a unique PIN per USB.
 
 .PARAMETER DataDiskNumber
     Disk number of a secondary data drive to wipe and format as D:.
@@ -201,9 +203,6 @@ if ($UnattendFile) {
 }
 
 if ($BitLockerPin) {
-    if ($BitLockerPin -eq 'ChangeMe123!') {
-        throw "BitLockerPin 'ChangeMe123!' is a placeholder and is rejected. Use a real PIN."
-    }
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
     }

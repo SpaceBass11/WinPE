@@ -26,9 +26,10 @@
         # supplied BitLocker PIN via ConvertTo-SecureString -AsPlainText
         # in Initialize-BitLockerSetup (unified_winpe_deploy.ps1). This
         # is the air-gapped operator USB trust model documented in
-        # docs/BITLOCKER.md, and the PIN is guarded by runtime validation
-        # (length, complexity, ForbiddenBitLockerPins). Do NOT extend
-        # plaintext-secret usage to any other code path.
+        # docs/BITLOCKER.md, with the PIN guarded only by Windows' 6-20
+        # character window at deploy time (PIN content policy is the
+        # admin's call). Do NOT extend plaintext-secret usage to any
+        # other code path.
         'PSAvoidUsingConvertToSecureStringWithPlainText'
     )
 }

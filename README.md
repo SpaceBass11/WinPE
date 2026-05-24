@@ -394,7 +394,7 @@ Every destructive operation requires a specific typed phrase:
 
 ### BitLocker guardrails
 
-- Placeholder PINs (`ChangeMe123!` and similar weak strings) are rejected at runtime, including under `-Force -Silent`
+- PIN content is the admin's call — the script enforces only Windows' 6-20 character window (Enhanced PIN policy is enabled in the staged first-boot script, so any alphanumeric/symbol within that window is accepted)
 - Recovery keys escrow off the encrypted volume by default — to the IMAGES partition, resolved by volume label at first boot so it survives Windows reassigning the USB drive letter
 - If the IMAGES partition can't be found at first boot (USB unplugged), escrow falls back to `C:\Windows\Setup\BitLockerKeys` (on the encrypted volume) with a loud log warning — verify `C:\Windows\Setup\Scripts\bitlocker-setup.log` after first reboot
 - Use `-BitLockerKeyPath \\fileserver\share` for centralized escrow that doesn't depend on the USB staying plugged in

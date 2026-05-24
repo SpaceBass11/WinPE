@@ -15,7 +15,6 @@
       - DataDiskNumber default off (-1)
       - EnableBitLocker default off ($false)
       - BitLockerPin default $null
-      - ForbiddenBitLockerPins contains 'ChangeMe123!'
       - Resolve-BitLockerKeyPath precedence (param > IMAGES > fallback,
         never D:\BitLocker)
       - New-DiskpartScript refuses to mountvol /d the WIM source drive
@@ -24,7 +23,6 @@
           - nonexistent / system / USB-only -DataDiskNumber
           - -EnableBitLocker without -BitLockerPin
           - -EnableBitLocker -BitLockerPin '<5 chars>'
-          - each placeholder PIN in ForbiddenBitLockerPins
           - -Silent -DataDiskNumber without -Force
       - Start-Deployment validation passes with -Silent -Force
         -DataDiskNumber explicit (mocks short-circuit before any
@@ -99,10 +97,6 @@ Describe "v4.7.0 default configuration (must stay opt-in)" {
         $val | Should -BeNullOrEmpty
     }
 
-    It "ForbiddenBitLockerPins includes the v4.6.x placeholder" {
-        $forbidden = & $script:DeployModule { ,$Script:Config.ForbiddenBitLockerPins }
-        $forbidden | Should -Contain 'ChangeMe123!'
-    }
 }
 
 Describe "Resolve-BitLockerKeyPath escrow precedence" {
@@ -358,37 +352,6 @@ Describe "Start-Deployment validation gates" {
         $result | Should -BeFalse
         $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
-    }
-
-    It "Rejects each entry in ForbiddenBitLockerPins" -ForEach @(
-        @{ Pin = 'ChangeMe123!' }
-        @{ Pin = 'password'     }
-        @{ Pin = 'Password1'    }
-        @{ Pin = '123456'       }
-    ) {
-        # Set the pin in module scope via a dynamically-created scriptblock.
-        # String interpolation embeds the literal $Pin value (from the test
-        # scope) into the scriptblock text before Create() evaluates it, so
-        # the module closure sees the actual pin string without any scope
-        # crossing that would leave it $null.
-        $escaped = $Pin -replace "'", "''"
-        & $script:DeployModule ([scriptblock]::Create("`$Script:PinUnderTest = '$escaped'"))
-        # Reset capture for this iteration (BeforeEach has already run for the
-        # first iteration; subsequent ForEach iterations may share state).
-        $Global:CapturedLogs = New-Object System.Collections.ArrayList
-
-        $result = & $script:DeployModule {
-            $WimFile         = 'I:\images\Win.wim'
-            $TargetDisk      =  0
-            $Force           = $true
-            $Silent          = $true
-            $EnableBitLocker = $true
-            $BitLockerPin    = $Script:PinUnderTest
-            Start-Deployment
-        }
-        $result | Should -BeFalse
-        $logs = $Global:CapturedLogs
-        ($logs | Where-Object { $_.Message -match 'forbidden placeholder' }) | Should -Not -BeNullOrEmpty
     }
 
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
