@@ -3,12 +3,12 @@
 > [!IMPORTANT]
 > **CCTK binaries are not redistributable.** Dell's EULA for Command |
 > Configure does not permit third-party redistribution. Do **not**
-> commit `cctk.exe`, the HAPI driver, or any CCTK DLL to this repo or
-> a fork. Download Dell Command | Configure directly from Dell's
-> support site onto your admin workstation and reference it by path
-> via `-CctkSource` when running `scripts/build_boot_wim.ps1`.
-> `.gitignore` is set up to block `/vendor/`, `/cctk-source/`,
-> `cctk.exe`, and `hapint*.inf/.sys` as a safety net.
+> commit `cctk.exe` or any DCC DLL to this repo or a fork. Download
+> Dell Command | Configure directly from Dell's support site onto your
+> admin workstation and reference it by path via `-CctkSource` when
+> running `scripts/build_boot_wim.ps1`. `.gitignore` is set up to block
+> `/vendor/`, `/cctk-source/`, `cctk.exe`, and `hapint*.inf/.sys` as a
+> safety net.
 
 The deploy tool can optionally apply BIOS configuration via Dell's
 [Client Configuration Toolkit (CCTK)](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure)
@@ -26,7 +26,7 @@ WinPE session, finish the DISM + BCDBoot work with the current BIOS
 state, reboot, and Windows first-boots with the intended BIOS already
 in place — one reboot, not two.
 
-If CCTK fails (bad config, password mismatch, HAPI driver missing),
+If CCTK fails (bad config, password mismatch, BIOS access error),
 the deploy aborts before any disks are touched.
 
 ## Setup
@@ -43,10 +43,12 @@ Pass the path to the builder:
 ```
 
 The builder:
-- Copies the CCTK tree (containing `cctk.exe` and HAPI directory) to
-  `X:\cctk\` inside `boot.wim`.
-- Installs the HAPI driver (`hapint64.inf` or variant) into the offline
-  image so CCTK can talk to BIOS from WinPE.
+- Copies the DCC tree (containing `cctk.exe` and DCH API DLLs:
+  `dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`, etc.) to `X:\cctk\`
+  inside `boot.wim`. DCC 4.0+ needs no driver injection — the DCH
+  API DLLs that ship alongside `cctk.exe` handle all BIOS communication.
+- *(Legacy only)* If a `hapint*.inf` is found in the source tree
+  (pre-4.0 DCC), the builder also injects it for backwards compatibility.
 
 CCTK binaries live **inside** boot.wim so they aren't visible on the
 IMAGES data partition. CCTK is not redistributable — you provide it.
@@ -163,8 +165,29 @@ the "plug in USB, boot, walk away" model.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `CCTK returned exit 116` | HAPI driver not loaded | Rebuild boot.wim with `-CctkSource` pointing at a tree that contains HAPI/*.inf |
+| `CCTK returned exit 116` | BIOS access failure (DCH API error) | Verify DCC version is 4.0 or later and that `-CctkSource` points at the full `X86_64` directory (must contain `dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`). On pre-4.0 DCC, exit 116 indicated a missing HAPI kernel driver — see [Legacy DCC (Pre-4.0 / HAPI Era)](#legacy-dcc-pre-40--hapi-era) below. |
 | `CCTK returned exit 149` | Password mismatch | Add `--valsetuppwd=<current>` to the config |
 | `No CCTK config matched` | None of `<TAG>.ini`/`<MODEL>.ini`/`default.ini` exist | Drop a `default.ini` on the IMAGES partition under `cctk\` |
 | `CCTK embedded but DEPLOY_IMAGE_DRIVE is unset` | Script ran outside builder's startnet.cmd | Set `$env:DEPLOY_IMAGE_DRIVE` manually before running, or rebuild boot.wim so startnet probes for the IMAGES label |
 | BIOS change didn't stick after reboot | Some settings (TPM clear, SATA-to-RAID direction) take two POSTs on certain firmware | Reboot manually a second time to confirm |
+
+## Legacy DCC (Pre-4.0 / HAPI Era)
+
+Dell Command | Configure **4.0 and later** no longer uses HAPI. If you encounter older
+documentation, forum posts, or scripts that mention loading a HAPI driver before running
+`cctk.exe` in WinPE, those instructions apply to **pre-4.0 DCC only**.
+
+**What HAPI was:** HAPI (Hardware Application Programming Interface) was a kernel-mode
+driver (`hapint*.inf` / `hapint.sys`) that older DCC required to communicate with the
+BIOS. In WinPE, it had to be injected into the offline boot.wim image via
+`dism /Add-Driver /ForceUnsigned` before `cctk.exe` could run. Without it, CCTK
+returned exit code 116 ("HAPI driver not loaded").
+
+**What replaced it:** DCC 4.0+ ships a userspace DCH API stack — `dchapi64.dll`,
+`dchbas64.dll`, `BIOSIntf.dll`, `ABI.dll` — as ordinary DLLs alongside `cctk.exe`.
+These are copied into `boot.wim` automatically as part of the DCC tree when you pass
+`-CctkSource` to `scripts/build_boot_wim.ps1`. No kernel driver. No `dism /Add-Driver`.
+
+**If you are still running pre-4.0 DCC:** `build_boot_wim.ps1` detects `hapint*.inf`
+in your source tree and installs it automatically — no manual steps required. The
+behavior is unchanged; you just won't see warnings about a missing driver anymore.

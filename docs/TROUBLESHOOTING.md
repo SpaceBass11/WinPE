@@ -243,7 +243,7 @@ builder's `-CctkSource` parameter) AND a config matches in
 | Exit | Meaning | Fix |
 |------|---------|-----|
 | 0    | Success | — |
-| 116  | HAPI driver load error | Rebuild boot.wim with `-CctkSource` pointing at a tree that contains `HAPI\hapint64.inf` (or similar). The builder logs a warning if it can't find a HAPI inf during the build. |
+| 116  | BIOS access failure (DCH API error) | Verify DCC version is 4.0 or later and that `-CctkSource` points at the full `X86_64` directory (must include `dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`). On pre-4.0 DCC this exit code indicated a missing HAPI kernel driver — see the Legacy DCC section in `docs/CCTK.md`. |
 | 149  | Setup password mismatch | Add `--valsetuppwd=<current>` to the .ini so CCTK can authenticate with the existing BIOS password before changing it. |
 | 197  | Setting not supported on this model | Check `cctk --help` against the actual hardware. Some settings are model-specific. |
 
@@ -355,7 +355,7 @@ post-deploy. See [CCTK.md](CCTK.md).
 
 ### CCTK is not redistributable
 Dell's EULA for Command | Configure does not allow shipping `cctk.exe`
-or HAPI driver in this repo. The repo never ships CCTK; users supply
+or any DCC DLL in this repo. The repo never ships CCTK; users supply
 their own via the builder's `-CctkSource` parameter. `.gitignore`
 blocks accidental commits (`cctk.exe`, `hapint*.inf/.sys`, `/vendor/`,
 `/cctk-source/`).
