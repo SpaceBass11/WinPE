@@ -51,6 +51,12 @@ Only the **Deployment Tools** feature is required from the ADK.
 Open **Deployment and Imaging Tools Environment** as Administrator, then run
 the builder from this repo:
 
+> [!TIP]
+> **Three ways to find the shell:**
+> 1. Type **Deploy** in the Start menu → right-click → **Run as administrator** (fastest — it appears immediately)
+> 2. **Start → Windows Kits → Deployment and Imaging Tools Environment** → right-click → **Run as administrator**
+> 3. Open an elevated Command Prompt (Win+R → `cmd`, Ctrl+Shift+Enter), then: `call "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\DandISetEnv.bat"`
+
 ```powershell
 .\scripts\build_boot_wim.ps1
 ```

@@ -112,7 +112,7 @@ Full details and warnings: [docs/USB_SETUP.md](docs/USB_SETUP.md).
 
 ### A4. Build the WinPE boot image onto the USB
 
-Open **Deployment and Imaging Tools Environment** as Administrator (Start → Windows Kits), then from the repo root:
+Open **Deployment and Imaging Tools Environment** as Administrator — three ways: type **Deploy** in Start (fastest, right-click → Run as administrator); navigate **Start → Windows Kits → Deployment and Imaging Tools Environment**; or open an elevated cmd and run `DandISetEnv.bat` (see USB_SETUP.md) — then from the repo root:
 
 ```powershell
 .\scripts\build_boot_wim.ps1 -Clean -UsbDrive P: -ReleaseUsbLetter
