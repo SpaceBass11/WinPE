@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Changed
+- **`Get-SystemDisks` classifier now has fixture-test coverage.**
+  New `tests/test_disk_enumeration.ps1` exercises the disk-filter
+  predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
+  MediaType, DVD by Model, zero-size, and two passing internal disks)
+  and the partition-info rendering path (pure-Windows, Linux/LVM,
+  mixed, empty, and null-`Partitions` WMI quirk). Includes a drift
+  guard that fails if the eight safety-critical literals (USB/CD/
+  removable filter clauses, `Win32_DiskDrive.Partitions` precedence,
+  `No partitions` label, `non-Windows - e.g. Linux/LVM` string, and
+  the `(+N non-Windows)` suffix template) move in the deploy script.
+  Wired into the CI `syntax` job. No production code changed.
+
 ### Removed
 - **`ForbiddenBitLockerPins` list and PIN content policy.** Earlier
   builds rejected `ChangeMe123!`, `password`, `Password1`, and `123456`
