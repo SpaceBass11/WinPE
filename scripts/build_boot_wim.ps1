@@ -39,14 +39,13 @@
     longer mounted in your working Windows session. Requires -UsbDrive.
 
 .PARAMETER CctkSource
-    Path to an extracted Dell Command | Configure (DCC) folder (the one
-    containing cctk.exe). When given, the builder embeds the DCC tree into
-    boot.wim at X:\cctk\. DCC 4.0+ uses a userspace DCH API stack
-    (dchapi64.dll, dchbas64.dll, BIOSIntf.dll) — no driver injection needed.
-    If a legacy hapint*.inf is present in the source tree (pre-4.0 DCC), the
-    builder also injects it for backwards compatibility. Per-machine configs
-    live on the IMAGES data partition, not in boot.wim - see
-    docs/CCTK.md for the selection precedence.
+    Path to an extracted Dell Command | Configure (DCC) 4.0+ folder (the one
+    containing cctk.exe). When given, the builder validates that the DCH API
+    DLLs (dchapi64.dll, dchbas64.dll, BIOSIntf.dll) are present alongside
+    cctk.exe, then embeds the DCC tree into boot.wim at X:\cctk\. No driver
+    injection required — DCC 4.0+ communicates with the BIOS via those
+    userspace DLLs. Per-machine configs live on the IMAGES data partition,
+    not in boot.wim - see docs/CCTK.md for the selection precedence.
 
 .EXAMPLE
     # Build only, leave output in C:\WinPE_Build\media for later xcopy
@@ -144,7 +143,6 @@ if ($UsbDrive) {
 
 # CCTK source validation
 $cctkExe = $null
-$legacyDriverInf = $null
 if ($CctkSource) {
     if (-not (Test-Path $CctkSource -PathType Container)) {
         throw "-CctkSource must be an existing directory (got '$CctkSource')"
@@ -161,22 +159,13 @@ if ($CctkSource) {
         throw "cctk.exe not found under $CctkSource - point -CctkSource at the extracted CCTK folder."
     }
 
-    # Legacy HAPI driver inf (pre-4.0 DCC only; name varies: hapint64.inf, dcdbas*.inf, etc.)
-    # DCC 4.0+ uses the DCH API stack instead — no driver injection needed. If a legacy inf IS
-    # found, we install it silently for backwards compatibility with old DCC source trees.
-    $legacyDriverInf = Get-ChildItem -Path $CctkSource -Recurse -Include 'hapint*.inf','dcdbas*.inf' -ErrorAction SilentlyContinue | Select-Object -First 1
-
     # DCH API DLL check — DCC 4.0+ ships these alongside cctk.exe.
-    # Skipped when a legacy HAPI inf is present (pre-4.0 DCC won't have them).
-    # If no legacy inf AND DLLs are absent, the source tree is incomplete — abort now
-    # rather than silently embed a non-functional cctk.exe into boot.wim.
+    # Abort if any are absent rather than silently embed a non-functional tree.
     $cctkDir = $cctkExe.DirectoryName
-    if (-not $legacyDriverInf) {
-        $missingDlls = @('dchapi64.dll', 'dchbas64.dll', 'BIOSIntf.dll') |
-            Where-Object { -not (Test-Path (Join-Path $cctkDir $_)) }
-        if ($missingDlls) {
-            throw "DCH API DLLs missing from $cctkDir`: $($missingDlls -join ', ') — ensure -CctkSource points at the full Dell Command | Configure X86_64 directory."
-        }
+    $missingDlls = @('dchapi64.dll', 'dchbas64.dll', 'BIOSIntf.dll') |
+        Where-Object { -not (Test-Path (Join-Path $cctkDir $_)) }
+    if ($missingDlls) {
+        throw "DCH API DLLs missing from $cctkDir`: $($missingDlls -join ', ') — ensure -CctkSource points at the full Dell Command | Configure X86_64 directory."
     }
 }
 
@@ -273,14 +262,6 @@ try {
         Copy-Item -Path (Join-Path $cctkDir '*') -Destination $cctkDest -Recurse -Force
         Write-Ok "Copied CCTK ($cctkDir) to X:\cctk\"
 
-        if ($legacyDriverInf) {
-            Write-Step "Legacy HAPI driver found ($($legacyDriverInf.Name)) — installing for pre-4.0 DCC compatibility"
-            & dism.exe /Image:$mountDir /Add-Driver /Driver:$($legacyDriverInf.FullName) /ForceUnsigned | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                throw "Legacy HAPI driver install failed (exit $LASTEXITCODE)"
-            }
-            Write-Ok "Legacy HAPI driver installed"
-        }
     }
 
     # Step 6: write startnet.cmd
