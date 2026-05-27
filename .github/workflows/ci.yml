@@ -29,6 +29,10 @@ jobs:
         shell: pwsh
         run: ./tests/test_wim_parser.ps1
 
+      - name: Run disk enumeration tests
+        shell: pwsh
+        run: ./tests/test_disk_enumeration.ps1
+
   pester:
     name: Pester validation-gate smoke tests
     runs-on: windows-latest
