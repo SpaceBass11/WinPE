@@ -243,7 +243,7 @@ builder's `-CctkSource` parameter) AND a config matches in
 | Exit | Meaning | Fix |
 |------|---------|-----|
 | 0    | Success | — |
-| 116  | BIOS communication error | Verify DCC version is 4.0 or later and that `-CctkSource` points at the full `X86_64` directory (must include `dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`). The builder now aborts if these DLLs are absent, so a deployed boot.wim should have them — if CCTK still fails, the DCC version or firmware may be incompatible. On pre-4.0 DCC this exit code indicated a missing HAPI kernel driver — see the Legacy DCC section in `docs/CCTK.md`. |
+| 116  | BIOS communication error | Verify DCC version is 4.0 or later and that `-CctkSource` points at the full `X86_64` directory (must include `dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`). The builder aborts if these DLLs are absent, so a deployed boot.wim should have them — if CCTK still fails, the DCC version or firmware may be incompatible. |
 | 149  | Setup password mismatch | Add `--valsetuppwd=<current>` to the .ini so CCTK can authenticate with the existing BIOS password before changing it. |
 | 197  | Setting not supported on this model | Check `cctk --help` against the actual hardware. Some settings are model-specific. |
 
