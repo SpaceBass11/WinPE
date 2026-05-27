@@ -1364,7 +1364,7 @@ function Invoke-CctkConfig {
         Write-Log "  Common causes:" -Level Info
         Write-Log "    - Invalid setting name in $configPath" -Level Info
         Write-Log "    - Setup/system password mismatch (add --valsetuppwd=<current> to the config)" -Level Info
-        Write-Log "    - HAPI driver not loaded (rebuild boot.wim with -CctkSource pointing at full CCTK tree)" -Level Info
+        Write-Log "    - DCC binary or DCH API DLLs missing from boot.wim (rebuild with -CctkSource pointing at the full DCC X86_64 directory)" -Level Info
         return $false
     }
 

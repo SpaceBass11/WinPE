@@ -39,12 +39,13 @@
     longer mounted in your working Windows session. Requires -UsbDrive.
 
 .PARAMETER CctkSource
-    Path to an extracted Dell Client Configuration Toolkit (CCTK) folder
-    (the one containing cctk.exe). When given, the builder embeds CCTK
-    into the boot.wim at X:\cctk\ and installs the HAPI driver into the
-    offline image so CCTK can talk to the BIOS from WinPE. Per-machine
-    configs live on the IMAGES data partition, not in boot.wim - see
-    docs/CCTK.md for the selection precedence.
+    Path to an extracted Dell Command | Configure (DCC) 4.0+ folder (the one
+    containing cctk.exe). When given, the builder validates that the DCH API
+    DLLs (dchapi64.dll, dchbas64.dll, BIOSIntf.dll) are present alongside
+    cctk.exe, then embeds the DCC tree into boot.wim at X:\cctk\. No driver
+    injection required — DCC 4.0+ communicates with the BIOS via those
+    userspace DLLs. Per-machine configs live on the IMAGES data partition,
+    not in boot.wim - see docs/CCTK.md for the selection precedence.
 
 .EXAMPLE
     # Build only, leave output in C:\WinPE_Build\media for later xcopy
@@ -142,7 +143,6 @@ if ($UsbDrive) {
 
 # CCTK source validation
 $cctkExe = $null
-$hapiInf = $null
 if ($CctkSource) {
     if (-not (Test-Path $CctkSource -PathType Container)) {
         throw "-CctkSource must be an existing directory (got '$CctkSource')"
@@ -159,11 +159,13 @@ if ($CctkSource) {
         throw "cctk.exe not found under $CctkSource - point -CctkSource at the extracted CCTK folder."
     }
 
-    # HAPI driver inf (name varies: hapint64.inf, hapint64_DCH.inf, etc.)
-    $hapiInf = Get-ChildItem -Path $CctkSource -Recurse -Include 'hapint*.inf','dcdbas*.inf' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $hapiInf) {
-        Write-Warn "No HAPI driver inf found under $CctkSource - CCTK may fail in WinPE without it."
-        Write-Warn "Look for HAPI\\hapint64.inf (or similar) in the CCTK distribution."
+    # DCH API DLL check — DCC 4.0+ ships these alongside cctk.exe.
+    # Abort if any are absent rather than silently embed a non-functional tree.
+    $cctkDir = $cctkExe.DirectoryName
+    $missingDlls = @('dchapi64.dll', 'dchbas64.dll', 'BIOSIntf.dll') |
+        Where-Object { -not (Test-Path (Join-Path $cctkDir $_)) }
+    if ($missingDlls) {
+        throw "DCH API DLLs missing from $cctkDir`: $($missingDlls -join ', ') — ensure -CctkSource points at the full Dell Command | Configure X86_64 directory."
     }
 }
 
@@ -257,18 +259,9 @@ try {
         $cctkDest = Join-Path $mountDir 'cctk'
         New-Item -ItemType Directory -Path $cctkDest -Force | Out-Null
         # Copy the directory that contains cctk.exe (architecture-matched preferred)
-        $cctkSrcDir = $cctkExe.DirectoryName
-        Copy-Item -Path (Join-Path $cctkSrcDir '*') -Destination $cctkDest -Recurse -Force
-        Write-Ok "Copied CCTK ($cctkSrcDir) to X:\cctk\"
+        Copy-Item -Path (Join-Path $cctkDir '*') -Destination $cctkDest -Recurse -Force
+        Write-Ok "Copied CCTK ($cctkDir) to X:\cctk\"
 
-        if ($hapiInf) {
-            Write-Step "Installing HAPI driver into offline image ($($hapiInf.Name))"
-            & dism.exe /Image:$mountDir /Add-Driver /Driver:$($hapiInf.FullName) /ForceUnsigned | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                throw "HAPI driver install failed (exit $LASTEXITCODE) - required for CCTK to talk to BIOS in WinPE"
-            }
-            Write-Ok "HAPI driver installed"
-        }
     }
 
     # Step 6: write startnet.cmd

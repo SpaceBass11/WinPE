@@ -60,11 +60,12 @@ read the file from the IMAGES partition directly.
 
 ## Security caveat — same as CCTK
 
-`deploy.args` lives in plaintext on the FAT32/NTFS data partition.
-If you embed a BitLocker PIN there, anyone with physical access to
-the USB can read it. This is the same trust model as the CCTK
-configs documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md#known-caveats):
-the USB is the trust boundary. Mitigations:
+> [!WARNING]
+> `deploy.args` lives in plaintext on the data partition. Anyone with
+> physical access to the USB can read any embedded secret, including
+> BitLocker PINs. The USB is the trust boundary.
+
+Same trust model as the CCTK configs (see [`CCTK.md`](CCTK.md#security-honest-accounting)). Mitigations:
 
 - Use a unique PIN per USB.
 - Store the USB in the same locker as the laptops it deploys.

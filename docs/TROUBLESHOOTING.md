@@ -90,6 +90,11 @@ still seeing the old behavior.
 
 ### DISM apply fails at ~19% with "Incorrect function" (exit 1)
 
+> [!IMPORTANT]
+> This requires a boot.wim rebuild (one-time). If you built boot.wim with
+> `scripts/build_boot_wim.ps1` the fix is already baked in. The runtime
+> `reg add` below is a temporary workaround only.
+
 **Cause:** The captured image contains Windows Containers / Hyper-V layer
 files under `C:\ProgramData\Microsoft\Windows\Containers\Layers\...`. These
 set the NTFS `CASE_SENSITIVE_DIR` flag, which the WinPE kernel rejects
@@ -243,7 +248,7 @@ builder's `-CctkSource` parameter) AND a config matches in
 | Exit | Meaning | Fix |
 |------|---------|-----|
 | 0    | Success | — |
-| 116  | HAPI driver load error | Rebuild boot.wim with `-CctkSource` pointing at a tree that contains `HAPI\hapint64.inf` (or similar). The builder logs a warning if it can't find a HAPI inf during the build. |
+| 116  | BIOS communication error | Verify DCC version is 4.0 or later and that `-CctkSource` points at the full `X86_64` directory (must include `dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`). The builder aborts if these DLLs are absent, so a deployed boot.wim should have them — if CCTK still fails, the DCC version or firmware may be incompatible. |
 | 149  | Setup password mismatch | Add `--valsetuppwd=<current>` to the .ini so CCTK can authenticate with the existing BIOS password before changing it. |
 | 197  | Setting not supported on this model | Check `cctk --help` against the actual hardware. Some settings are model-specific. |
 
@@ -355,7 +360,7 @@ post-deploy. See [CCTK.md](CCTK.md).
 
 ### CCTK is not redistributable
 Dell's EULA for Command | Configure does not allow shipping `cctk.exe`
-or HAPI driver in this repo. The repo never ships CCTK; users supply
+or any DCC DLL in this repo. The repo never ships CCTK; users supply
 their own via the builder's `-CctkSource` parameter. `.gitignore`
 blocks accidental commits (`cctk.exe`, `hapint*.inf/.sys`, `/vendor/`,
 `/cctk-source/`).

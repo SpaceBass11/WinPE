@@ -51,6 +51,12 @@ Only the **Deployment Tools** feature is required from the ADK.
 Open **Deployment and Imaging Tools Environment** as Administrator, then run
 the builder from this repo:
 
+> [!TIP]
+> **Three ways to find the shell:**
+> 1. Type **Deploy** in the Start menu → right-click → **Run as administrator** (fastest — it appears immediately)
+> 2. **Start → Windows Kits → Deployment and Imaging Tools Environment** → right-click → **Run as administrator**
+> 3. Open an elevated Command Prompt (Win+R → `cmd`, Ctrl+Shift+Enter), then: `call "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\DandISetEnv.bat"`
+
 ```powershell
 .\scripts\build_boot_wim.ps1
 ```
@@ -126,7 +132,8 @@ assign letter=I
 exit
 ```
 
-> **WARNING:** Double-check the disk number! This erases the entire USB drive.
+> [!WARNING]
+> Double-check the disk number. This erases the entire USB drive.
 
 ## Step 4: Make USB Bootable with WinPE
 
@@ -136,8 +143,9 @@ Copy the built WinPE media to the boot partition:
 xcopy /s /e /y C:\WinPE_Build\media\*.* P:\
 ```
 
-> **Note:** Do NOT use `MakeWinPEMedia /UFD` here — it reformats the entire USB
-> and destroys the dual-partition layout created in Step 3.
+> [!NOTE]
+> Do NOT use `MakeWinPEMedia /UFD` here — it reformats the entire USB and
+> destroys the dual-partition layout created in Step 3.
 
 ### Release the P: drive letter (optional but recommended)
 
@@ -153,8 +161,9 @@ The partition stays bootable; only the drive letter assignment in your
 current Windows session is removed. Plug the USB in elsewhere and it'll
 still boot.
 
-> **Tip:** `build_boot_wim.ps1 -UsbDrive P: -ReleaseUsbLetter` does Steps 2,
-> 4, and this release in one shot.
+> [!TIP]
+> `build_boot_wim.ps1 -UsbDrive P: -ReleaseUsbLetter` does Steps 2, 4, and
+> this release in one shot.
 
 ## Step 5: Add Windows Images to Data Partition
 

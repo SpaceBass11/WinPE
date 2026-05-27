@@ -274,11 +274,12 @@ remains bootable — only the drive-letter assignment in the running OS is
 removed. Requires `-UsbDrive`.
 
 ### -CctkSource [string]
-Path to an extracted Dell Client Configuration Toolkit directory
-(the one containing `cctk.exe`). When given, the builder:
-- copies the CCTK tree to `X:\cctk\` inside `boot.wim`
-- installs the HAPI driver (`hapint*.inf`) into the offline image via
-  `dism /Add-Driver /ForceUnsigned`
+Path to an extracted Dell Command | Configure (DCC) 4.0+ directory
+(the one containing `cctk.exe`). When given, the builder validates that the
+DCH API DLLs (`dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`) are present
+alongside `cctk.exe`, then copies the DCC tree to `X:\cctk\` inside `boot.wim`.
+DCC 4.0+ communicates with the BIOS via those userspace DLLs — no driver
+injection required. Pre-4.0 DCC is not supported.
 
 The deploy script auto-detects `X:\cctk\cctk.exe` at runtime and
 applies a config from `<IMAGES>\cctk\` (see [CCTK.md](CCTK.md) for
