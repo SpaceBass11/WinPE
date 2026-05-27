@@ -165,7 +165,7 @@ the "plug in USB, boot, walk away" model.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `CCTK returned exit 116` | BIOS access failure (DCH API error) | Verify DCC version is 4.0 or later and that `-CctkSource` points at the full `X86_64` directory (must contain `dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`). On pre-4.0 DCC, exit 116 indicated a missing HAPI kernel driver — see [Legacy DCC (Pre-4.0 / HAPI Era)](#legacy-dcc-pre-40--hapi-era) below. |
+| `CCTK returned exit 116` | BIOS communication error | Verify DCC version is 4.0 or later and that `-CctkSource` points at the full `X86_64` directory (must contain `dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`). The builder now aborts if these DLLs are absent, so a deployed boot.wim should have them — if CCTK still fails, the DCC version or firmware may be incompatible. On pre-4.0 DCC, exit 116 indicated a missing HAPI kernel driver — see [Legacy DCC (Pre-4.0 / HAPI Era)](#legacy-dcc-pre-40--hapi-era) below. |
 | `CCTK returned exit 149` | Password mismatch | Add `--valsetuppwd=<current>` to the config |
 | `No CCTK config matched` | None of `<TAG>.ini`/`<MODEL>.ini`/`default.ini` exist | Drop a `default.ini` on the IMAGES partition under `cctk\` |
 | `CCTK embedded but DEPLOY_IMAGE_DRIVE is unset` | Script ran outside builder's startnet.cmd | Set `$env:DEPLOY_IMAGE_DRIVE` manually before running, or rebuild boot.wim so startnet probes for the IMAGES label |

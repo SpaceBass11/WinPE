@@ -161,18 +161,23 @@ if ($CctkSource) {
         throw "cctk.exe not found under $CctkSource - point -CctkSource at the extracted CCTK folder."
     }
 
-    # DCH API DLL check — modern DCC 4.0+ ships these alongside cctk.exe
-    $cctkDir = $cctkExe.DirectoryName
-    foreach ($dll in @('dchapi64.dll', 'dchbas64.dll', 'BIOSIntf.dll')) {
-        if (-not (Test-Path (Join-Path $cctkDir $dll))) {
-            Write-Warn "DCC runtime DLL missing: $dll — ensure -CctkSource points at the full Dell Command | Configure X86_64 directory."
-        }
-    }
-
     # Legacy HAPI driver inf (pre-4.0 DCC only; name varies: hapint64.inf, dcdbas*.inf, etc.)
-    # DCC 4.0+ uses the DCH API stack above — no driver injection needed. If a legacy inf IS
+    # DCC 4.0+ uses the DCH API stack instead — no driver injection needed. If a legacy inf IS
     # found, we install it silently for backwards compatibility with old DCC source trees.
     $legacyDriverInf = Get-ChildItem -Path $CctkSource -Recurse -Include 'hapint*.inf','dcdbas*.inf' -ErrorAction SilentlyContinue | Select-Object -First 1
+
+    # DCH API DLL check — DCC 4.0+ ships these alongside cctk.exe.
+    # Skipped when a legacy HAPI inf is present (pre-4.0 DCC won't have them).
+    # If no legacy inf AND DLLs are absent, the source tree is incomplete — abort now
+    # rather than silently embed a non-functional cctk.exe into boot.wim.
+    $cctkDir = $cctkExe.DirectoryName
+    if (-not $legacyDriverInf) {
+        $missingDlls = @('dchapi64.dll', 'dchbas64.dll', 'BIOSIntf.dll') |
+            Where-Object { -not (Test-Path (Join-Path $cctkDir $_)) }
+        if ($missingDlls) {
+            throw "DCH API DLLs missing from $cctkDir`: $($missingDlls -join ', ') — ensure -CctkSource points at the full Dell Command | Configure X86_64 directory."
+        }
+    }
 }
 
 # Fresh build if requested
@@ -265,9 +270,8 @@ try {
         $cctkDest = Join-Path $mountDir 'cctk'
         New-Item -ItemType Directory -Path $cctkDest -Force | Out-Null
         # Copy the directory that contains cctk.exe (architecture-matched preferred)
-        $cctkSrcDir = $cctkExe.DirectoryName
-        Copy-Item -Path (Join-Path $cctkSrcDir '*') -Destination $cctkDest -Recurse -Force
-        Write-Ok "Copied CCTK ($cctkSrcDir) to X:\cctk\"
+        Copy-Item -Path (Join-Path $cctkDir '*') -Destination $cctkDest -Recurse -Force
+        Write-Ok "Copied CCTK ($cctkDir) to X:\cctk\"
 
         if ($legacyDriverInf) {
             Write-Step "Legacy HAPI driver found ($($legacyDriverInf.Name)) — installing for pre-4.0 DCC compatibility"
