@@ -5,6 +5,79 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
+
+**Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
+the routine log's "next recommended improvement" backlog, and the
+actual list of `.ps1` files shipped under the repo root. Compared
+that inventory against the four scripts validated by `tests/test_parse.ps1`.
+
+**Found:** the repo ships six PowerShell scripts in the deploy pipeline
+(`unified_winpe_deploy.ps1` + five under `scripts/`), but
+`tests/test_parse.ps1` only parses four — `scripts/build_iso.ps1`
+(361 lines, added in PR #35 as the new end-user distribution
+packager) and `scripts/first-login.ps1` (181 lines, staged into
+target images by `prepare_wim.ps1 -DisableExtraBloat`) were never
+wired in. PSSA in CI catches hard parse errors recursively, so the
+gap was invisible at the CI level — but the test that CLAUDE.md
+and AGENTS.md point operators and agents at for local validation
+silently skipped both. A future agent renaming a function in
+`build_iso.ps1` or breaking a brace in `first-login.ps1` would
+need to wait for the CI PSSA job to surface it, instead of getting
+an immediate local-test failure.
+
+The script's own `.SYNOPSIS` and the CLAUDE.md table entry both
+called out "four scripts" verbatim, so this was a literal documentation
+drift, not just a missing assertion.
+
+**Changed:**
+- `tests/test_parse.ps1` — added `$buildIsoPath` and `$firstLoginPath`,
+  two new `Test-ScriptSyntax` calls (Test 12 + Test 13) following the
+  same pattern as the existing builder/prep/refresh blocks. Synopsis
+  text rewritten to enumerate all six scripts instead of four.
+- `CLAUDE.md` — Key Files table row and Running Checks table row
+  updated; replaced the literal "four scripts" / "four deploy scripts"
+  phrasing with "every shipped pipeline script" so the docs don't
+  drift again the next time a script is added.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the coverage extension. Kept short; no version bump
+  (test-only change, no `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`); the network
+  policy allows the GitHub-Releases download.
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 39 passed
+  / 0 failed before edits.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 43 passed
+  / 0 failed (the +4 are existence + syntax-valid for each new script;
+  matches the pattern set by the existing build_boot_wim / prepare_wim
+  / refresh_usb blocks).
+- Sanity: `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged (no contamination of the parser test).
+- Pre-checked that `build_iso.ps1` and `first-login.ps1` both
+  `PSParser::Tokenize` clean against the same PSv7 runtime so the
+  newly added assertions go from missing-to-green, not missing-to-red.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change. No production code touched. No new
+  network dependencies. Pattern matches the existing four blocks
+  exactly, including PSv5.1 compatibility (only `Join-Path`, `Get-Content`,
+  and `PSParser::Tokenize` — all PSv5.1-safe).
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **`Get-SystemDisks` fixture test** paralleling the WIM parser test
+    — the last untested parser in the deploy script. Higher mock burden
+    because of `Get-WmiObject` / `Win32_DiskPartition` `ASSOCIATORS OF`
+    queries, but it would guard against the
+    Linux/LVM-disk-reported-as-empty regression class.
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines of
+    listing-render code that could be factored out — cleanup only,
+    deferred across multiple routine entries because the menu render
+    is load-bearing TUI UX.
+
+---
+
 ## 2026-05-17 — `-UnattendFile` well-formedness validation
 
 **Investigated:** the deploy script's pre-flight validation for the

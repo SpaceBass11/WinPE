@@ -40,6 +40,16 @@ tagged GitHub releases are published.
   TUI (unchanged default). New `configs/deploy.args.example`
   template and `docs/DEPLOY_ARGS.md` walkthrough.
 
+### Changed
+- **`tests/test_parse.ps1` now covers every shipped pipeline script.**
+  Added syntax checks for `scripts/build_iso.ps1` (the end-user ISO
+  packager added in PR #35) and `scripts/first-login.ps1` (the
+  per-user first-boot tweak script staged into target images by
+  `prepare_wim.ps1 -DisableExtraBloat`). Previously the dedicated
+  local syntax test silently skipped both — PSSA in CI caught hard
+  parse errors recursively, but the test that CLAUDE.md / AGENTS.md
+  point operators at was lagging the repo's actual script inventory.
+
 ### Changed (security / safety)
 - **BitLocker / data-disk feature is now opt-in.** The v4.6.x BitLocker
   / data-disk feature (added in PR #33) defaulted `DataDiskNumber = 1`
