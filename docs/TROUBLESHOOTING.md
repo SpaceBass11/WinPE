@@ -90,6 +90,11 @@ still seeing the old behavior.
 
 ### DISM apply fails at ~19% with "Incorrect function" (exit 1)
 
+> [!IMPORTANT]
+> This requires a boot.wim rebuild (one-time). If you built boot.wim with
+> `scripts/build_boot_wim.ps1` the fix is already baked in. The runtime
+> `reg add` below is a temporary workaround only.
+
 **Cause:** The captured image contains Windows Containers / Hyper-V layer
 files under `C:\ProgramData\Microsoft\Windows\Containers\Layers\...`. These
 set the NTFS `CASE_SENSITIVE_DIR` flag, which the WinPE kernel rejects

@@ -47,9 +47,10 @@ Get-UnattendPassword -Plaintext 'Admin-P@ss-2025!'   # DERP_Admin
 Each call prints one base64 string. Copy each output into the matching
 `BASE64_*_PASSWORD` slot in your `unattend.xml`.
 
-**Important:** the suffix is literally the string `Password` — not the
-account name. The same suffix applies to all `<LocalAccount>` entries
-**and** to the `<AutoLogon>` block.
+> [!IMPORTANT]
+> The suffix is literally the string `Password` — not the account name.
+> The same suffix applies to all `<LocalAccount>` entries **and** to the
+> `<AutoLogon>` block.
 
 ---
 
