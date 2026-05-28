@@ -122,9 +122,21 @@ Write-Result -Test "CmdletBinding attribute present" -Pass $hasCmdletBinding
 $hasRequires = $content -match '#Requires\s+-RunAsAdministrator'
 Write-Result -Test "#Requires -RunAsAdministrator present" -Pass $hasRequires
 
-# Test 9: build_boot_wim.ps1 (syntax only - it's a simpler single-purpose script)
+# Test 9: build_boot_wim.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_boot_wim.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $builderPath -Label "Builder" | Out-Null
+$builderOk = Test-ScriptSyntax -Path $builderPath -Label "Builder"
+if ($builderOk) {
+    $bc = Get-Content $builderPath -Raw
+
+    # DCH API DLL validation must be present and must throw on missing DLLs
+    Write-Result -Test "Builder: DCH DLL check present (dchapi64.dll)" -Pass ($bc -match 'dchapi64\.dll')
+    Write-Result -Test "Builder: DCH DLL check present (dchbas64.dll)" -Pass ($bc -match 'dchbas64\.dll')
+    Write-Result -Test "Builder: DCH DLL check present (BIOSIntf.dll)"  -Pass ($bc -match 'BIOSIntf\.dll')
+    Write-Result -Test "Builder: DCH DLL check throws on missing" -Pass ($bc -match 'missingDlls' -and $bc -match 'throw.*DCH API DLLs missing|throw.*missingDlls')
+
+    # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
+    Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+}
 
 # Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)
 Write-Host "`n--- scripts/prepare_wim.ps1 ---" -ForegroundColor Cyan
