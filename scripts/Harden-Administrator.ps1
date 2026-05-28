@@ -18,12 +18,30 @@ $root    = 'C:\ProgramData\ManualClonezilla'
 $logDir  = Join-Path $root 'Logs'
 $logFile = Join-Path $logDir 'Harden-Administrator.log'
 
-# Non-default name for the retired built-in admin (STIG: must not be
-# "Administrator"). Edit to suit your naming SOP.
-$newName = 'DisabledBuiltinAdmin'
+# STIG requires the built-in Administrator not be named "Administrator".
+# A predictable rename (e.g. "DisabledAdmin") is weak, so we generate a
+# non-obvious name: a fixed letter prefix + random alphanumeric suffix
+# (e.g. "xK7v9QpL2mTz"). The prefix keeps the name starting with a letter
+# and gives you something greppable; edit it to suit your SOP. The account
+# is found by RID 500, not by name, so the randomness costs nothing.
+$renamePrefix = 'x'
+$renameSuffixLength = 12
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 Start-Transcript -Path $logFile -Append
+
+function New-RandomName {
+    param([int]$Length = 12)
+    $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    $sb = New-Object System.Text.StringBuilder
+    $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+    $bytes = New-Object 'System.Byte[]' 1
+    for ($i = 0; $i -lt $Length; $i++) {
+        $rng.GetBytes($bytes)
+        [void]$sb.Append($chars[[int]($bytes[0] % $chars.Length)])
+    }
+    return $sb.ToString()
+}
 
 function New-RandomPassword {
     param([int]$Length = 32)
@@ -62,10 +80,9 @@ try {
     Disable-LocalUser -Name $builtin.Name
     Write-Host 'Built-in admin account disabled.'
 
-    # 3. Rename (skip if already renamed).
-    if ($builtin.Name -eq $newName) {
-        Write-Host "Built-in admin already named '$newName'; no rename needed."
-    } elseif ($builtin.Name -eq 'Administrator') {
+    # 3. Rename off "Administrator" (skip if a prior run already did it).
+    if ($builtin.Name -eq 'Administrator') {
+        $newName = $renamePrefix + (New-RandomName -Length $renameSuffixLength)
         Rename-LocalUser -Name $builtin.Name -NewName $newName
         Write-Host "Built-in admin renamed to '$newName'."
     } else {
