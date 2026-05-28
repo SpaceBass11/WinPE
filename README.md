@@ -128,7 +128,7 @@ endpoint itself does not carry the file post-OOBE.
 ## Recovery key handling
 
 `Enable-BitLocker.ps1` writes the recovery key to
-`C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-<hostname>-<timestamp>.txt`
+`C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<hostname>-<timestamp>.txt`
 on the deployed machine. It is **not** uploaded anywhere automatically.
 
 The operator's SOP (your responsibility to define) must include

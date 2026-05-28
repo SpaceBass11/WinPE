@@ -66,10 +66,18 @@ When the operator boots from the USB:
 5. **`C:\Windows\Setup\Scripts\SetupComplete.cmd`** runs once,
    automatically, after specialize completes. It calls in order:
    - `Apply-DellConfig.ps1` -- imports CCTK BIOS settings.
+   - `New-LocalAccounts.ps1` -- creates Level 0-3 (standard) and
+     IT_Admin (admin) from `Config\accounts.csv`.
+   - `Set-Level0ACL.ps1` -- Deny ACLs locking Level 0 out of
+     `C:\Programs` and `C:\Users\Public\Desktop\Quick Links`.
+   - `Disable-RDP.ps1` -- fail-safe RDP disable.
+   - `Harden-Administrator.ps1` -- STIG: rotate/disable/rename the
+     built-in Administrator.
    - `Enable-BitLocker.ps1` -- TPM+PIN on C:, exports the recovery
-     key to `State\BitLocker-RecoveryKey-<host>-<ts>.txt`.
-   - `Finalize-Cleanup.ps1` -- removes `dell-config.cctk` and
-     `bitlocker-pin.txt` from disk.
+     key to `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<host>-<ts>.txt`.
+   - `Install-NotepadPP.ps1` -- silent Notepad++ install (non-fatal).
+   - `Finalize-Cleanup.ps1` -- removes `dell-config.cctk`,
+     `bitlocker-pin.txt`, and `accounts.csv` from disk.
 6. **Second reboot** activates any queued BIOS changes from CCTK and
    lands at the login screen.
 

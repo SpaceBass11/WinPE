@@ -2,23 +2,27 @@ $ErrorActionPreference = 'Stop'
 
 $root      = 'C:\ProgramData\ManualClonezilla'
 $logDir    = Join-Path $root 'Logs'
-$stateDir  = Join-Path $root 'State'
 $configDir = Join-Path $root 'Config'
 $logFile   = Join-Path $logDir 'Enable-BitLocker.log'
 $pinFile   = Join-Path $configDir 'bitlocker-pin.txt'
 
-New-Item -ItemType Directory -Path $logDir   -Force | Out-Null
-New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+# Recovery keys are written here for manual off-machine export by the
+# operator. Outside the ManualClonezilla tree so Finalize-Cleanup never
+# touches it.
+$keyDir    = 'C:\ProgramData\BitLockers'
+
+New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+New-Item -ItemType Directory -Path $keyDir -Force | Out-Null
 Start-Transcript -Path $logFile -Append
 
 function Export-RecoveryKey {
     param(
         [Parameter(Mandatory)] $RecoveryProtector,
-        [Parameter(Mandatory)] [string]$StateDir
+        [Parameter(Mandatory)] [string]$KeyDir
     )
     $machineName = $env:COMPUTERNAME
     $stamp = Get-Date -Format 'yyyy-MM-dd_HHmmss'
-    $outFile = Join-Path $StateDir ("BitLocker-RecoveryKey-{0}-{1}.txt" -f $machineName, $stamp)
+    $outFile = Join-Path $KeyDir ("BitLocker-RecoveryKey-{0}-{1}.txt" -f $machineName, $stamp)
     $body = @"
 BitLocker Recovery Key
 ======================
@@ -90,7 +94,7 @@ try {
         throw 'RecoveryPassword protector missing after Add-BitLockerKeyProtector. Refusing to leave volume with no recovery path.'
     }
 
-    Export-RecoveryKey -RecoveryProtector $recovery -StateDir $stateDir | Out-Null
+    Export-RecoveryKey -RecoveryProtector $recovery -KeyDir $keyDir | Out-Null
 
     Write-Host 'BitLocker enabled on C: with TpmPin + RecoveryPassword protectors.'
 }

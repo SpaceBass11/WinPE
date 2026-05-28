@@ -17,7 +17,7 @@ Track image metadata at:
   protector is worse than no encryption at all.
 - Soft-fail only for non-critical post steps.
 - Persist logs to `C:\ProgramData\ManualClonezilla\Logs`.
-- Persist BitLocker recovery key exports to `C:\ProgramData\ManualClonezilla\State\`.
+- Persist BitLocker recovery key exports to `C:\ProgramData\BitLockers\`.
   Files are named `BitLocker-RecoveryKey-<hostname>-<timestamp>.txt`.
   Operators are responsible for collecting these files **off the machine**
   before user handoff.
@@ -68,7 +68,7 @@ Also collect:
 
 For BitLocker triage specifically:
 
-- `C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-*.txt` (if any)
+- `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-*.txt` (if any)
 - `manage-bde -status C:` output
 - `manage-bde -protectors -get C:` output
 - `Get-Tpm | Format-List *` output (PowerShell)

@@ -7,6 +7,21 @@ single self-deploying Clonezilla ISO that fully images a Dell laptop
 fleet with Windows 11, TPM+PIN BitLocker, and a Dell BIOS posture --
 no deployment server, no per-machine variation, no MDM.
 
+> **Posture note (branch `claude/wizardly-meitner-Wj9fu` and successors):**
+> This line extends the workflow beyond "restore and walk away". The gold
+> master is built in **audit mode** under the built-in Administrator; the
+> first-boot chain (unattend + `SetupComplete.cmd` PS1s) intentionally makes
+> the deployed machine **diverge** from the GM: it provisions named accounts
+> (`Level 0`-`Level 3`, `IT_Admin`), applies Level 0 lockdown ACLs, hardens
+> the built-in Administrator (STIG rename/disable), disables RDP, installs
+> Notepad++, and enables BitLocker. That divergence is the deploy-time half
+> of the audit-mode build, **not** a violation of the "identical deploys"
+> idea -- every deployed machine still ends up identically configured. The
+> "no app install / walk away minimalism" entries in the locked table below
+> describe the *narrower* clonezilla-v2 origin; on this line they have been
+> deliberately relaxed by the user. Do not re-flag account creation, app
+> install, or the `C:\ProgramData\BitLockers` key path as scope violations.
+
 **Branches in the repo and what they mean:**
 
 | Branch | Status | Use |
@@ -90,11 +105,17 @@ On first boot (after Windows specialize completes):
 
 | File | Purpose |
 |------|---------|
-| `scripts/SetupComplete.cmd` | First-boot orchestrator. Auto-runs from `C:\Windows\Setup\Scripts\` after Windows specialize. Calls the three PS1s in order. Any non-zero exit logs and exits. |
+| `scripts/SetupComplete.cmd` | First-boot orchestrator. Auto-runs from `C:\Windows\Setup\Scripts\` after Windows specialize. Calls the PS1s in order. Any non-zero exit logs and exits -- except the non-fatal Notepad++ install. Order: Apply-DellConfig -> New-LocalAccounts -> Set-Level0ACL -> Disable-RDP -> Harden-Administrator -> Enable-BitLocker -> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. |
 | `scripts/Apply-DellConfig.ps1` | Imports `Config\dell-config.cctk` via `cctk.exe --import`. Idempotent via SHA256 marker file in `State\`. Hard-fails when cctk.exe or the config file is missing (intentional — silent BIOS misconfig is worse than a loud failure). |
-| `scripts/Enable-BitLocker.ps1` | Enables TPM+PIN on C: using the PIN from `Config\bitlocker-pin.txt`. Adds RecoveryPassword protector. Exports the recovery key to `State\BitLocker-RecoveryKey-<host>-<ts>.txt`. Hard-fails if either protector is missing after enable. |
-| `scripts/Finalize-Cleanup.ps1` | Removes `dell-config.cctk` and `bitlocker-pin.txt` from disk. **Does not** remove `State\` (recovery key file lives there) or `Logs\`. |
-| `configs/unattend.example.xml` | Skeleton answer file for the golden image. OOBE skip + UTC timezone + random ComputerName. Edit for your environment before baking into the gold. |
+| `scripts/New-LocalAccounts.ps1` | Creates `Level 0`-`Level 3` (Standard, local Users) and `IT_Admin` (Admin, local Administrators) from `Config\accounts.csv` (`Username,Password,Role`). Plaintext passwords, same trust model as the PIN file; wiped by Finalize-Cleanup. Idempotent. Groups resolved by well-known SID. |
+| `scripts/Set-Level0ACL.ps1` | Inherited Deny (Full) ACE for `Level 0` on `C:\Programs` and `C:\Users\Public\Desktop\Quick Links` (can neither see nor modify). Idempotent (clears prior Deny first). Missing folder = warn; missing account = hard fail. |
+| `scripts/Harden-Administrator.ps1` | STIG: rotates built-in Administrator password to random, disables it, renames it off "Administrator". Found by RID 500 (SID), not name. `IT_Admin` is the admin going forward. |
+| `scripts/Disable-RDP.ps1` | Fail-safe RDP off: `fDenyTSConnections=1`, NLA, "Remote Desktop" firewall group disabled, `TermService`/`UmRdpService` Disabled. (RDP was only on for Hyper-V enhanced session during build.) |
+| `scripts/Enable-BitLocker.ps1` | Enables TPM+PIN on C: using the PIN from `Config\bitlocker-pin.txt`. Adds RecoveryPassword protector. Exports the recovery key to `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<host>-<ts>.txt`. Hard-fails if either protector is missing after enable. |
+| `scripts/Install-NotepadPP.ps1` | Silent (`/S`) install from `Installers\npp-installer.exe`. **Non-fatal** by design (exits 0 even on failure) so it cannot abort the security chain. |
+| `scripts/Finalize-Cleanup.ps1` | Removes `dell-config.cctk`, `bitlocker-pin.txt`, and `accounts.csv` from disk. **Does not** remove `State\`, `C:\ProgramData\BitLockers\` (recovery key files live there), or `Logs\`. |
+| `configs/unattend.example.xml` | Skeleton answer file for the golden image. `specialize` CopyProfile=true + OOBE skip + UTC timezone + random ComputerName. Edit for your environment before baking into the gold. |
+| `configs/accounts.example.csv` | Template for the staged `Config\accounts.csv`. Edit with real passwords before baking; never commit the real file. |
 | `docs/RUNBOOK.md` | End-to-end admin build process. The source of truth. |
 | `docs/OPERATIONS.md` | Day-2 ops: versioning, rotation, rollback, triage artifacts. |
 | `docs/USB_SETUP.md` | Operator's SOP for Rufus + boot. |

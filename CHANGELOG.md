@@ -8,6 +8,53 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added (STIG hardening + multi-account deploy)
+- **Posture extension.** This line now does more than restore-and-walk-away:
+  the first-boot chain provisions named accounts, applies lockdown ACLs,
+  hardens the built-in Administrator, disables RDP, and installs a bundled
+  app. The deployed machine intentionally diverges from the gold master --
+  that divergence is the deploy-time half of the audit-mode build.
+- `scripts/New-LocalAccounts.ps1` -- creates `Level 0`-`Level 3` (Standard,
+  local Users) and `IT_Admin` (Admin, local Administrators) from
+  `Config\accounts.csv` (`Username,Password,Role`). Plaintext passwords,
+  same trust model as `bitlocker-pin.txt`; wiped by Finalize-Cleanup.
+  Idempotent (resets password + re-asserts group membership on re-run).
+  Built-in groups resolved by well-known SID for locale safety.
+- `scripts/Set-Level0ACL.ps1` -- applies an inherited Deny (Full) ACE for
+  `Level 0` on `C:\Programs` and `C:\Users\Public\Desktop\Quick Links` so
+  that account can neither see nor modify them. Idempotent (clears prior
+  Deny ACE first). Missing folder = warning; missing account = hard fail.
+- `scripts/Harden-Administrator.ps1` -- STIG: rotates the built-in
+  Administrator password to a random value, disables it, and renames it
+  away from "Administrator". Identifies the account by RID 500 (SID), not
+  name, so it stays correct across re-runs. `IT_Admin` is the admin going
+  forward.
+- `scripts/Disable-RDP.ps1` -- fail-safe RDP disable: `fDenyTSConnections=1`,
+  NLA required, "Remote Desktop" firewall group disabled, `TermService` /
+  `UmRdpService` startup set to Disabled. (RDP was only on for Hyper-V
+  enhanced session during the build.)
+- `scripts/Install-NotepadPP.ps1` -- silent (`/S`) install of Notepad++
+  from `Installers\npp-installer.exe` (sysprep strips provisioned apps).
+  **Best-effort / non-fatal**: logs and exits 0 on missing/failed installer
+  so it can never abort the security-critical chain.
+- `configs/accounts.example.csv` -- template for the staged accounts file.
+- **unattend `CopyProfile=true`** added in the `specialize` pass so new
+  accounts inherit the audit-mode Administrator profile. Sequenced before
+  first-boot Administrator hardening so the rename/disable cannot race the
+  profile copy.
+
+### Changed (BitLocker key path)
+- Recovery keys now export to `C:\ProgramData\BitLockers\` (outside the
+  ManualClonezilla tree, untouched by Finalize-Cleanup) for manual
+  off-machine collection, instead of `...\ManualClonezilla\State\`.
+
+### Changed (orchestration)
+- `scripts/SetupComplete.cmd` chain is now: Apply-DellConfig ->
+  New-LocalAccounts -> Set-Level0ACL -> Disable-RDP -> Harden-Administrator
+  -> Enable-BitLocker -> Install-NotepadPP (non-fatal) -> Finalize-Cleanup.
+  Security steps are fatal-on-error; the app install is not.
+- `scripts/Finalize-Cleanup.ps1` now also removes `Config\accounts.csv`.
+
 ### Changed (pivot)
 - **Repo identity is now manual-clonezilla.** The earlier WinPE per-USB
   tool (`unified_winpe_deploy.ps1`, `build_boot_wim.ps1`,

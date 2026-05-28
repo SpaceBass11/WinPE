@@ -15,6 +15,14 @@ hapint*.inf
 *.esd
 *.iso
 
+# Secrets / runtime staging files (only the *.example.* templates are
+# tracked; the real files carry plaintext passwords/PIN and must never
+# be committed).
+accounts.csv
+bitlocker-pin.txt
+dell-config.cctk
+npp-installer.exe
+
 # Deploy logs
 deploy_*.log
 *.log

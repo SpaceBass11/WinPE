@@ -9,7 +9,8 @@ Start-Transcript -Path $logFile -Append
 try {
     $sensitive = @(
         (Join-Path $root 'Config\dell-config.cctk'),
-        (Join-Path $root 'Config\bitlocker-pin.txt')
+        (Join-Path $root 'Config\bitlocker-pin.txt'),
+        (Join-Path $root 'Config\accounts.csv')
     )
 
     foreach ($item in $sensitive) {

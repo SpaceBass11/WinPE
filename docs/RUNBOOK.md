@@ -13,10 +13,29 @@ Place assets before sysprep in `C:\ProgramData\ManualClonezilla`:
 
 - `Scripts\SetupComplete.cmd`
 - `Scripts\Apply-DellConfig.ps1`
+- `Scripts\New-LocalAccounts.ps1`
+- `Scripts\Set-Level0ACL.ps1`
+- `Scripts\Disable-RDP.ps1`
+- `Scripts\Harden-Administrator.ps1`
 - `Scripts\Enable-BitLocker.ps1`
+- `Scripts\Install-NotepadPP.ps1`
 - `Scripts\Finalize-Cleanup.ps1`
 - `Config\dell-config.cctk` (Dell Command Configure package)
 - `Config\bitlocker-pin.txt` (single-line plaintext PIN for TPM+PIN)
+- `Config\accounts.csv` (named local accounts; `Username,Password,Role` --
+  see `configs/accounts.example.csv`. Plaintext, baked into the image, same
+  accepted risk as the PIN file; deleted by `Finalize-Cleanup.ps1`.)
+- `Installers\npp-installer.exe` (Notepad++ NSIS installer; installed silently
+  with `/S` at first boot since sysprep strips provisioned apps)
+
+The first-boot chain runs in this order: Apply-DellConfig -> New-LocalAccounts
+-> Set-Level0ACL -> Disable-RDP -> Harden-Administrator -> Enable-BitLocker ->
+Install-NotepadPP (non-fatal) -> Finalize-Cleanup. Build the gold master in
+**audit mode** under the built-in Administrator; the named accounts and
+hardening are applied at first boot, not in the GM. Set unattend
+`CopyProfile=true` (specialize pass) if you want new accounts to inherit the
+Administrator profile -- it is processed before the first-boot Administrator
+rename/disable, so the two do not race.
 
 ### BitLocker PIN file
 
@@ -91,11 +110,17 @@ per your workflow).
   - `manage-bde -status C:` shows protection enabled (or encryption in progress).
   - `manage-bde -protectors -get C:` lists both a TPM And PIN protector and a
     Numerical Password (recovery) protector.
-  - `C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-*.txt` exists
+  - `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-*.txt` exists
     and contains a 48-digit recovery password.
   - PIN file `C:\ProgramData\ManualClonezilla\Config\bitlocker-pin.txt` is
     gone (Finalize-Cleanup ran).
-- Confirm cleanup removed one-time payloads.
+- Confirm accounts: `Level 0`-`Level 3` exist as standard users, `IT_Admin`
+  is a local administrator, and `Level 0` cannot open `C:\Programs` or
+  `C:\Users\Public\Desktop\Quick Links`.
+- Confirm the built-in Administrator is disabled and renamed (RID 500 account).
+- Confirm RDP is disabled (`fDenyTSConnections=1`, service Disabled).
+- Confirm Notepad++ installed (`notepad++.exe` present).
+- Confirm cleanup removed one-time payloads (including `Config\accounts.csv`).
 
 Recommended Dell-specific validation per model family:
 
@@ -123,12 +148,12 @@ Recommended Dell-specific validation per model family:
 
 5. **Lost recovery key risk (medium):**
    - Risk: This is an offline, unmanaged workflow. Recovery keys are written to
-     `C:\ProgramData\ManualClonezilla\State\` and stay there until manually
+     `C:\ProgramData\BitLockers\` and stay there until manually
      collected. A user-initiated reset or reimage wipes them.
    - Fix: Operator SOP must include "collect the recovery key file off the
      machine before handing over." If you need centralized escrow, replace
      `Export-RecoveryKey` in `Enable-BitLocker.ps1` with a write to your
-     shared/SMB/MDM target instead of `State\`.
+     shared/SMB/MDM target instead of `C:\ProgramData\BitLockers\`.
 
 3. **Cross-model BIOS package risk (medium):**
    - Risk: One Dell CCTK package may not apply cleanly across all model families.

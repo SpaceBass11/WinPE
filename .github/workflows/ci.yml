@@ -48,9 +48,9 @@ jobs:
           sc=scripts/SetupComplete.cmd
           dc=scripts/Apply-DellConfig.ps1
 
-          echo "=== 1. SetupComplete orchestrates the three PS scripts ==="
+          echo "=== 1. SetupComplete orchestrates the first-boot PS scripts ==="
           ok=1
-          for n in Apply-DellConfig.ps1 Enable-BitLocker.ps1 Finalize-Cleanup.ps1; do
+          for n in Apply-DellConfig.ps1 New-LocalAccounts.ps1 Set-Level0ACL.ps1 Disable-RDP.ps1 Harden-Administrator.ps1 Enable-BitLocker.ps1 Install-NotepadPP.ps1 Finalize-Cleanup.ps1; do
             grep -qF "$n" "$sc" || { echo "  $sc missing $n"; ok=0; }
           done
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
@@ -72,8 +72,8 @@ jobs:
           fi
 
           echo ""
-          echo "=== 4. Recovery key export path lives under State\\ ==="
-          if grep -qiE 'stateDir' "$bl" && grep -qF 'BitLocker-RecoveryKey-' "$bl" && grep -qE "stateDir\s*=\s*Join-Path\s+\\\$root\s+'State'" "$bl"; then
+          echo "=== 4. Recovery key export path is C:\\ProgramData\\BitLockers ==="
+          if grep -qiE 'keyDir' "$bl" && grep -qF 'BitLocker-RecoveryKey-' "$bl" && grep -qF "keyDir    = 'C:\\ProgramData\\BitLockers'" "$bl"; then
             echo "OK"
           else
             echo "FAIL: recovery key export path"; fail=1
@@ -87,10 +87,11 @@ jobs:
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
 
           echo ""
-          echo "=== 6. Finalize-Cleanup removes both secret files ==="
+          echo "=== 6. Finalize-Cleanup removes the staged secret files ==="
           ok=1
           grep -qF 'dell-config.cctk'   "$fc" || { echo "  dell-config.cctk not removed";   ok=0; }
           grep -qF 'bitlocker-pin.txt'  "$fc" || { echo "  bitlocker-pin.txt not removed";  ok=0; }
+          grep -qF 'accounts.csv'       "$fc" || { echo "  accounts.csv not removed";       ok=0; }
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
 
           echo ""

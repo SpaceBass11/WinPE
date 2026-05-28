@@ -10,8 +10,23 @@ echo ==== SetupComplete started %date% %time% ====>> "%LOGDIR%\SetupComplete.log
 call :RunPS Apply-DellConfig.ps1
 if errorlevel 1 goto :Fail
 
+call :RunPS New-LocalAccounts.ps1
+if errorlevel 1 goto :Fail
+
+call :RunPS Set-Level0ACL.ps1
+if errorlevel 1 goto :Fail
+
+call :RunPS Disable-RDP.ps1
+if errorlevel 1 goto :Fail
+
+call :RunPS Harden-Administrator.ps1
+if errorlevel 1 goto :Fail
+
 call :RunPS Enable-BitLocker.ps1
 if errorlevel 1 goto :Fail
+
+REM Best-effort app install: never aborts the chain (script exits 0).
+call :RunPS Install-NotepadPP.ps1
 
 call :RunPS Finalize-Cleanup.ps1
 if errorlevel 1 goto :Fail
