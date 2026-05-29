@@ -25,7 +25,8 @@ $targets = @(
 )
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-Start-Transcript -Path $logFile -Append
+try { Start-Transcript -Path $logFile -Append | Out-Null }
+catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
 try {
     if (-not (Get-LocalUser -Name $account -ErrorAction SilentlyContinue)) {
@@ -53,5 +54,5 @@ try {
     Write-Host 'Level 0 lockdown ACLs applied.'
 }
 finally {
-    Stop-Transcript
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
 }

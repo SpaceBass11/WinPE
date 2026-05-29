@@ -50,7 +50,7 @@ jobs:
 
           echo "=== 1. SetupComplete orchestrates the first-boot PS scripts ==="
           ok=1
-          for n in Apply-DellConfig.ps1 New-LocalAccounts.ps1 Set-Level0ACL.ps1 Disable-RDP.ps1 Harden-Administrator.ps1 Enable-BitLocker.ps1 Install-NotepadPP.ps1 Finalize-Cleanup.ps1; do
+          for n in Apply-DellConfig.ps1 Scrub-AuditArtifacts.ps1 New-LocalAccounts.ps1 Set-Level0ACL.ps1 Disable-RDP.ps1 Harden-Administrator.ps1 Apply-StigHardening.ps1 Enable-BitLocker.ps1 Install-NotepadPP.ps1 Finalize-Cleanup.ps1; do
             grep -qF "$n" "$sc" || { echo "  $sc missing $n"; ok=0; }
           done
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
@@ -73,7 +73,9 @@ jobs:
 
           echo ""
           echo "=== 4. Recovery key export path is C:\\ProgramData\\BitLockers ==="
-          if grep -qiE 'keyDir' "$bl" && grep -qF 'BitLocker-RecoveryKey-' "$bl" && grep -qF "keyDir    = 'C:\\ProgramData\\BitLockers'" "$bl"; then
+          # Whitespace-agnostic: assert the var, the filename stem, and the
+          # literal path independently rather than matching exact formatting.
+          if grep -qiE 'keyDir' "$bl" && grep -qF 'BitLocker-RecoveryKey-' "$bl" && grep -qF "'C:\\ProgramData\\BitLockers'" "$bl"; then
             echo "OK"
           else
             echo "FAIL: recovery key export path"; fail=1
@@ -100,6 +102,77 @@ jobs:
             echo "OK"
           else
             echo "FAIL: Apply-DellConfig missing-input guards"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7a. Set-Level0ACL applies an inherited Deny ACE ==="
+          la=scripts/Set-Level0ACL.ps1
+          if grep -qF 'icacls' "$la" && grep -qF '(OI)(CI)F' "$la" && grep -qF 'C:\Programs' "$la"; then
+            echo "OK"
+          else
+            echo "FAIL: Set-Level0ACL deny-ACE invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7b. Harden-Administrator finds RID 500 by SID and disables ==="
+          ha=scripts/Harden-Administrator.ps1
+          if grep -qF "S-1-5-*-500" "$ha" && grep -qF 'Disable-LocalUser' "$ha" && grep -qF 'Rename-LocalUser' "$ha"; then
+            echo "OK"
+          else
+            echo "FAIL: Harden-Administrator RID-500/disable/rename invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7c. Disable-RDP sets fDenyTSConnections ==="
+          rd=scripts/Disable-RDP.ps1
+          if grep -qF 'fDenyTSConnections' "$rd" && grep -qF 'Set-ItemProperty' "$rd"; then
+            echo "OK"
+          else
+            echo "FAIL: Disable-RDP fDenyTSConnections invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7d. New-LocalAccounts resolves groups by well-known SID ==="
+          na=scripts/New-LocalAccounts.ps1
+          if grep -qF 'S-1-5-32-544' "$na" && grep -qF 'S-1-5-32-545' "$na"; then
+            echo "OK"
+          else
+            echo "FAIL: New-LocalAccounts group-by-SID invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7e. Install-NotepadPP is non-fatal (exit 0) ==="
+          np=scripts/Install-NotepadPP.ps1
+          if grep -qE '^exit 0' "$np"; then
+            echo "OK"
+          else
+            echo "FAIL: Install-NotepadPP must end with 'exit 0'"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7f. BitLocker recovery-key dir is ACL-locked + skip-path guards recovery protector ==="
+          if grep -qF 'Set-KeyDirAcl' "$bl" && grep -qF 'Get-OrAddRecoveryProtector' "$bl"; then
+            echo "OK"
+          else
+            echo "FAIL: Enable-BitLocker ACL lock / skip-path recovery guard"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7g. Scrub-AuditArtifacts clears autologon + Panther unattend ==="
+          sa=scripts/Scrub-AuditArtifacts.ps1
+          if grep -qF 'AutoAdminLogon' "$sa" && grep -qF 'DefaultPassword' "$sa" && grep -qF 'Panther' "$sa"; then
+            echo "OK"
+          else
+            echo "FAIL: Scrub-AuditArtifacts autologon/Panther invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7h. Apply-StigHardening: Guest RID 501, lockout policy, admin-group assertion ==="
+          st=scripts/Apply-StigHardening.ps1
+          if grep -qF "S-1-5-*-501" "$st" && grep -qF 'LockoutBadCount' "$st" && grep -qF 'FilterAdministratorToken' "$st"; then
+            echo "OK"
+          else
+            echo "FAIL: Apply-StigHardening invariants"; fail=1
           fi
 
           exit $fail
@@ -139,6 +212,30 @@ jobs:
             echo "OK"
           else
             echo "FAIL: OPERATIONS doesn't reference recovery key file"; fail=1
+          fi
+
+          echo ""
+          echo "=== 12. unattend example keeps CopyProfile=true ==="
+          if grep -qF '<CopyProfile>true</CopyProfile>' configs/unattend.example.xml; then
+            echo "OK"
+          else
+            echo "FAIL: unattend.example.xml missing CopyProfile=true"; fail=1
+          fi
+
+          echo ""
+          echo "=== 13. RUNBOOK documents accounts.csv staging ==="
+          if grep -qF 'accounts.csv' docs/RUNBOOK.md; then
+            echo "OK"
+          else
+            echo "FAIL: RUNBOOK doesn't document accounts.csv staging"; fail=1
+          fi
+
+          echo ""
+          echo "=== 14. Recovery-key path is consistent across operator docs ==="
+          if grep -rqF 'ManualClonezilla\State\BitLocker-RecoveryKey' docs/ README.md CLAUDE.md; then
+            echo "FAIL: stale State\\ recovery-key path still present"; fail=1
+          else
+            echo "OK"
           fi
 
           exit $fail

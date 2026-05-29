@@ -146,19 +146,27 @@ Recommended Dell-specific validation per model family:
    - Fix: TPM readiness guard remains (`Get-Tpm` `TpmPresent`/`TpmReady`). If it
      fails on a clean machine, clear the TPM in BIOS and redeploy.
 
-5. **Lost recovery key risk (medium):**
+3. **Lost recovery key risk (medium):**
    - Risk: This is an offline, unmanaged workflow. Recovery keys are written to
-     `C:\ProgramData\BitLockers\` and stay there until manually
-     collected. A user-initiated reset or reimage wipes them.
+     `C:\ProgramData\BitLockers\` (ACL-locked to administrators) and stay there
+     until manually collected. A user-initiated reset or reimage wipes them.
    - Fix: Operator SOP must include "collect the recovery key file off the
-     machine before handing over." If you need centralized escrow, replace
-     `Export-RecoveryKey` in `Enable-BitLocker.ps1` with a write to your
-     shared/SMB/MDM target instead of `C:\ProgramData\BitLockers\`.
+     machine before handing over" (log in as `IT_Admin`; the built-in admin is
+     disabled). If you need centralized escrow, replace `Export-RecoveryKey` in
+     `Enable-BitLocker.ps1` with a write to your shared/SMB/MDM target instead
+     of `C:\ProgramData\BitLockers\`.
 
-3. **Cross-model BIOS package risk (medium):**
+4. **Cross-model BIOS package risk (medium):**
    - Risk: One Dell CCTK package may not apply cleanly across all model families.
    - Fix: Maintain model-scoped images/packages or add model detection logic before running CCTK.
 
-4. **Sysprep recapture risk (low but common):**
+5. **Sysprep recapture risk (low but common):**
    - Risk: Booting the reference OS after sysprep modifies state and can break capture consistency.
    - Fix: Enforce a strict capture-immediately policy and re-run sysprep if accidental boot occurs.
+
+6. **Administrators-group assertion (by design):**
+   - Risk: `Apply-StigHardening.ps1` hard-fails the deploy if any account other
+     than `IT_Admin` and the disabled built-in admin is in local Administrators.
+   - Fix: This is intentional -- it guarantees `Level 0`-`Level 3` stay standard
+     users. If it fires, fix the `Role` column in `accounts.csv` (only `IT_Admin`
+     should be `Admin`).

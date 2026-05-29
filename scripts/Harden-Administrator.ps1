@@ -28,7 +28,8 @@ $renamePrefix = 'x'
 $renameSuffixLength = 12
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-Start-Transcript -Path $logFile -Append
+try { Start-Transcript -Path $logFile -Append | Out-Null }
+catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
 function New-RandomName {
     param([int]$Length = 12)
@@ -67,30 +68,35 @@ try {
     if (-not $builtin) {
         throw 'Could not locate the built-in Administrator account (RID 500).'
     }
-    Write-Host "Built-in admin account is currently named '$($builtin.Name)' (SID $($builtin.SID.Value))."
+    # Log by SID only -- never write the account name to the transcript. The
+    # log lives in a Users-readable dir; printing the (random) renamed name
+    # would undo the point of randomizing it.
+    Write-Host "Built-in admin account located by RID 500 (SID $($builtin.SID.Value))."
 
-    # 1. Rotate the password off the audit-mode value.
+    # 1. Disable FIRST, so that if the password rotation below throws (e.g. a
+    #    complexity-policy edge case) the account is still left disabled
+    #    rather than enabled with the audit-mode password.
+    Disable-LocalUser -Name $builtin.Name
+    Write-Host 'Built-in admin account disabled.'
+
+    # 2. Rotate the password off the audit-mode value.
     $pw = New-RandomPassword -Length 32
     $secure = ConvertTo-SecureString -String $pw -AsPlainText -Force
     Set-LocalUser -Name $builtin.Name -Password $secure
     Remove-Variable pw -ErrorAction SilentlyContinue
     Write-Host 'Built-in admin password rotated to a random value.'
 
-    # 2. Disable.
-    Disable-LocalUser -Name $builtin.Name
-    Write-Host 'Built-in admin account disabled.'
-
     # 3. Rename off "Administrator" (skip if a prior run already did it).
     if ($builtin.Name -eq 'Administrator') {
         $newName = $renamePrefix + (New-RandomName -Length $renameSuffixLength)
         Rename-LocalUser -Name $builtin.Name -NewName $newName
-        Write-Host "Built-in admin renamed to '$newName'."
+        Write-Host 'Built-in admin renamed off "Administrator".'
     } else {
-        Write-Host "Built-in admin already renamed to '$($builtin.Name)' (not default); leaving as-is."
+        Write-Host 'Built-in admin already renamed (not default); leaving as-is.'
     }
 
     Write-Host 'Built-in Administrator hardening completed.'
 }
 finally {
-    Stop-Transcript
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
 }

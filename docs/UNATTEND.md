@@ -1,8 +1,10 @@
 # unattend.xml Answer File
 
 Windows Setup reads `unattend.xml` on first boot to skip OOBE prompts,
-create the local account, set computer name and time zone, and run
-first-boot commands. In this workflow you stage the file at
+set computer name and time zone, and copy the audit-mode profile
+(`CopyProfile`). Account creation in this workflow is done by
+`New-LocalAccounts.ps1` at first boot, not by the answer file. You stage
+the file at
 `C:\Windows\Panther\unattend.xml` on the gold image **before sysprep**;
 the captured Clonezilla image carries it along, and Windows
 automatically picks it up during specialize + oobeSystem passes after
@@ -29,10 +31,28 @@ cut.
 ## Template
 
 The shipped skeleton (`configs/unattend.example.xml`) suppresses OOBE
-pages, sets UTC time zone, and that's it. It is intentionally minimal:
-this workflow's accepted-risk position is "every machine is identical,"
-so account creation, autologon, and FirstLogonCommands are all
-optional add-ons you layer on if your environment needs them.
+pages, sets UTC time zone, and sets `<CopyProfile>true</CopyProfile>` in
+the `specialize` pass. It is otherwise intentionally minimal.
+
+**Accounts are NOT created by this answer file.** The gold master is built
+in **audit mode** under the built-in Administrator, and the named accounts
+(`Level 0`-`Level 3`, `IT_Admin`) are provisioned at first boot by
+`New-LocalAccounts.ps1`, not by a `UserAccounts` block. See "Adding
+accounts" below for why, and the alternative if you want answer-file
+accounts instead.
+
+### CopyProfile and audit mode
+
+`CopyProfile=true` tells specialize to copy the current default user's
+profile (the customized built-in Administrator profile you built in audit
+mode) onto the **Default** profile, so every newly created account inherits
+it. It is processed during `specialize`, which runs *before*
+`SetupComplete.cmd` -- so the first-boot `Harden-Administrator.ps1`
+(disable/rename of the built-in admin) cannot race the profile copy.
+
+Caveat: CopyProfile copies whatever the active local profile is at
+generalize time, so seal the gold master from the customized Administrator
+session you want propagated.
 
 ### What to change
 
@@ -57,8 +77,17 @@ Common values:
 
 ## Adding accounts
 
-If your environment needs an admin account created at first boot, add
-a `UserAccounts` block to the `oobeSystem` pass. Example skeleton:
+This workflow provisions accounts at first boot via
+`New-LocalAccounts.ps1` (reading `Config\accounts.csv`), **not** through the
+answer file -- that keeps account passwords out of the baked
+`unattend.xml`/Panther copies and lets the role/ACL logic live in one place.
+Prefer that path.
+
+The answer-file approach below is the **alternative** if you specifically
+want Windows to create an account during OOBE (e.g. a bootstrap admin). Note
+that an answer-file password persists in `C:\Windows\Panther\unattend.xml`
+until `Scrub-AuditArtifacts.ps1` removes it. To add such an account, add a
+`UserAccounts` block to the `oobeSystem` pass:
 
 ```xml
 <settings pass="oobeSystem">
@@ -98,8 +127,8 @@ That base64 string goes inside `<Value>`.
 The template uses two Windows Setup passes:
 
 **`specialize`** -- runs after restore (before the first OOBE prompt
-appears). This is where `ComputerName` and `TimeZone` are applied.
-These settings require a sysprepped image. If you captured without
+appears). This is where `ComputerName`, `TimeZone`, and `CopyProfile` are
+applied. These settings require a sysprepped image. If you captured without
 running `sysprep /generalize`, specialize never fires and these
 settings silently no-op.
 

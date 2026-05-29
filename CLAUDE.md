@@ -49,7 +49,7 @@ don't propose changing them unprompted.
 | Decision | Position |
 |---|---|
 | Per-machine vs. fleet-wide BitLocker PIN | **Same PIN across the fleet.** Accepted risk. The Yubikey or static-password mechanism that the operator uses to type the PIN at the BitLocker prompt is **out of scope for this repo** -- it's configured on the gold image's BitLocker policy and at PIN-entry time, not by these scripts. The scripts just take a plaintext PIN from `Config\bitlocker-pin.txt` and pass it to `Enable-BitLocker`. |
-| BitLocker recovery key escrow | **Local-only.** Written to `C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-<host>-<ts>.txt` on the deployed machine. No AD, no MDM, no SMB upload. Operator collects via SOP. The user does **not** want AD/MDM/Intune integration. If a future session is asked to add escrow, confirm the user has changed environments before implementing. |
+| BitLocker recovery key escrow | **Local-only.** Written to `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<host>-<ts>.txt` on the deployed machine (ACL-locked to SYSTEM + Administrators). No AD, no MDM, no SMB upload. Operator collects via SOP. The user does **not** want AD/MDM/Intune integration. If a future session is asked to add escrow, confirm the user has changed environments before implementing. |
 | Computer name | **Random** via Windows default (`ComputerName` not set in unattend). No fixed pattern. |
 | Sysprep rearm limit | **Not a concern.** Modern Windows lifts the limit. Don't add `SkipRearm` workarounds. |
 | AHCI vs. RAID at deploy time | **Handled by operator SOP, not by these scripts.** Clonezilla won't see RAID-mode disks, which is a clean fail. The operator PDF tells them to switch to AHCI in BIOS and retry. Do not try to fix RAID mode programmatically. |
@@ -57,6 +57,8 @@ don't propose changing them unprompted.
 | Network at deploy time | **None.** Offline, unmanaged. No PXE, no MDT server, no MDM enrollment. |
 | Per-USB customization | **Not needed.** Every deployed machine is identical. The `deploy.args` mechanism from the WinPE branch does not exist here and should not be ported. |
 | Operator workflow | Download ISO -> Rufus -> USB -> boot -> walk away. **No PowerShell, no diskpart, no scripts.** Anything more than that is a regression. |
+| IT_Admin password | **Static, fleet-wide**, from `accounts.csv`, same trust model as the BitLocker PIN. Accepted risk: one compromised laptop yields IT_Admin creds valid across identical machines. Per-machine rotation/escrow was considered and **declined** by the user. Documented in README. Don't add LAPS-style rotation unless the user changes this. |
+| Named-account password expiry | Role accounts (`Level 0`-`Level 3`, `IT_Admin`) are created `PasswordNeverExpires`. This is an **accepted deviation** from the `MaximumPasswordAge` control that `Apply-StigHardening.ps1` sets via secedit -- a static fleet image shouldn't lock its role accounts out on a timer. A STIG scanner will flag the never-expire accounts; that's expected. |
 
 ## Project Overview
 
@@ -97,21 +99,30 @@ Operator: Rufus -> USB -> boot -> walk away
 On first boot (after Windows specialize completes):
   C:\Windows\Setup\Scripts\SetupComplete.cmd runs once and calls in order:
     1. Apply-DellConfig.ps1      (cctk --import dell-config.cctk)
-    2. Enable-BitLocker.ps1      (TPM+PIN on C:, export recovery key to State\)
-    3. Finalize-Cleanup.ps1      (delete dell-config.cctk, bitlocker-pin.txt)
+    2. Scrub-AuditArtifacts.ps1  (clear Winlogon autologon + Panther unattend)
+    3. New-LocalAccounts.ps1     (Level 0-3 + IT_Admin from accounts.csv)
+    4. Set-Level0ACL.ps1         (Deny ACE for Level 0 on restricted folders)
+    5. Disable-RDP.ps1           (fail-safe RDP off)
+    6. Harden-Administrator.ps1  (STIG rotate/disable/rename built-in admin)
+    7. Apply-StigHardening.ps1   (Guest, password/lockout, UAC, firewall, banner)
+    8. Enable-BitLocker.ps1      (TPM+PIN on C:, export recovery key to C:\ProgramData\BitLockers\)
+    9. Install-NotepadPP.ps1     (silent /S install; NON-FATAL)
+   10. Finalize-Cleanup.ps1      (delete dell-config.cctk, bitlocker-pin.txt, accounts.csv)
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `scripts/SetupComplete.cmd` | First-boot orchestrator. Auto-runs from `C:\Windows\Setup\Scripts\` after Windows specialize. Calls the PS1s in order. Any non-zero exit logs and exits -- except the non-fatal Notepad++ install. Order: Apply-DellConfig -> New-LocalAccounts -> Set-Level0ACL -> Disable-RDP -> Harden-Administrator -> Enable-BitLocker -> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. |
+| `scripts/SetupComplete.cmd` | First-boot orchestrator. Auto-runs from `C:\Windows\Setup\Scripts\` after Windows specialize. Calls the PS1s in order. Any non-zero exit logs and exits -- except the non-fatal Notepad++ install. Order: Apply-DellConfig -> Scrub-AuditArtifacts -> New-LocalAccounts -> Set-Level0ACL -> Disable-RDP -> Harden-Administrator -> Apply-StigHardening -> Enable-BitLocker -> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. |
 | `scripts/Apply-DellConfig.ps1` | Imports `Config\dell-config.cctk` via `cctk.exe --import`. Idempotent via SHA256 marker file in `State\`. Hard-fails when cctk.exe or the config file is missing (intentional — silent BIOS misconfig is worse than a loud failure). |
-| `scripts/New-LocalAccounts.ps1` | Creates `Level 0`-`Level 3` (Standard, local Users) and `IT_Admin` (Admin, local Administrators) from `Config\accounts.csv` (`Username,Password,Role`). Plaintext passwords, same trust model as the PIN file; wiped by Finalize-Cleanup. Idempotent. Groups resolved by well-known SID. |
+| `scripts/Scrub-AuditArtifacts.ps1` | Clears audit-mode/sysprep secret leftovers: Winlogon `AutoAdminLogon`/`DefaultPassword`/`DefaultUserName`/`DefaultDomainName`, and processed `Panther\unattend.xml` copies. Runs early so secrets are gone before the rest of the chain. Idempotent. |
+| `scripts/New-LocalAccounts.ps1` | Creates `Level 0`-`Level 3` (Standard, local Users) and `IT_Admin` (Admin, local Administrators) from `Config\accounts.csv` (`Username,Password,Role`). Plaintext passwords, same trust model as the PIN file; wiped by Finalize-Cleanup. Idempotent (re-asserts password/enabled/membership). Groups resolved by well-known SID. |
 | `scripts/Set-Level0ACL.ps1` | Inherited Deny (Full) ACE for `Level 0` on `C:\Programs` and `C:\Users\Public\Desktop\Quick Links` (can neither see nor modify). Idempotent (clears prior Deny first). Missing folder = warn; missing account = hard fail. |
-| `scripts/Harden-Administrator.ps1` | STIG: rotates built-in Administrator password to random, disables it, renames it off "Administrator". Found by RID 500 (SID), not name. `IT_Admin` is the admin going forward. |
-| `scripts/Disable-RDP.ps1` | Fail-safe RDP off: `fDenyTSConnections=1`, NLA, "Remote Desktop" firewall group disabled, `TermService`/`UmRdpService` Disabled. (RDP was only on for Hyper-V enhanced session during build.) |
-| `scripts/Enable-BitLocker.ps1` | Enables TPM+PIN on C: using the PIN from `Config\bitlocker-pin.txt`. Adds RecoveryPassword protector. Exports the recovery key to `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<host>-<ts>.txt`. Hard-fails if either protector is missing after enable. |
+| `scripts/Harden-Administrator.ps1` | STIG: disables built-in Administrator (first), rotates its password to random, renames it off "Administrator" to a random `x`-prefixed name. Found by RID 500 (SID), not name. Never logs the new name. `IT_Admin` is the admin going forward. |
+| `scripts/Disable-RDP.ps1` | Fail-safe RDP off: `fDenyTSConnections=1` (read back + hard-fail if not applied), NLA, "Remote Desktop" firewall group disabled, `TermService`/`UmRdpService` Disabled. (RDP was only on for Hyper-V enhanced session during build.) |
+| `scripts/Apply-StigHardening.ps1` | STIG baseline the other scripts don't cover: disables/renames Guest (RID 501); password + lockout policy via `secedit`; UAC (`EnableLUA`, secure-desktop consent, `FilterAdministratorToken`); firewall profiles on + default inbound block (best-effort); logon banner + `DontDisplayLastUserName`; and a **hard-fail assertion** that only `IT_Admin` + the disabled built-in admin are in local Administrators. |
+| `scripts/Enable-BitLocker.ps1` | Enables TPM+PIN on C: using the PIN from `Config\bitlocker-pin.txt`. Adds RecoveryPassword protector. ACL-locks `C:\ProgramData\BitLockers` to SYSTEM + Administrators, then exports the recovery key to `BitLocker-RecoveryKey-<host>-<ts>.txt` there. Skip-path (already-encrypted) still guarantees a recovery protector + key file. Hard-fails if either protector is missing after enable. |
 | `scripts/Install-NotepadPP.ps1` | Silent (`/S`) install from `Installers\npp-installer.exe`. **Non-fatal** by design (exits 0 even on failure) so it cannot abort the security chain. |
 | `scripts/Finalize-Cleanup.ps1` | Removes `dell-config.cctk`, `bitlocker-pin.txt`, and `accounts.csv` from disk. **Does not** remove `State\`, `C:\ProgramData\BitLockers\` (recovery key files live there), or `Logs\`. |
 | `configs/unattend.example.xml` | Skeleton answer file for the golden image. `specialize` CopyProfile=true + OOBE skip + UTC timezone + random ComputerName. Edit for your environment before baking into the gold. |
@@ -221,12 +232,13 @@ loose ends."
    not been exercised on a real Windows host from this session
    (Claude Code Web has no Windows runner). The user should validate
    before cutting a release ISO.
-2. **`.claude/MASTERIZE.md` and `.claude/commands/*.md` still
-   reference MDT** (the prior pivot's review playbook). These are
-   internal AI guidance, not user-facing, so it's not urgent -- but if
-   a `/review` or `/deep-review` slash command is invoked, it'll
-   reference scripts that no longer exist. Either rewrite for the
-   Clonezilla shape or delete.
+2. **`.claude/MASTERIZE.md` and `.claude/masterize-log.md` still
+   reference MDT / the old WinPE scripts** (the prior pivots' review
+   playbooks). The stale slash-command files (`.claude/commands/review.md`,
+   `deep-review.md`, `strip-dead-code.md`) that pointed at `scripts/mdt/`
+   have been **deleted**. MASTERIZE.md / masterize-log.md remain and could
+   still be rewritten for the Clonezilla shape, but no longer break a
+   slash command.
 3. **Repo rename consideration.** GitHub URL is still
    `SpaceBass11/WinPE`. Workflow has moved away from WinPE. The user's
    call -- don't rename without explicit instruction (URLs are sticky

@@ -4,7 +4,8 @@ $logDir = Join-Path $root 'Logs'
 $logFile = Join-Path $logDir 'Finalize-Cleanup.log'
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-Start-Transcript -Path $logFile -Append
+try { Start-Transcript -Path $logFile -Append | Out-Null }
+catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
 try {
     $sensitive = @(
@@ -20,11 +21,12 @@ try {
         }
     }
 
-    # State\ is intentionally preserved (BitLocker recovery key file lives
-    # there for the operator to grab if needed). Logs\ also preserved for
-    # support triage.
+    # State\ is intentionally preserved (it holds the Dell config SHA256
+    # idempotency marker, not secrets). The BitLocker recovery keys live in
+    # C:\ProgramData\BitLockers\ (ACL-locked, outside this tree) and are also
+    # preserved for the operator. Logs\ is preserved for support triage.
     Write-Host 'Cleanup completed.'
 }
 finally {
-    Stop-Transcript
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
 }

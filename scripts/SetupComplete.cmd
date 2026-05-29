@@ -10,6 +10,9 @@ echo ==== SetupComplete started %date% %time% ====>> "%LOGDIR%\SetupComplete.log
 call :RunPS Apply-DellConfig.ps1
 if errorlevel 1 goto :Fail
 
+call :RunPS Scrub-AuditArtifacts.ps1
+if errorlevel 1 goto :Fail
+
 call :RunPS New-LocalAccounts.ps1
 if errorlevel 1 goto :Fail
 
@@ -20,6 +23,9 @@ call :RunPS Disable-RDP.ps1
 if errorlevel 1 goto :Fail
 
 call :RunPS Harden-Administrator.ps1
+if errorlevel 1 goto :Fail
+
+call :RunPS Apply-StigHardening.ps1
 if errorlevel 1 goto :Fail
 
 call :RunPS Enable-BitLocker.ps1

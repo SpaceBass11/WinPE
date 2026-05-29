@@ -25,7 +25,8 @@ $adminsGroupSid = 'S-1-5-32-544'
 $usersGroupSid  = 'S-1-5-32-545'
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-Start-Transcript -Path $logFile -Append
+try { Start-Transcript -Path $logFile -Append | Out-Null }
+catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
 function Resolve-GroupName {
     param([Parameter(Mandatory)] [string]$Sid)
@@ -38,14 +39,32 @@ function Set-GroupMembership {
         [Parameter(Mandatory)] [string]$GroupName,
         [Parameter(Mandatory)] [string]$Member
     )
-    $existing = Get-LocalGroupMember -Group $GroupName -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like "*\$Member" -or $_.Name -eq $Member }
-    if ($existing) {
-        Write-Host "  '$Member' already in '$GroupName'."
-        return
+    # Match on the fully-qualified local name with -eq (not a -like pattern,
+    # which would treat brackets/wildcards in $Member as pattern syntax).
+    # Get-LocalGroupMember can THROW on an unresolvable/orphaned member SID,
+    # so guard it and fall through to the Add (whose "already a member"
+    # error we treat as benign for idempotency).
+    $qualified = "$env:COMPUTERNAME\$Member"
+    try {
+        $existing = Get-LocalGroupMember -Group $GroupName -ErrorAction Stop |
+            Where-Object { $_.Name -eq $qualified -or $_.Name -eq $Member }
+        if ($existing) {
+            Write-Host "  '$Member' already in '$GroupName'."
+            return
+        }
+    } catch {
+        Write-Warning "  Could not enumerate '$GroupName' membership: $($_.Exception.Message)"
     }
-    Add-LocalGroupMember -Group $GroupName -Member $Member -ErrorAction Stop
-    Write-Host "  Added '$Member' to '$GroupName'."
+    try {
+        Add-LocalGroupMember -Group $GroupName -Member $Member -ErrorAction Stop
+        Write-Host "  Added '$Member' to '$GroupName'."
+    } catch {
+        if ($_.Exception.Message -match 'already a member') {
+            Write-Host "  '$Member' already in '$GroupName' (add reported existing)."
+        } else {
+            throw
+        }
+    }
 }
 
 try {
@@ -79,8 +98,9 @@ try {
         $secure = ConvertTo-SecureString -String $pw -AsPlainText -Force
 
         if (Get-LocalUser -Name $name -ErrorAction SilentlyContinue) {
-            Write-Host "Account '$name' exists; resetting password and re-asserting membership."
-            Set-LocalUser -Name $name -Password $secure
+            Write-Host "Account '$name' exists; resetting password, re-enabling, re-asserting membership."
+            Set-LocalUser -Name $name -Password $secure -PasswordNeverExpires $true
+            Enable-LocalUser -Name $name
         } else {
             Write-Host "Creating account '$name' (Role=$role)."
             New-LocalUser -Name $name `

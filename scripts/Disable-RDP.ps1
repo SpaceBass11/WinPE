@@ -19,11 +19,18 @@ $tsKey  = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
 $rdpKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-Start-Transcript -Path $logFile -Append
+try { Start-Transcript -Path $logFile -Append | Out-Null }
+catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
 try {
     Set-ItemProperty -Path $tsKey -Name 'fDenyTSConnections' -Value 1 -Type DWord
-    Write-Host 'Set fDenyTSConnections = 1.'
+    # Read back and hard-fail if the master switch did not take -- this is the
+    # primary RDP control, so a silent failure is not acceptable.
+    $deny = (Get-ItemProperty -Path $tsKey -Name 'fDenyTSConnections').fDenyTSConnections
+    if ($deny -ne 1) {
+        throw "fDenyTSConnections did not apply (read back '$deny')."
+    }
+    Write-Host 'Set fDenyTSConnections = 1 (verified).'
 
     if (Test-Path -LiteralPath $rdpKey) {
         Set-ItemProperty -Path $rdpKey -Name 'UserAuthentication' -Value 1 -Type DWord
@@ -54,5 +61,5 @@ try {
     Write-Host 'RDP disabled.'
 }
 finally {
-    Stop-Transcript
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
 }

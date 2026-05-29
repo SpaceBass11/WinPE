@@ -53,6 +53,44 @@ See [docs/CCTK.md](CCTK.md#troubleshooting). Common cases:
   in the gold image.
 - `cctk` exit 116 / 149 -> BIOS password authentication missing.
 
+### New-LocalAccounts fails
+
+| Error in log | Cause | Fix |
+|---|---|---|
+| `Accounts file not found` | `Config\accounts.csv` wasn't staged in the gold image | Stage it (see `configs/accounts.example.csv`); the chain hard-fails without it. Recapture. |
+| `... has an empty Password` / `empty Username` | Malformed CSV row | Fix the row; every account needs a username and password. |
+| `... has invalid Role` | Role column isn't `Admin` or `Standard` | Correct the Role value. |
+
+### Set-Level0ACL fails
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Account 'Level 0' does not exist` (hard fail) | `New-LocalAccounts.ps1` didn't create it (missing/renamed CSV row) | Ensure `accounts.csv` has a `Level 0` row; it runs before the ACL step. |
+| `Target not found, skipping` (warning, non-fatal) | `C:\Programs` or the Quick Links folder isn't present on this image | Expected if the folder doesn't exist. Create the folder in the gold image if the lockdown is required. |
+
+### Harden-Administrator fails
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Could not locate the built-in Administrator account (RID 500)` | Unusual; account enumeration failed | Check the account exists (`Get-LocalUser`); inspect `Harden-Administrator.log`. |
+| Re-run says "already renamed; leaving as-is" | Normal idempotent path on a second run | No action -- the account is found by RID 500 regardless of name. |
+
+### Apply-StigHardening fails
+
+| Error in log | Cause | Fix |
+|---|---|---|
+| `Unexpected member(s) in 'Administrators'` (hard fail) | An account other than `IT_Admin` + the disabled built-in admin is a local admin | Investigate how it got there (CSV Role, manual change). The whole posture depends on Level 0-3 being standard users. |
+| `secedit failed to apply password/lockout policy` | secedit returned non-zero | Check `Apply-StigHardening.log`; inspect `C:\Windows\security\logs\scesrv.log`. |
+| `Could not set firewall profiles` (warning, non-fatal) | NetSecurity module stripped from the image | Non-fatal; set firewall posture another way if required. |
+
+### Install-NotepadPP "fails" (non-fatal)
+
+`Install-NotepadPP.ps1` is **non-fatal by design** -- it logs and exits 0
+even on failure, so it never aborts the chain. A `installer not found`
+or non-zero installer warning in `Install-NotepadPP.log` does **not** stop
+deployment. To actually get Notepad++ installed, stage
+`Installers\npp-installer.exe` in the gold image.
+
 ### Enable-BitLocker fails
 
 | Error in log | Cause | Fix |
@@ -88,8 +126,8 @@ model](../README.md#bitlocker-pin-trust-model) in the README.
 
 ### Recovery keys are local-only
 This workflow is unmanaged (no AD, no MDM). Keys land at
-`C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-*.txt` on
-each deployed machine. Operator SOP is responsible for collecting them
+`C:\ProgramData\BitLockers\BitLocker-RecoveryKey-*.txt` (ACL-locked to
+administrators) on each deployed machine. Operator SOP is responsible for collecting them
 before handoff. If you need centralized escrow, modify
 `Export-RecoveryKey` in `scripts/Enable-BitLocker.ps1`.
 

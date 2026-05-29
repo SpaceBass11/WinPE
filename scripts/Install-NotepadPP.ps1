@@ -19,7 +19,8 @@ $exePaths  = @(
 )
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-Start-Transcript -Path $logFile -Append
+try { Start-Transcript -Path $logFile -Append | Out-Null }
+catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
 try {
     if ($exePaths | Where-Object { Test-Path -LiteralPath $_ }) {
@@ -50,7 +51,7 @@ catch {
     Write-Warning "Notepad++ install error (non-fatal): $($_.Exception.Message)"
 }
 finally {
-    Stop-Transcript
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
 }
 
 # Always succeed: app install is best-effort.
