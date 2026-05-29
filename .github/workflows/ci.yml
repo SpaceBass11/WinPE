@@ -272,12 +272,19 @@ jobs:
       - name: Install PSScriptAnalyzer + Pester
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Stop'
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
-          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck
+          # windows-latest ships Pester 3.4.0 in System32; pin a 5.x so the
+          # 5-only test syntax (Should -Be, top-level BeforeAll) is honored.
+          Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
       - name: PSScriptAnalyzer (PS 5.1 compatibility)
         shell: powershell
         run: |
+          # Don't let a non-terminating analyzer notice (e.g. a compatibility
+          # profile load) abort the step under the shell's default Stop pref --
+          # this step decides pass/fail itself, on Error-severity findings only.
+          $ErrorActionPreference = 'Continue'
           $settings = @{ Rules = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1') } } }
           $res = Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings $settings
           $res | Format-Table -AutoSize
@@ -286,5 +293,14 @@ jobs:
       - name: Pester unit tests
         shell: powershell
         run: |
-          $r = Invoke-Pester -Path tests -PassThru
+          $ErrorActionPreference = 'Stop'
+          # Force the installed Pester 5.x; otherwise the preinstalled 3.4.0
+          # can win module resolution and fail on Pester 5 syntax.
+          Import-Module Pester -MinimumVersion 5.5.0 -Force
+          Write-Host "Pester $((Get-Module Pester).Version)"
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = 'tests'
+          $cfg.Run.PassThru = $true
+          $cfg.Output.Verbosity = 'Detailed'
+          $r = Invoke-Pester -Configuration $cfg
           if ($r.FailedCount -gt 0) { exit 1 }
