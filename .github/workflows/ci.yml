@@ -269,15 +269,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install PSScriptAnalyzer + Pester
+      - name: Install PSScriptAnalyzer
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
-          # windows-latest ships Pester 3.4.0 in System32; pin a 5.x so the
-          # 5-only test syntax (Should -Be, top-level BeforeAll) is honored.
-          Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          # Pester is resolved (and installed only if absent) in the Pester
+          # step below -- windows-latest already ships a v5.
       - name: PSScriptAnalyzer (PS 5.1 compatibility)
         shell: powershell
         run: |
@@ -294,13 +293,23 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          # Force the installed Pester 5.x; otherwise the preinstalled 3.4.0
-          # can win module resolution and fail on Pester 5 syntax.
-          Import-Module Pester -MinimumVersion 5.5.0 -Force
-          Write-Host "Pester $((Get-Module Pester).Version)"
+          # windows-latest ships Pester v3 alongside v5; resolve v5 by path and
+          # import it explicitly so the v3 in System32 can't win and choke on
+          # Pester 5 syntax (Should -Be, top-level BeforeAll). Pattern proven on
+          # the main branch's Pester job.
+          $pester = Get-Module -ListAvailable Pester |
+            Where-Object { $_.Version.Major -ge 5 } |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+          if (-not $pester) {
+            Write-Host "Installing Pester v5..."
+            Install-Module Pester -MinimumVersion 5.0.0 -Force -Scope CurrentUser -SkipPublisherCheck
+            $pester = Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
+          }
+          Import-Module $pester.Path -Force
+          Write-Host "Pester $($pester.Version)"
           $cfg = New-PesterConfiguration
-          $cfg.Run.Path = 'tests'
-          $cfg.Run.PassThru = $true
-          $cfg.Output.Verbosity = 'Detailed'
-          $r = Invoke-Pester -Configuration $cfg
-          if ($r.FailedCount -gt 0) { exit 1 }
+          $cfg.Run.Path           = 'tests'
+          $cfg.Run.Exit           = $true
+          $cfg.Output.Verbosity   = 'Detailed'
+          Invoke-Pester -Configuration $cfg
