@@ -217,10 +217,16 @@ contribution policy, license, or security disclosure:
   engine AST parser; fails on syntax errors. No Windows runner needed.
 - **ps-analyze** (windows-latest, Windows PowerShell 5.1) - PSScriptAnalyzer
   with the `PSUseCompatibleSyntax` 5.1 rule (fails on Error severity) plus
-  the Pester unit tests in `tests/`.
+  the Pester unit tests in `tests/`. Uses `PSScriptAnalyzerSettings.psd1`,
+  which keeps the 5.1 compat rule but excludes the plaintext-credential
+  rules (`PSAvoidUsingConvertToSecureStringWithPlainText`,
+  `PSAvoidUsingUsernameAndPasswordParams`) that flag this workflow's
+  documented accepted-risk trust model (plaintext PIN / accounts.csv /
+  rotated admin password). Do not widen those exclusions for new code.
 
-Note CI triggers on `main` only -- a side branch won't run CI until a PR
-is opened against `main`. To parse locally before pushing:
+Note CI triggers on `main` plus `claude/**` branches, so this branch
+runs the full suite on every push (no PR to `main` required). To parse
+locally before pushing:
 
 ```bash
 pwsh -NoProfile -Command '$e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts/Enable-BitLocker.ps1), [ref]$null, [ref]$e); $e'

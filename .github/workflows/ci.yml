@@ -284,11 +284,14 @@ jobs:
           # profile load) abort the step under the shell's default Stop pref --
           # this step decides pass/fail itself, on Error-severity findings only.
           $ErrorActionPreference = 'Continue'
-          $settings = @{ Rules = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1') } } }
-          $res = Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings $settings
-          $res | Format-Table -AutoSize
+          # Settings file keeps PSUseCompatibleSyntax (5.1) and excludes the
+          # plaintext-credential rules that flag this workflow's documented,
+          # accepted-risk trust model. See PSScriptAnalyzerSettings.psd1.
+          $res = Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          $res | Format-Table -AutoSize RuleName, Severity, ScriptName, Line
           $errors = @($res | Where-Object { $_.Severity -eq 'Error' })
           if ($errors.Count) { Write-Host "Analyzer errors: $($errors.Count)"; exit 1 }
+          Write-Host "PSScriptAnalyzer: 0 errors ($($res.Count) warning(s) allowed)."
       - name: Pester unit tests
         shell: powershell
         run: |
