@@ -115,6 +115,7 @@ On first boot (after Windows specialize completes):
 | File | Purpose |
 |------|---------|
 | `scripts/SetupComplete.cmd` | First-boot orchestrator. Auto-runs from `C:\Windows\Setup\Scripts\` after Windows specialize. Calls the PS1s in order. Any non-zero exit logs and exits -- except the non-fatal Notepad++ install. Order: Apply-DellConfig -> Scrub-AuditArtifacts -> New-LocalAccounts -> Set-Level0ACL -> Disable-RDP -> Harden-Administrator -> Apply-StigHardening -> Enable-BitLocker -> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. |
+| `scripts/Common.ps1` | Shared pure helpers dot-sourced by other scripts (`New-RandomName`, `New-RandomPassword`, `New-RecoveryKeyFileName`, `Test-AccountRow`). No side effects -- safe to dot-source from a script or a Pester test. Unit-tested by `tests/Common.Tests.ps1`. Must be staged alongside the scripts that dot-source it (Harden-Administrator, New-LocalAccounts, Enable-BitLocker). |
 | `scripts/Apply-DellConfig.ps1` | Imports `Config\dell-config.cctk` via `cctk.exe --import`. Idempotent via SHA256 marker file in `State\`. Hard-fails when cctk.exe or the config file is missing (intentional — silent BIOS misconfig is worse than a loud failure). |
 | `scripts/Scrub-AuditArtifacts.ps1` | Clears audit-mode/sysprep secret leftovers: Winlogon `AutoAdminLogon`/`DefaultPassword`/`DefaultUserName`/`DefaultDomainName`, and processed `Panther\unattend.xml` copies. Runs early so secrets are gone before the rest of the chain. Idempotent. |
 | `scripts/New-LocalAccounts.ps1` | Creates `Level 0`-`Level 3` (Standard, local Users) and `IT_Admin` (Admin, local Administrators) from `Config\accounts.csv` (`Username,Password,Role`). Plaintext passwords, same trust model as the PIN file; wiped by Finalize-Cleanup. Idempotent (re-asserts password/enabled/membership). Groups resolved by well-known SID. |
@@ -201,22 +202,28 @@ contribution policy, license, or security disclosure:
 
 ## CI
 
-`.github/workflows/ci.yml` runs three jobs on push:
+`.github/workflows/ci.yml` runs these jobs (on push/PR to `main`):
 
 - **actionlint** - GitHub Actions workflow linting.
 - **link-check** - Markdown link check across all `**/*.md`.
-- **masterize** - Doc/script consistency checks. The current checks
-  pin the BitLocker invariants (TPM+PIN protector, recovery key export
-  path, PIN file path), the SetupComplete script orchestration, and
-  basic doc coverage. See `.github/workflows/ci.yml` for the exact
-  greps.
+- **masterize** - Doc/script consistency checks. Pins the BitLocker
+  invariants (TPM+PIN protector, recovery key export path + ACL lock,
+  PIN file path), the SetupComplete orchestration, the per-script
+  behavior invariants (deny ACE, RID-500 disable/rename, fDenyTSConnections,
+  group-by-SID, Notepad++ exit 0, autologon/Panther scrub, Guest/lockout/UAC,
+  CopyProfile, accounts.csv staging, no stale `State\` path), and doc
+  coverage. See `ci.yml` for the exact greps.
+- **ps-parse** (ubuntu, `pwsh`) - parses every `scripts/*.ps1` with the
+  engine AST parser; fails on syntax errors. No Windows runner needed.
+- **ps-analyze** (windows-latest, Windows PowerShell 5.1) - PSScriptAnalyzer
+  with the `PSUseCompatibleSyntax` 5.1 rule (fails on Error severity) plus
+  the Pester unit tests in `tests/`.
 
-There are no PowerShell-syntax CI checks on this branch (no `pwsh` on
-the GitHub runner for this repo). Run PSParser locally before pushing
-script changes:
+Note CI triggers on `main` only -- a side branch won't run CI until a PR
+is opened against `main`. To parse locally before pushing:
 
 ```bash
-pwsh -NoProfile -Command "[System.Management.Automation.PSParser]::Tokenize((Get-Content scripts/Enable-BitLocker.ps1 -Raw), [ref]\$null)"
+pwsh -NoProfile -Command '$e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts/Enable-BitLocker.ps1), [ref]$null, [ref]$e); $e'
 ```
 
 ## Known Pending Work

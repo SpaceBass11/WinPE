@@ -31,37 +31,8 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 try { Start-Transcript -Path $logFile -Append | Out-Null }
 catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
-function New-RandomName {
-    param([int]$Length = 12)
-    $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-    $sb = New-Object System.Text.StringBuilder
-    $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
-    $bytes = New-Object 'System.Byte[]' 1
-    for ($i = 0; $i -lt $Length; $i++) {
-        $rng.GetBytes($bytes)
-        [void]$sb.Append($chars[[int]($bytes[0] % $chars.Length)])
-    }
-    return $sb.ToString()
-}
-
-function New-RandomPassword {
-    param([int]$Length = 32)
-    Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
-    try {
-        return [System.Web.Security.Membership]::GeneratePassword($Length, 8)
-    } catch {
-        # Fallback if System.Web is unavailable.
-        $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+'
-        $sb = New-Object System.Text.StringBuilder
-        $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
-        $bytes = New-Object 'System.Byte[]' 1
-        for ($i = 0; $i -lt $Length; $i++) {
-            $rng.GetBytes($bytes)
-            [void]$sb.Append($chars[[int]($bytes[0] % $chars.Length)])
-        }
-        return $sb.ToString()
-    }
-}
+# Shared helpers (New-RandomName / New-RandomPassword).
+. (Join-Path $PSScriptRoot 'Common.ps1')
 
 try {
     $builtin = Get-LocalUser | Where-Object { $_.SID.Value -like 'S-1-5-*-500' } | Select-Object -First 1

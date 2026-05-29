@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added (testing + CI)
+- `scripts/Common.ps1` -- shared pure helpers (`New-RandomName`,
+  `New-RandomPassword`, `New-RecoveryKeyFileName`, `Test-AccountRow`)
+  extracted from the runtime scripts and dot-sourced by Harden-Administrator,
+  New-LocalAccounts, and Enable-BitLocker. Must be staged with them.
+- `tests/Common.Tests.ps1` -- Pester unit tests for the shared helpers
+  (cross-platform, no Windows-only cmdlets).
+- CI gains two jobs: **ps-parse** (ubuntu/`pwsh`, AST syntax parse of every
+  script) and **ps-analyze** (windows-latest, PSScriptAnalyzer
+  `PSUseCompatibleSyntax` 5.1 + Pester). Closes the prior "no PS-syntax CI"
+  gap.
+
 ### Added (security hardening pass)
 - `scripts/Scrub-AuditArtifacts.ps1` -- clears audit-mode/sysprep secret
   leftovers (Winlogon `AutoAdminLogon`/`DefaultPassword`/`DefaultUserName`/

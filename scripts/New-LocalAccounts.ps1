@@ -28,6 +28,9 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 try { Start-Transcript -Path $logFile -Append | Out-Null }
 catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
+# Shared helpers (Test-AccountRow).
+. (Join-Path $PSScriptRoot 'Common.ps1')
+
 function Resolve-GroupName {
     param([Parameter(Mandatory)] [string]$Sid)
     $g = Get-LocalGroup -SID $Sid -ErrorAction Stop
@@ -85,15 +88,7 @@ try {
         $pw   = $row.Password
         $role = ($row.Role).Trim()
 
-        if ([string]::IsNullOrWhiteSpace($name)) {
-            throw 'Encountered a row with an empty Username; refusing to continue.'
-        }
-        if ([string]::IsNullOrWhiteSpace($pw)) {
-            throw "Account '$name' has an empty Password; refusing to create a passwordless account."
-        }
-        if ($role -ne 'Admin' -and $role -ne 'Standard') {
-            throw "Account '$name' has invalid Role '$role'; expected 'Admin' or 'Standard'."
-        }
+        [void](Test-AccountRow -Username $name -Password $pw -Role $role)
 
         $secure = ConvertTo-SecureString -String $pw -AsPlainText -Force
 

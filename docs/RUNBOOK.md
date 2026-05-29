@@ -12,11 +12,14 @@
 Place assets before sysprep in `C:\ProgramData\ManualClonezilla`:
 
 - `Scripts\SetupComplete.cmd`
+- `Scripts\Common.ps1` (shared helper functions; dot-sourced by the scripts below -- must be staged or they fail)
 - `Scripts\Apply-DellConfig.ps1`
+- `Scripts\Scrub-AuditArtifacts.ps1`
 - `Scripts\New-LocalAccounts.ps1`
 - `Scripts\Set-Level0ACL.ps1`
 - `Scripts\Disable-RDP.ps1`
 - `Scripts\Harden-Administrator.ps1`
+- `Scripts\Apply-StigHardening.ps1`
 - `Scripts\Enable-BitLocker.ps1`
 - `Scripts\Install-NotepadPP.ps1`
 - `Scripts\Finalize-Cleanup.ps1`

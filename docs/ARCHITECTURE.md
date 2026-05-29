@@ -14,6 +14,7 @@ Admin workstation (golden VM/hardware, built in AUDIT MODE)
   +-- Install Windows 11, apply updates, install required software
   +-- Stage first-boot automation under C:\ProgramData\ManualClonezilla\:
   |     Scripts\SetupComplete.cmd          (also copied to C:\Windows\Setup\Scripts\)
+  |     Scripts\Common.ps1                 (shared helpers; dot-sourced)
   |     Scripts\Apply-DellConfig.ps1
   |     Scripts\Scrub-AuditArtifacts.ps1
   |     Scripts\New-LocalAccounts.ps1
@@ -103,6 +104,7 @@ re-cut with that family's drivers added.
 | File / Directory | Role |
 |---|---|
 | `scripts/SetupComplete.cmd` | First-boot orchestrator. Copied to `C:\Windows\Setup\Scripts\` on the gold image |
+| `scripts/Common.ps1` | Shared pure helper functions, dot-sourced by the scripts that use them. Unit-tested by `tests/` |
 | `scripts/Apply-DellConfig.ps1` | CCTK BIOS import. Idempotent via SHA256 marker |
 | `scripts/Scrub-AuditArtifacts.ps1` | Clears autologon + Panther unattend secrets |
 | `scripts/New-LocalAccounts.ps1` | Creates Level 0-3 + IT_Admin from accounts.csv |

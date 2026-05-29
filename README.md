@@ -67,6 +67,7 @@ Don't use this if:
    reference machine before sysprep (build it in **audit mode** under the
    built-in Administrator):
    - `Scripts\SetupComplete.cmd` (also copied to `C:\Windows\Setup\Scripts\`)
+   - `Scripts\Common.ps1` (shared helpers; dot-sourced by the others)
    - `Scripts\` -- all nine PS1s (Apply-DellConfig, Scrub-AuditArtifacts,
      New-LocalAccounts, Set-Level0ACL, Disable-RDP, Harden-Administrator,
      Apply-StigHardening, Enable-BitLocker, Install-NotepadPP, Finalize-Cleanup)
@@ -97,6 +98,7 @@ See [docs/USB_SETUP.md](docs/USB_SETUP.md) for the operator's full SOP.
 .
 ├── scripts/
 │   ├── SetupComplete.cmd        Orchestrator. Auto-runs after first OOBE pass.
+│   ├── Common.ps1               Shared helper functions (dot-sourced).
 │   ├── Apply-DellConfig.ps1     Imports the Dell CCTK BIOS config package.
 │   ├── Scrub-AuditArtifacts.ps1 Clears autologon + Panther unattend secrets.
 │   ├── New-LocalAccounts.ps1    Creates Level 0-3 + IT_Admin from accounts.csv.
@@ -118,6 +120,8 @@ See [docs/USB_SETUP.md](docs/USB_SETUP.md) for the operator's full SOP.
 │   ├── CCTK.md                  Dell CCTK details.
 │   ├── ARCHITECTURE.md          Design rationale and data flow.
 │   └── TROUBLESHOOTING.md       Common deploy-time failures.
+├── tests/
+│   └── Common.Tests.ps1         Pester unit tests for the shared helpers.
 ├── CHANGELOG.md
 ├── CLAUDE.md                    Internal AI-coding guidance.
 └── README.md                    (this file)

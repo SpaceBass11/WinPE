@@ -239,3 +239,52 @@ jobs:
           fi
 
           exit $fail
+
+  ps-parse:
+    name: PowerShell parse (syntax)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ubuntu-latest ships pwsh preinstalled; the parser is engine-real and
+      # catches syntax errors without needing a Windows runner.
+      - name: Parse all scripts
+        shell: pwsh
+        run: |
+          $bad = 0
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $errs = $null; $toks = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$toks, [ref]$errs)
+            if ($errs.Count) {
+              $bad++
+              Write-Host "FAIL $($_.Name):"
+              $errs | ForEach-Object { Write-Host ("  [{0}] {1}" -f $_.Extent.StartLineNumber, $_.Message) }
+            } else {
+              Write-Host "OK   $($_.Name)"
+            }
+          }
+          if ($bad) { exit 1 }
+
+  ps-analyze:
+    name: PSScriptAnalyzer + Pester (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer + Pester
+        shell: powershell
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck
+      - name: PSScriptAnalyzer (PS 5.1 compatibility)
+        shell: powershell
+        run: |
+          $settings = @{ Rules = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1') } } }
+          $res = Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings $settings
+          $res | Format-Table -AutoSize
+          $errors = @($res | Where-Object { $_.Severity -eq 'Error' })
+          if ($errors.Count) { Write-Host "Analyzer errors: $($errors.Count)"; exit 1 }
+      - name: Pester unit tests
+        shell: powershell
+        run: |
+          $r = Invoke-Pester -Path tests -PassThru
+          if ($r.FailedCount -gt 0) { exit 1 }

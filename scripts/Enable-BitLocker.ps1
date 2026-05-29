@@ -19,6 +19,9 @@ New-Item -ItemType Directory -Path $keyDir -Force | Out-Null
 try { Start-Transcript -Path $logFile -Append | Out-Null }
 catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
+# Shared helpers (New-RecoveryKeyFileName).
+. (Join-Path $PSScriptRoot 'Common.ps1')
+
 function Set-KeyDirAcl {
     param([Parameter(Mandatory)] [string]$Path)
     # Replace inherited permissions with an explicit allow-list: SYSTEM and
@@ -47,7 +50,7 @@ function Export-RecoveryKey {
     )
     $machineName = $env:COMPUTERNAME
     $stamp = Get-Date -Format 'yyyy-MM-dd_HHmmss'
-    $outFile = Join-Path $KeyDir ("BitLocker-RecoveryKey-{0}-{1}.txt" -f $machineName, $stamp)
+    $outFile = Join-Path $KeyDir (New-RecoveryKeyFileName -ComputerName $machineName -Stamp $stamp)
     $body = @"
 BitLocker Recovery Key
 ======================
