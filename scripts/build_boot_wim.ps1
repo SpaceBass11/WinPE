@@ -289,13 +289,23 @@ goto :launch
 echo Found image drive: %DEPLOY_IMAGE_DRIVE%
 :launch
 :: Optional per-USB args file. One line of PowerShell parameters; lets
-:: operators retarget a USB without rebuilding boot.wim. See docs/DEPLOY_ARGS.md.
+:: operators retarget a USB without rebuilding boot.wim. Lines starting
+:: with :: (cmd comments) and blank lines are skipped, so a deploy.args
+:: that still has the example file's comment header at the top stays
+:: harmless instead of feeding "::" to PowerShell as a positional arg.
+:: See docs/DEPLOY_ARGS.md.
 set "DEPLOYARGS="
 if defined DEPLOY_IMAGE_DRIVE (
     if exist "%DEPLOY_IMAGE_DRIVE%\deploy.args" (
-        set /p DEPLOYARGS=<"%DEPLOY_IMAGE_DRIVE%\deploy.args"
-        echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args
-        echo   Parameters loaded. Secrets, if present, are not displayed.
+        for /f "usebackq eol=: tokens=* delims=" %%a in ("%DEPLOY_IMAGE_DRIVE%\deploy.args") do (
+            if not defined DEPLOYARGS set "DEPLOYARGS=%%a"
+        )
+        if defined DEPLOYARGS (
+            echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args
+            echo   Parameters loaded. Secrets, if present, are not displayed.
+        ) else (
+            echo deploy.args found but contains only comments/blank lines - launching interactive TUI.
+        )
     )
 )
 :: Replace {DRIVE} placeholder with the actual image-drive letter.

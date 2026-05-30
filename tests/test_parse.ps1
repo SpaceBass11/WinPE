@@ -136,6 +136,14 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # startnet.cmd must parse deploy.args with `for /f "eol=:"` so a file
+    # that still carries the example's leading `::` comment header doesn't
+    # turn into a confusing PowerShell positional-arg binding error. The
+    # old `set /p DEPLOYARGS=<...` read line 1 verbatim and is a regression
+    # if it ever comes back.
+    Write-Result -Test 'Builder: startnet skips :: comments via for /f eol=:' -Pass ($bc -match 'for /f "usebackq eol=: tokens=\* delims="')
+    Write-Result -Test 'Builder: startnet does not fall back to set /p DEPLOYARGS' -Pass ($bc -notmatch 'set /p DEPLOYARGS=<')
 }
 
 # Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)

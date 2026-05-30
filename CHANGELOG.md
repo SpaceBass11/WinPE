@@ -8,6 +8,22 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`deploy.args` parsing now skips `::` comments and blank lines.**
+  `scripts/build_boot_wim.ps1` wrote a `startnet.cmd` that used
+  `set /p DEPLOYARGS=<deploy.args`, which reads line 1 verbatim. If
+  an operator copied `configs/deploy.args.example` to the IMAGES
+  partition unchanged, line 1 is a `::` comment header — that string
+  was passed to PowerShell as a positional arg, failing parameter
+  binding with a confusing error before the TUI ever launched. The
+  generated `startnet.cmd` now uses `for /f "usebackq eol=:
+  tokens=* delims="` to pick the first non-comment, non-blank line.
+  Files that contain only comments or blank lines fall through to
+  the interactive TUI with a one-line explanatory message instead of
+  aborting. `tests/test_parse.ps1` gained two drift guards that fail
+  if the comment-skipping pattern regresses or the old `set /p`
+  shape comes back. `docs/DEPLOY_ARGS.md` updated to match.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

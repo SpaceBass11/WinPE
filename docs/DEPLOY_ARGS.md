@@ -30,9 +30,15 @@ after locating the IMAGES partition:
 set "DEPLOYARGS="
 if defined DEPLOY_IMAGE_DRIVE (
     if exist "%DEPLOY_IMAGE_DRIVE%\deploy.args" (
-        set /p DEPLOYARGS=<"%DEPLOY_IMAGE_DRIVE%\deploy.args"
-        echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args
-        echo   Parameters loaded. Secrets, if present, are not displayed.
+        for /f "usebackq eol=: tokens=* delims=" %%a in ("%DEPLOY_IMAGE_DRIVE%\deploy.args") do (
+            if not defined DEPLOYARGS set "DEPLOYARGS=%%a"
+        )
+        if defined DEPLOYARGS (
+            echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args
+            echo   Parameters loaded. Secrets, if present, are not displayed.
+        ) else (
+            echo deploy.args found but contains only comments/blank lines - launching interactive TUI.
+        )
     )
 )
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
@@ -44,12 +50,19 @@ PIN or other secret in the file does not appear on the WinPE
 console, KVM, or any over-the-shoulder view. To inspect the args,
 read the file from the IMAGES partition directly.
 
+Lines beginning with `::` (cmd-style comments) and blank lines are
+skipped, so the example file's comment header is harmless if
+accidentally copied to the USB as-is — instead of feeding `::` to
+PowerShell as a positional arg (which would fail parameter binding
+and abort the deploy with a confusing error), `startnet.cmd` falls
+through to the interactive TUI.
+
 ## Constraints
 
-- **Single line.** `set /p` reads only the first line of the file.
-  If you need more parameters than fit on one line, stop using
-  `deploy.args` and rebuild `boot.wim` with a customized
-  `startnet.cmd`.
+- **Single line.** Only the first non-comment, non-blank line is
+  used; everything after it is ignored. If you need more parameters
+  than fit on one line, stop using `deploy.args` and rebuild
+  `boot.wim` with a customized `startnet.cmd`.
 - **Quoting follows cmd.exe rules.** Wrap paths with spaces in
   double quotes. PowerShell re-parses the args on its end so the
   normal `-Param "value"` pattern works.
@@ -104,6 +117,8 @@ files for `-TargetDisk 0` (production single-disk) vs `-TargetDisk
 - **PIN with unescaped special characters.** Wrap any PIN with `&`,
   `|`, `<`, `>`, or `%` in double quotes. The example file already
   does this defensively.
-- **File missing or empty.** `startnet.cmd` falls back to launching
-  the script without args (interactive TUI). Not a failure — that's
-  the documented default.
+- **File missing, empty, or comment-only.** `startnet.cmd` falls
+  back to launching the script without args (interactive TUI). Not a
+  failure — that's the documented default. A comment-only file
+  prints a one-line note before the TUI starts so the operator knows
+  the file was found but had nothing to apply.

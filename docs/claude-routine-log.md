@@ -5,6 +5,113 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-05-30 — `startnet.cmd` skips `::` comments and blank lines in `deploy.args`
+
+**Investigated:** open PRs (none) and issues (#37 — already addressed by
+PR #51's DCH migration). Then traced the boot-time flow that consumes
+`deploy.args` in `scripts/build_boot_wim.ps1` against the example file
+in `configs/deploy.args.example` to look for usability footguns.
+
+**Found:** the documented user flow in `docs/DEPLOY_ARGS.md` is
+"copy the example file to the IMAGES partition root as `deploy.args`,
+then edit." But the generated `startnet.cmd` read the file with
+`set /p DEPLOYARGS=<deploy.args`, which assigns line 1 verbatim to
+`DEPLOYARGS`. The example file's line 1 is a `::` comment header.
+A user who copied the example and forgot to delete the comment lines
+(or who left the section headers in place after picking one of the
+three variants) would have the literal string `:: Two-partition USB
+(legacy workflow: ...)` passed to `powershell.exe -File ...
+unified_winpe_deploy.ps1 :: ...`. PowerShell rejects `::` as a
+positional arg with a parameter-binding error and the deploy aborts
+before the TUI ever launches. The destructive paths are never
+reached, so this is a usability failure rather than a safety
+failure — but the error message is confusing ("A positional
+parameter cannot be found that accepts argument ':: ...'") and
+masks the real cause.
+
+**Changed:**
+- `scripts/build_boot_wim.ps1` — startnet here-string now uses
+  `for /f "usebackq eol=: tokens=* delims="` to walk the file. `eol=:`
+  makes `for /f` skip any line beginning with `:` (catches both `::`
+  comments and any stray `:label` lines), and `for /f` already skips
+  blank lines by default. The first non-comment, non-blank line is
+  assigned to `DEPLOYARGS` via a `if not defined` guard so subsequent
+  lines are ignored — same single-line semantics as `set /p`. Added
+  an `else` branch that prints "deploy.args found but contains only
+  comments/blank lines - launching interactive TUI." so a file
+  composed entirely of comments doesn't silently behave like a
+  missing file. The `{DRIVE}` substitution block downstream is
+  unchanged. Comment header above the block was rewritten to
+  explain the new contract.
+- `tests/test_parse.ps1` — Test 9 (`build_boot_wim.ps1` behavioral
+  invariants) gained two drift guards: one asserts the `for /f
+  "usebackq eol=: tokens=* delims="` pattern is present, the other
+  asserts the old `set /p DEPLOYARGS=<` form is gone. They fail
+  together if either side regresses.
+- `docs/DEPLOY_ARGS.md` — "How it works" cmd snippet replaced with
+  the new shape, added a paragraph explaining comment/blank-line
+  skipping behavior, updated the "Single line" Constraint to say
+  "first non-comment, non-blank line," and updated the "File
+  missing or empty" Failure mode bullet to cover the comment-only
+  case.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry naming the
+  failure mode and the regression-guard tests.
+
+**Verification:**
+- `pwsh` 7.4.6 installed in this Linux session per the CLAUDE.md
+  bootstrap recipe (GitHub Releases tarball; network policy allows
+  it). All three local test suites run:
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → **50 passed / 0
+  failed** (was 48/0 pre-edit; +2 from the new drift guards, both
+  green).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → **16/0**
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` →
+  **34/0** unchanged.
+- Visual check of `build_boot_wim.ps1` lines 273–319: the
+  `setlocal enabledelayedexpansion`, `:found`/`:launch` labels,
+  `{DRIVE}` substitution, and `powershell.exe ... !DEPLOYARGS!`
+  invocation are all untouched. The new block sits inside the
+  existing `if defined DEPLOY_IMAGE_DRIVE` body and uses the same
+  `set "VAR=value"` quoting style as the rest of the script, so
+  PIN strings with `&`, `|`, `<`, `>` inside double quotes are
+  protected the same way they were under `set /p`.
+- CMD syntax sanity: `for /f "usebackq eol=:"` is documented stable
+  CMD; `eol=c` skips lines beginning with character `c`, `for /f`
+  skips blank lines by default, `tokens=* delims=` collapses the
+  whole line into `%%a`. `if not defined DEPLOYARGS` evaluates at
+  execution time inside the parenthesized block, so the first
+  iteration sets the value and later iterations short-circuit.
+
+**Risks / follow-ups:**
+- The change touches boot-critical infrastructure (the very first
+  thing that runs in WinPE), so CLAUDE.md item 24 applies. Mitigations:
+  the failure mode it fixes is non-destructive (PowerShell aborts
+  before any disk work), the new behavior with a comment-free
+  `deploy.args` is byte-identical to the old behavior (line 1 still
+  becomes `DEPLOYARGS`), and the comment-only case falls through to
+  the same interactive TUI that runs when the file is missing.
+- Pre-existing latent issue not addressed in this pass: `!` chars in
+  args under `setlocal enabledelayedexpansion` get eaten on the
+  `set "DEPLOYARGS=..."` line. Same risk existed under `set /p`. Out
+  of scope here; would need a wider refactor (probably toggling
+  `disabledelayedexpansion` around the assignment) and a test on
+  real WinPE to confirm BitLocker PINs with `!` flow through to the
+  PowerShell side intact.
+- Outstanding routine-backlog candidates still deferred from prior
+  entries:
+  - `Show-ImageList` / `Show-ImageSelection` factoring — flagged
+    across many entries; deferred because the menu render is
+    load-bearing TUI UX.
+
+**Next recommended improvement:** consider hardening the `!`-in-PIN
+case described above — either by writing the PIN-handling block
+inside a `setlocal disabledelayedexpansion` / `endlocal` pair, or
+by passing args via a temp file rather than an env-var. Needs real
+WinPE verification, so it's larger than this pass.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
