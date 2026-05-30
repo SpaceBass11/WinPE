@@ -45,12 +45,13 @@ into any target laptop, boots from it, and walks away.
 
 ## Collect the BitLocker recovery key before handoff
 
-This workflow does not escrow recovery keys to AD or MDM. On each
-deployed machine, log in once as the local admin account from the
-golden image and copy this file off the machine:
+This workflow does not escrow recovery keys to AD or MDM. The folder is
+ACL-locked to administrators, so on each deployed machine log in once as
+`IT_Admin` (the built-in Administrator is disabled by the hardening step)
+and copy this file off the machine:
 
 ```
-C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-<hostname>-<timestamp>.txt
+C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<hostname>-<timestamp>.txt
 ```
 
 Store it per your team's SOP (encrypted USB key, password vault,

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'claude/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'claude/**']
   workflow_dispatch:
 
 permissions:
@@ -48,9 +48,9 @@ jobs:
           sc=scripts/SetupComplete.cmd
           dc=scripts/Apply-DellConfig.ps1
 
-          echo "=== 1. SetupComplete orchestrates the three PS scripts ==="
+          echo "=== 1. SetupComplete orchestrates the first-boot PS scripts ==="
           ok=1
-          for n in Apply-DellConfig.ps1 Enable-BitLocker.ps1 Finalize-Cleanup.ps1; do
+          for n in Apply-DellConfig.ps1 Scrub-AuditArtifacts.ps1 New-LocalAccounts.ps1 Set-Level0ACL.ps1 Disable-RDP.ps1 Harden-Administrator.ps1 Apply-StigHardening.ps1 Enable-BitLocker.ps1 Install-NotepadPP.ps1 Finalize-Cleanup.ps1; do
             grep -qF "$n" "$sc" || { echo "  $sc missing $n"; ok=0; }
           done
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
@@ -72,8 +72,10 @@ jobs:
           fi
 
           echo ""
-          echo "=== 4. Recovery key export path lives under State\\ ==="
-          if grep -qiE 'stateDir' "$bl" && grep -qF 'BitLocker-RecoveryKey-' "$bl" && grep -qE "stateDir\s*=\s*Join-Path\s+\\\$root\s+'State'" "$bl"; then
+          echo "=== 4. Recovery key export path is C:\\ProgramData\\BitLockers ==="
+          # Whitespace-agnostic: assert the var, the filename stem, and the
+          # literal path independently rather than matching exact formatting.
+          if grep -qiE 'keyDir' "$bl" && grep -qF 'BitLocker-RecoveryKey-' "$bl" && grep -qF "'C:\\ProgramData\\BitLockers'" "$bl"; then
             echo "OK"
           else
             echo "FAIL: recovery key export path"; fail=1
@@ -87,10 +89,11 @@ jobs:
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
 
           echo ""
-          echo "=== 6. Finalize-Cleanup removes both secret files ==="
+          echo "=== 6. Finalize-Cleanup removes the staged secret files ==="
           ok=1
           grep -qF 'dell-config.cctk'   "$fc" || { echo "  dell-config.cctk not removed";   ok=0; }
           grep -qF 'bitlocker-pin.txt'  "$fc" || { echo "  bitlocker-pin.txt not removed";  ok=0; }
+          grep -qF 'accounts.csv'       "$fc" || { echo "  accounts.csv not removed";       ok=0; }
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
 
           echo ""
@@ -99,6 +102,77 @@ jobs:
             echo "OK"
           else
             echo "FAIL: Apply-DellConfig missing-input guards"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7a. Set-Level0ACL applies an inherited Deny ACE ==="
+          la=scripts/Set-Level0ACL.ps1
+          if grep -qF 'icacls' "$la" && grep -qF '(OI)(CI)F' "$la" && grep -qF 'C:\Programs' "$la"; then
+            echo "OK"
+          else
+            echo "FAIL: Set-Level0ACL deny-ACE invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7b. Harden-Administrator finds RID 500 by SID and disables ==="
+          ha=scripts/Harden-Administrator.ps1
+          if grep -qF "S-1-5-*-500" "$ha" && grep -qF 'Disable-LocalUser' "$ha" && grep -qF 'Rename-LocalUser' "$ha"; then
+            echo "OK"
+          else
+            echo "FAIL: Harden-Administrator RID-500/disable/rename invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7c. Disable-RDP sets fDenyTSConnections ==="
+          rd=scripts/Disable-RDP.ps1
+          if grep -qF 'fDenyTSConnections' "$rd" && grep -qF 'Set-ItemProperty' "$rd"; then
+            echo "OK"
+          else
+            echo "FAIL: Disable-RDP fDenyTSConnections invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7d. New-LocalAccounts resolves groups by well-known SID ==="
+          na=scripts/New-LocalAccounts.ps1
+          if grep -qF 'S-1-5-32-544' "$na" && grep -qF 'S-1-5-32-545' "$na"; then
+            echo "OK"
+          else
+            echo "FAIL: New-LocalAccounts group-by-SID invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7e. Install-NotepadPP is non-fatal (exit 0) ==="
+          np=scripts/Install-NotepadPP.ps1
+          if grep -qE '^exit 0' "$np"; then
+            echo "OK"
+          else
+            echo "FAIL: Install-NotepadPP must end with 'exit 0'"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7f. BitLocker recovery-key dir is ACL-locked + skip-path guards recovery protector ==="
+          if grep -qF 'Set-KeyDirAcl' "$bl" && grep -qF 'Get-OrAddRecoveryProtector' "$bl"; then
+            echo "OK"
+          else
+            echo "FAIL: Enable-BitLocker ACL lock / skip-path recovery guard"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7g. Scrub-AuditArtifacts clears autologon + Panther unattend ==="
+          sa=scripts/Scrub-AuditArtifacts.ps1
+          if grep -qF 'AutoAdminLogon' "$sa" && grep -qF 'DefaultPassword' "$sa" && grep -qF 'Panther' "$sa"; then
+            echo "OK"
+          else
+            echo "FAIL: Scrub-AuditArtifacts autologon/Panther invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7h. Apply-StigHardening: Guest RID 501, lockout policy, admin-group assertion ==="
+          st=scripts/Apply-StigHardening.ps1
+          if grep -qF "S-1-5-*-501" "$st" && grep -qF 'LockoutBadCount' "$st" && grep -qF 'FilterAdministratorToken' "$st"; then
+            echo "OK"
+          else
+            echo "FAIL: Apply-StigHardening invariants"; fail=1
           fi
 
           exit $fail
@@ -140,4 +214,105 @@ jobs:
             echo "FAIL: OPERATIONS doesn't reference recovery key file"; fail=1
           fi
 
+          echo ""
+          echo "=== 12. unattend example keeps CopyProfile=true ==="
+          if grep -qF '<CopyProfile>true</CopyProfile>' configs/unattend.example.xml; then
+            echo "OK"
+          else
+            echo "FAIL: unattend.example.xml missing CopyProfile=true"; fail=1
+          fi
+
+          echo ""
+          echo "=== 13. RUNBOOK documents accounts.csv staging ==="
+          if grep -qF 'accounts.csv' docs/RUNBOOK.md; then
+            echo "OK"
+          else
+            echo "FAIL: RUNBOOK doesn't document accounts.csv staging"; fail=1
+          fi
+
+          echo ""
+          echo "=== 14. Recovery-key path is consistent across operator docs ==="
+          if grep -rqF 'ManualClonezilla\State\BitLocker-RecoveryKey' docs/ README.md CLAUDE.md; then
+            echo "FAIL: stale State\\ recovery-key path still present"; fail=1
+          else
+            echo "OK"
+          fi
+
           exit $fail
+
+  ps-parse:
+    name: PowerShell parse (syntax)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ubuntu-latest ships pwsh preinstalled; the parser is engine-real and
+      # catches syntax errors without needing a Windows runner.
+      - name: Parse all scripts
+        shell: pwsh
+        run: |
+          $bad = 0
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $errs = $null; $toks = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$toks, [ref]$errs)
+            if ($errs.Count) {
+              $bad++
+              Write-Host "FAIL $($_.Name):"
+              $errs | ForEach-Object { Write-Host ("  [{0}] {1}" -f $_.Extent.StartLineNumber, $_.Message) }
+            } else {
+              Write-Host "OK   $($_.Name)"
+            }
+          }
+          if ($bad) { exit 1 }
+
+  ps-analyze:
+    name: PSScriptAnalyzer + Pester (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          # Pester is resolved (and installed only if absent) in the Pester
+          # step below -- windows-latest already ships a v5.
+      - name: PSScriptAnalyzer (PS 5.1 compatibility)
+        shell: powershell
+        run: |
+          # Don't let a non-terminating analyzer notice (e.g. a compatibility
+          # profile load) abort the step under the shell's default Stop pref --
+          # this step decides pass/fail itself, on Error-severity findings only.
+          $ErrorActionPreference = 'Continue'
+          # Settings file keeps PSUseCompatibleSyntax (5.1) and excludes the
+          # plaintext-credential rules that flag this workflow's documented,
+          # accepted-risk trust model. See PSScriptAnalyzerSettings.psd1.
+          $res = Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          $res | Format-Table -AutoSize RuleName, Severity, ScriptName, Line
+          $errors = @($res | Where-Object { $_.Severity -eq 'Error' })
+          if ($errors.Count) { Write-Host "Analyzer errors: $($errors.Count)"; exit 1 }
+          Write-Host "PSScriptAnalyzer: 0 errors ($($res.Count) warning(s) allowed)."
+      - name: Pester unit tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # windows-latest ships Pester v3 alongside v5; resolve v5 by path and
+          # import it explicitly so the v3 in System32 can't win and choke on
+          # Pester 5 syntax (Should -Be, top-level BeforeAll). Pattern proven on
+          # the main branch's Pester job.
+          $pester = Get-Module -ListAvailable Pester |
+            Where-Object { $_.Version.Major -ge 5 } |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+          if (-not $pester) {
+            Write-Host "Installing Pester v5..."
+            Install-Module Pester -MinimumVersion 5.0.0 -Force -Scope CurrentUser -SkipPublisherCheck
+            $pester = Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
+          }
+          Import-Module $pester.Path -Force
+          Write-Host "Pester $($pester.Version)"
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path           = 'tests'
+          $cfg.Run.Exit           = $true
+          $cfg.Output.Verbosity   = 'Detailed'
+          Invoke-Pester -Configuration $cfg

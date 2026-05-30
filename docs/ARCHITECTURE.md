@@ -9,16 +9,26 @@ restores Windows and runs first-boot automation without further
 interaction.
 
 ```
-Admin workstation (golden VM/hardware)
+Admin workstation (golden VM/hardware, built in AUDIT MODE)
   |
   +-- Install Windows 11, apply updates, install required software
   +-- Stage first-boot automation under C:\ProgramData\ManualClonezilla\:
   |     Scripts\SetupComplete.cmd          (also copied to C:\Windows\Setup\Scripts\)
+  |     Scripts\Common.ps1                 (shared helpers; dot-sourced)
   |     Scripts\Apply-DellConfig.ps1
+  |     Scripts\Scrub-AuditArtifacts.ps1
+  |     Scripts\New-LocalAccounts.ps1
+  |     Scripts\Set-Level0ACL.ps1
+  |     Scripts\Disable-RDP.ps1
+  |     Scripts\Harden-Administrator.ps1
+  |     Scripts\Apply-StigHardening.ps1
   |     Scripts\Enable-BitLocker.ps1
+  |     Scripts\Install-NotepadPP.ps1
   |     Scripts\Finalize-Cleanup.ps1
   |     Config\dell-config.cctk
   |     Config\bitlocker-pin.txt
+  |     Config\accounts.csv
+  |     Installers\npp-installer.exe
   +-- Stage answer file at C:\Windows\Panther\unattend.xml
   +-- sysprep /generalize /oobe /shutdown
                                          |
@@ -62,14 +72,24 @@ When the operator boots from the USB:
 3. **First reboot** into Windows.
 4. **Windows specialize pass** runs, processing
    `C:\Windows\Panther\unattend.xml`: random ComputerName, OOBE skip,
-   local account creation, time zone, etc.
+   time zone, and `CopyProfile=true`. (Local accounts are **not** created
+   here -- they are provisioned at first boot by `New-LocalAccounts.ps1`,
+   below.)
 5. **`C:\Windows\Setup\Scripts\SetupComplete.cmd`** runs once,
    automatically, after specialize completes. It calls in order:
    - `Apply-DellConfig.ps1` -- imports CCTK BIOS settings.
+   - `New-LocalAccounts.ps1` -- creates Level 0-3 (standard) and
+     IT_Admin (admin) from `Config\accounts.csv`.
+   - `Set-Level0ACL.ps1` -- Deny ACLs locking Level 0 out of
+     `C:\Programs` and `C:\Users\Public\Desktop\Quick Links`.
+   - `Disable-RDP.ps1` -- fail-safe RDP disable.
+   - `Harden-Administrator.ps1` -- STIG: rotate/disable/rename the
+     built-in Administrator.
    - `Enable-BitLocker.ps1` -- TPM+PIN on C:, exports the recovery
-     key to `State\BitLocker-RecoveryKey-<host>-<ts>.txt`.
-   - `Finalize-Cleanup.ps1` -- removes `dell-config.cctk` and
-     `bitlocker-pin.txt` from disk.
+     key to `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<host>-<ts>.txt`.
+   - `Install-NotepadPP.ps1` -- silent Notepad++ install (non-fatal).
+   - `Finalize-Cleanup.ps1` -- removes `dell-config.cctk`,
+     `bitlocker-pin.txt`, and `accounts.csv` from disk.
 6. **Second reboot** activates any queued BIOS changes from CCTK and
    lands at the login screen.
 
@@ -84,10 +104,19 @@ re-cut with that family's drivers added.
 | File / Directory | Role |
 |---|---|
 | `scripts/SetupComplete.cmd` | First-boot orchestrator. Copied to `C:\Windows\Setup\Scripts\` on the gold image |
+| `scripts/Common.ps1` | Shared pure helper functions, dot-sourced by the scripts that use them. Unit-tested by `tests/` |
 | `scripts/Apply-DellConfig.ps1` | CCTK BIOS import. Idempotent via SHA256 marker |
-| `scripts/Enable-BitLocker.ps1` | TPM+PIN enable + recovery key export |
+| `scripts/Scrub-AuditArtifacts.ps1` | Clears autologon + Panther unattend secrets |
+| `scripts/New-LocalAccounts.ps1` | Creates Level 0-3 + IT_Admin from accounts.csv |
+| `scripts/Set-Level0ACL.ps1` | Deny ACLs locking Level 0 out of restricted folders |
+| `scripts/Disable-RDP.ps1` | Fail-safe RDP disable |
+| `scripts/Harden-Administrator.ps1` | STIG disable/rotate/rename of built-in admin |
+| `scripts/Apply-StigHardening.ps1` | Guest, password/lockout, UAC, firewall, banner, admin-group assertion |
+| `scripts/Enable-BitLocker.ps1` | TPM+PIN enable + recovery key export (ACL-locked dir) |
+| `scripts/Install-NotepadPP.ps1` | Silent Notepad++ install (non-fatal) |
 | `scripts/Finalize-Cleanup.ps1` | Removes one-time secrets from disk |
 | `configs/unattend.example.xml` | Skeleton answer file for the gold image |
+| `configs/accounts.example.csv` | Template for the staged accounts.csv |
 | `docs/RUNBOOK.md` | End-to-end admin build process (source of truth) |
 | `docs/OPERATIONS.md` | Day-2 ops, rotation, rollback, triage |
 | `docs/USB_SETUP.md` | Operator SOP (Rufus + boot + recovery key collection) |

@@ -9,7 +9,8 @@ $stateFile = Join-Path $stateDir 'dell-config.applied.sha256'
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
-Start-Transcript -Path $logFile -Append
+try { Start-Transcript -Path $logFile -Append | Out-Null }
+catch { Write-Warning "Could not start transcript: $($_.Exception.Message)" }
 
 try {
     if (-not (Test-Path $cfgPath)) {
@@ -35,5 +36,5 @@ try {
     Write-Host 'Dell BIOS configuration import completed.'
 }
 finally {
-    Stop-Transcript
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
 }

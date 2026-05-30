@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <!-- Copy the customized built-in Administrator profile (built in audit
+           mode) to the Default profile so new accounts inherit it. This is
+           processed during specialize, before SetupComplete.cmd runs, so the
+           Administrator hardening (rename/disable) that happens at first boot
+           does not race the profile copy. -->
+      <CopyProfile>true</CopyProfile>
+    </component>
+  </settings>
   <settings pass="oobeSystem">
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
       <OOBE>

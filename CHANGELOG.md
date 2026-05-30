@@ -8,6 +8,117 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added (testing + CI)
+- `scripts/Common.ps1` -- shared pure helpers (`New-RandomName`,
+  `New-RandomPassword`, `New-RecoveryKeyFileName`, `Test-AccountRow`)
+  extracted from the runtime scripts and dot-sourced by Harden-Administrator,
+  New-LocalAccounts, and Enable-BitLocker. Must be staged with them.
+- `tests/Common.Tests.ps1` -- Pester unit tests for the shared helpers
+  (cross-platform, no Windows-only cmdlets).
+- CI gains two jobs: **ps-parse** (ubuntu/`pwsh`, AST syntax parse of every
+  script) and **ps-analyze** (windows-latest, PSScriptAnalyzer
+  `PSUseCompatibleSyntax` 5.1 + Pester). Closes the prior "no PS-syntax CI"
+  gap.
+
+### Added (security hardening pass)
+- `scripts/Scrub-AuditArtifacts.ps1` -- clears audit-mode/sysprep secret
+  leftovers (Winlogon `AutoAdminLogon`/`DefaultPassword`/`DefaultUserName`/
+  `DefaultDomainName` and processed `Panther\unattend.xml` copies). Runs early
+  in the chain.
+- `scripts/Apply-StigHardening.ps1` -- STIG baseline not covered elsewhere:
+  disable/rename Guest (RID 501); password + lockout policy via `secedit`;
+  UAC (`EnableLUA`, secure-desktop consent, `FilterAdministratorToken`);
+  firewall profiles on + default inbound block (best-effort); logon banner +
+  `DontDisplayLastUserName`; and a hard-fail assertion that only `IT_Admin`
+  and the disabled built-in admin are in local Administrators.
+- **BitLocker recovery-key directory is ACL-locked** to SYSTEM +
+  Administrators (`Set-KeyDirAcl`), so standard users can't read recovery
+  passwords. The already-encrypted skip path now guarantees a RecoveryPassword
+  protector + exported key file exist before returning (closes the
+  "encrypted, no recovery path" re-run gap).
+
+### Changed (correctness + robustness)
+- `New-LocalAccounts.ps1`: group-membership check matches by qualified name
+  with `-eq` (not a `-like` pattern), treats "already a member" as benign, and
+  re-asserts password/enabled state on existing accounts.
+- `Harden-Administrator.ps1`: disables the built-in admin **before** rotating
+  its password (a rotation failure can't leave it enabled), and never logs the
+  randomized new name.
+- `Disable-RDP.ps1`: reads back `fDenyTSConnections` and hard-fails if it
+  didn't apply.
+- All scripts: `Start-Transcript` is wrapped so a logging failure can't abort
+  the step before it runs.
+- `SetupComplete.cmd`: chain is now Apply-DellConfig -> Scrub-AuditArtifacts ->
+  New-LocalAccounts -> Set-Level0ACL -> Disable-RDP -> Harden-Administrator ->
+  Apply-StigHardening -> Enable-BitLocker -> Install-NotepadPP (non-fatal) ->
+  Finalize-Cleanup.
+
+### Changed (CI + repo hygiene)
+- CI `masterize` now pins behavior, not just orchestration: Set-Level0ACL deny
+  ACE, Harden-Administrator RID-500/disable/rename, Disable-RDP
+  `fDenyTSConnections`, New-LocalAccounts group-by-SID, Install-NotepadPP
+  `exit 0`, BitLocker ACL+skip-path guard, Scrub-AuditArtifacts autologon/Panther,
+  Apply-StigHardening Guest/lockout/UAC, unattend `CopyProfile`, RUNBOOK
+  `accounts.csv`, and a stale-`State\`-path guard. Check 4 is now
+  whitespace-agnostic.
+- Removed the dead `.claude/commands/{review,deep-review,strip-dead-code}.md`
+  slash commands that referenced the abandoned `scripts/mdt/` tree.
+
+### Documentation
+- Propagated the recovery-key path (`State\` -> `C:\ProgramData\BitLockers\`)
+  across README, USB_SETUP, TROUBLESHOOTING, CLAUDE, and the Finalize-Cleanup
+  comment. Updated README/ARCHITECTURE to the full chain + new staged files.
+  Added CopyProfile/audit-mode coverage to UNATTEND, new failure modes to
+  TROUBLESHOOTING, and documented the IT_Admin shared-password and
+  never-expire accepted risks in README/CLAUDE.
+
+### Added (STIG hardening + multi-account deploy)
+- **Posture extension.** This line now does more than restore-and-walk-away:
+  the first-boot chain provisions named accounts, applies lockdown ACLs,
+  hardens the built-in Administrator, disables RDP, and installs a bundled
+  app. The deployed machine intentionally diverges from the gold master --
+  that divergence is the deploy-time half of the audit-mode build.
+- `scripts/New-LocalAccounts.ps1` -- creates `Level 0`-`Level 3` (Standard,
+  local Users) and `IT_Admin` (Admin, local Administrators) from
+  `Config\accounts.csv` (`Username,Password,Role`). Plaintext passwords,
+  same trust model as `bitlocker-pin.txt`; wiped by Finalize-Cleanup.
+  Idempotent (resets password + re-asserts group membership on re-run).
+  Built-in groups resolved by well-known SID for locale safety.
+- `scripts/Set-Level0ACL.ps1` -- applies an inherited Deny (Full) ACE for
+  `Level 0` on `C:\Programs` and `C:\Users\Public\Desktop\Quick Links` so
+  that account can neither see nor modify them. Idempotent (clears prior
+  Deny ACE first). Missing folder = warning; missing account = hard fail.
+- `scripts/Harden-Administrator.ps1` -- STIG: rotates the built-in
+  Administrator password to a random value, disables it, and renames it
+  away from "Administrator". Identifies the account by RID 500 (SID), not
+  name, so it stays correct across re-runs. `IT_Admin` is the admin going
+  forward.
+- `scripts/Disable-RDP.ps1` -- fail-safe RDP disable: `fDenyTSConnections=1`,
+  NLA required, "Remote Desktop" firewall group disabled, `TermService` /
+  `UmRdpService` startup set to Disabled. (RDP was only on for Hyper-V
+  enhanced session during the build.)
+- `scripts/Install-NotepadPP.ps1` -- silent (`/S`) install of Notepad++
+  from `Installers\npp-installer.exe` (sysprep strips provisioned apps).
+  **Best-effort / non-fatal**: logs and exits 0 on missing/failed installer
+  so it can never abort the security-critical chain.
+- `configs/accounts.example.csv` -- template for the staged accounts file.
+- **unattend `CopyProfile=true`** added in the `specialize` pass so new
+  accounts inherit the audit-mode Administrator profile. Sequenced before
+  first-boot Administrator hardening so the rename/disable cannot race the
+  profile copy.
+
+### Changed (BitLocker key path)
+- Recovery keys now export to `C:\ProgramData\BitLockers\` (outside the
+  ManualClonezilla tree, untouched by Finalize-Cleanup) for manual
+  off-machine collection, instead of `...\ManualClonezilla\State\`.
+
+### Changed (orchestration)
+- `scripts/SetupComplete.cmd` chain is now: Apply-DellConfig ->
+  New-LocalAccounts -> Set-Level0ACL -> Disable-RDP -> Harden-Administrator
+  -> Enable-BitLocker -> Install-NotepadPP (non-fatal) -> Finalize-Cleanup.
+  Security steps are fatal-on-error; the app install is not.
+- `scripts/Finalize-Cleanup.ps1` now also removes `Config\accounts.csv`.
+
 ### Changed (pivot)
 - **Repo identity is now manual-clonezilla.** The earlier WinPE per-USB
   tool (`unified_winpe_deploy.ps1`, `build_boot_wim.ps1`,
@@ -31,7 +142,8 @@ tagged GitHub releases are published.
   characters.
 - **Recovery key export.** After successful enable, the script adds a
   RecoveryPasswordProtector and writes the 48-digit recovery password
-  to `C:\ProgramData\ManualClonezilla\State\BitLocker-RecoveryKey-<host>-<ts>.txt`.
+  to `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<host>-<ts>.txt`
+  (see "Changed (BitLocker key path)" above for the move off `State\`).
   No upload, no escrow service - this is an offline, unmanaged workflow.
   Operator collects the file off-machine per SOP. To redirect to AD/MDM,
   replace the `Export-RecoveryKey` function body.
@@ -41,8 +153,9 @@ tagged GitHub releases are published.
 
 ### Added (cleanup)
 - `Finalize-Cleanup.ps1` now also removes `bitlocker-pin.txt` from
-  disk (alongside `dell-config.cctk`). `State\` (recovery key) and
-  `Logs\` (transcripts) are intentionally preserved post-cleanup.
+  disk (alongside `dell-config.cctk`). `State\` (Dell config SHA256
+  marker), `C:\ProgramData\BitLockers\` (recovery keys), and `Logs\`
+  (transcripts) are intentionally preserved post-cleanup.
 
 ### Removed (MDT pivot abandoned)
 - `docs/MDT.md`, `configs/mdt/Bootstrap.ini`, `configs/mdt/CustomSettings.ini`.
