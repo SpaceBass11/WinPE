@@ -5,6 +5,125 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-05-31 — Surface `tests/test_disk_enumeration.ps1` in the canonical local-test lists
+
+**Investigated:** open PRs (#54 `startnet` `for /f` parsing, #55
+`SCRIPT_REFERENCE.md` v4.7.1 resync, #56 `Show-ImageList` /
+`Show-ImageSelection` dedupe — all unmerged) to avoid duplicating
+in-flight work. Then the doc surface that operators / agents read
+when they want to validate a change locally:
+
+- `CLAUDE.md` Key Files table (line 64 area) and Running Checks
+  table (line 111 area, including the `pwsh -NoProfile -File ...`
+  bash snippet)
+- `AGENTS.md` "Required validation before pushing" (lines 53–59)
+- `README.md` "Companion Scripts" table (~line 413)
+- `docs/SCRIPT_REFERENCE.md` and `docs/ARCHITECTURE.md` File Layout
+  (out of scope this pass — flagged below)
+
+**Found:** `tests/test_disk_enumeration.ps1` landed in PR #50
+(commit `65d71e8`, merged), wired into the CI `syntax` job
+(`.github/workflows/ci.yml` step "Run disk enumeration tests"),
+and listed verbatim in CHANGELOG.md's Unreleased / Changed block
+above the `## 4.7.0` heading. But every place a contributor or
+agent reads to find out *how to validate a change locally* still
+names only `test_parse.ps1` and `test_wim_parser.ps1`. The
+`grep -n "test_disk_enumeration"` returned exactly one hit across
+all `CLAUDE.md` / `AGENTS.md` / `README.md` / `docs/*.md` — the
+CHANGELOG bullet itself. So agents finishing a session in this
+container, following the AGENTS.md recipe, were running 64 / 80
+assertions locally instead of all 98 — the missing 18 are the
+exact ones that guard against the Linux/LVM-disk-reported-as-empty
+class of bug that PR #50 was opened to prevent.
+
+CLAUDE.md's Running Checks intro additionally claimed "three test
+files" when the directory has four (`test_parse.ps1`,
+`test_wim_parser.ps1`, `test_disk_enumeration.ps1`,
+`validation-gates.Tests.ps1`).
+
+**Changed:**
+
+- `CLAUDE.md`:
+  - Key Files table: added two rows after `test_parse.ps1` for the
+    fixture tests, with one-liners describing what each guards.
+  - Running Checks: corrected "three test files" → "four test
+    files", added a `tests/test_disk_enumeration.ps1` row to the
+    detail table, and added the third `pwsh -NoProfile -File`
+    line to the bash snippet so the documented invocation set
+    matches what CI actually runs.
+- `AGENTS.md`: added the third `pwsh -NoProfile -File` line to
+  the "Required validation before pushing" snippet.
+- `README.md`: replaced the single `test_parse.ps1` Companion
+  Scripts row with three rows — one per local-runnable test —
+  keeping the same column structure and the "Any host with
+  PowerShell" Run-On value.
+- `CHANGELOG.md`: added `## Unreleased / ### Changed` bullet
+  naming the doc drift and the resync. Placed above the existing
+  `Get-SystemDisks` fixture-test entry from PR #50, since it's
+  the same test the docs were lagging behind.
+- `docs/claude-routine-log.md`: this entry.
+
+**Verification:**
+
+`pwsh` 7.4.6 installed in the session per the CLAUDE.md bootstrap
+recipe. The three local test suites, both before and after the
+edits:
+
+| Suite | Pre-edit | Post-edit |
+|---|---|---|
+| `tests/test_parse.ps1` | 48 / 0 | 48 / 0 |
+| `tests/test_wim_parser.ps1` | 16 / 0 | 16 / 0 |
+| `tests/test_disk_enumeration.ps1` | 34 / 0 | 34 / 0 |
+
+Identical pass counts are the expected result for a docs-only
+change. The new bash snippet in CLAUDE.md and AGENTS.md was
+exercised end-to-end during the post-edit verification run — the
+documented command sequence produces the documented output.
+
+**Risks:** Minimal. No production code, test, or CI touched. No
+new dependencies, no new links outside the repo, no new file
+created. Worst-case is a copy-edit typo in a markdown table cell
+that lychee can't catch; reviewed each cell against the existing
+sibling rows for consistent column alignment.
+
+**Coordination with open PRs:** No overlap.
+
+- PR #54 touches `scripts/build_boot_wim.ps1`, `tests/test_parse.ps1`,
+  `docs/DEPLOY_ARGS.md`, `CHANGELOG.md`, and this log file.
+- PR #55 touches `docs/SCRIPT_REFERENCE.md`, `CHANGELOG.md`, and
+  this log file.
+- PR #56 touches `unified_winpe_deploy.ps1`, `CHANGELOG.md`, and
+  this log file.
+
+`CHANGELOG.md` and the routine log are the only shared files;
+this change adds a new bullet at the top of `## Unreleased /
+### Changed` and a new entry at the top of the routine log, so
+the merges with any of #54 / #55 / #56 are trivial linear
+appends.
+
+**Follow-ups (recorded for the next pass):**
+
+- `docs/ARCHITECTURE.md` File Layout (line 158) is still missing
+  rows for `tests/test_wim_parser.ps1`, `tests/test_disk_enumeration.ps1`,
+  `tests/validation-gates.Tests.ps1`, `scripts/build_iso.ps1`,
+  `scripts/first-login.ps1`, `docs/BITLOCKER.md`, `docs/DEPLOY_ARGS.md`,
+  `docs/END_USER_DEPLOY.md`, and `docs/RELEASE_VALIDATION.md`. Same
+  drift class as this entry but a larger edit; deferred.
+- `docs/SCRIPT_REFERENCE.md` is still missing dedicated sections for
+  `scripts/build_iso.ps1` and `scripts/first-login.ps1` (flagged in
+  PRs #55 / #56). Larger writing effort; deferred.
+- Once PR #55 lands, masterize CI check #1 should be extended to
+  also scan `docs/SCRIPT_REFERENCE.md` for the version string so
+  the v4.6 → v4.7 drift that PR #55 fixes can't repeat silently.
+  Trivial CI YAML edit; blocked on #55.
+- Once PR #54 lands, masterize CI check #24 needs an update —
+  it currently asserts `set /p DEPLOYARGS` is present in
+  `scripts/build_boot_wim.ps1`, but #54 replaces that with
+  `for /f`. The check would go red on the merge. Three-line
+  YAML edit; blocked on #54.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

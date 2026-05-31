@@ -410,7 +410,9 @@ Every destructive operation requires a specific typed phrase:
 | `scripts/build_boot_wim.ps1` | Builds `boot.wim` with required WinPE components + `NtfsEnableDirCaseSensitivity` reg fix | Admin workstation (ADK required) |
 | `scripts/prepare_wim.ps1` | Debloats a stock Windows ISO into a clean `.wim` | Admin workstation |
 | `scripts/refresh_usb.ps1` | Thin wrapper: new ISO → prep + optional boot.wim rebuild | Admin workstation |
-| `tests/test_parse.ps1` | Syntax validation for all scripts — used by CI | Any host with PowerShell |
+| `tests/test_parse.ps1` | Syntax + function-presence validation for every shipped script — used by CI | Any host with PowerShell |
+| `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` regex parser (guards `Get-WimImageInfo` against silent edition mis-attribution) | Any host with PowerShell |
+| `tests/test_disk_enumeration.ps1` | Fixture test for `Get-SystemDisks` (USB/removable filter + Linux/LVM partition-count rendering) | Any host with PowerShell |
 
 ---
 

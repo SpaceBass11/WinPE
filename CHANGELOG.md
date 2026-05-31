@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`tests/test_disk_enumeration.ps1` now listed in the canonical
+  "run these locally" sections.** The test landed via PR #50 wired
+  into CI but the local-runnable test lists in `CLAUDE.md` (Key
+  Files table + Running Checks table + bash snippet), `AGENTS.md`
+  (Required validation), and `README.md` (Companion Scripts) still
+  named only `test_parse.ps1` and `test_wim_parser.ps1`. Operators
+  and agents reading the docs to validate a change weren't running
+  the disk-filter / Linux-LVM partition-count guard locally and
+  had to wait for CI to surface a regression. Pure docs change;
+  no test or script behavior touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
