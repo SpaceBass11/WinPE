@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Show-ImageSelection` no longer carries a duplicate copy of the
+  image-list render block.** The render code (banner, `[N]`-prefixed
+  entries, size/modified/location/path lines) was byte-identical
+  between `Show-ImageList` and `Show-ImageSelection`. `Show-ImageSelection`
+  now delegates the render to `Show-ImageList -Images $Images`, removing
+  ~20 duplicated lines and the long-flagged drift risk
+  (deferred across multiple routine entries since v4.5). Output is
+  byte-identical — the same `Write-Host` calls run, just from one
+  place. No behavior change in either the `-ListOnly` path or the
+  interactive selection / auto-select / Read-Host loop.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

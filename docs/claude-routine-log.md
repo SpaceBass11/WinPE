@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-05-31 — `Show-ImageSelection` delegates render to `Show-ImageList`
+
+**Investigated:** open PRs (#54, #55) and the routine log's recurring
+backlog. PR #54 (`startnet` `for /f eol=:` parsing) overlaps with
+masterize CI check #24 (`grep -qF 'set /p DEPLOYARGS'`) — left a
+single comment on PR #54 flagging the imminent CI break. PR #55
+(`SCRIPT_REFERENCE.md` v4.6→v4.7.1 resync) is doc-only, no overlap.
+
+Neither open PR touches `Show-ImageList` / `Show-ImageSelection`, and
+the duplicated render block between those two has been flagged-and-
+deferred across 7 previous routine entries (PRs #26 / #27 / #28 / #29
+plus the most recent four log heads), always citing "menu render is
+load-bearing TUI UX." That deferral reasoning applies if the refactor
+*changes* the render — but a mechanical "second copy of identical
+code calls the first copy" leaves the rendered bytes untouched, so
+the load-bearing concern doesn't actually bite. Picked it up.
+
+**Found:** `Show-ImageList` (lines 425-455) and the top of
+`Show-ImageSelection` (lines 457-487) shared an exact 20-line
+render block: the `========…` banner, the `AVAILABLE WINDOWS IMAGE
+FILES` header, the for-loop emitting `[N] Name / Size / Modified /
+Location / Path` per image, the trailing banner. The only difference
+between the two was the "no images" Error path (`Show-ImageSelection`
+adds a `Try using -ImagePath or -WimFile` hint) and the
+auto-select / Read-Host loop that runs *after* the render.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Show-ImageSelection`: removed the
+  duplicated render block; replaced it with a single
+  `Show-ImageList -Images $Images` call. The "no images" guard
+  stays in place above it, so when execution reaches the delegated
+  call, `Show-ImageList`'s own empty-list guard is a no-op (gated
+  on the same `$Images.Count -eq 0`). Added a comment naming the
+  drift-risk reason for the delegation so a future agent doesn't
+  re-inline it.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the cleanup, the byte-identical output guarantee, and the
+  unchanged behavior in both `-ListOnly` and interactive paths.
+
+**Verification:**
+- `pwsh` 7.4.6 installed in the session per the CLAUDE.md bootstrap
+  recipe.
+- `tests/test_parse.ps1`: 48 passed / 0 failed (baseline and post-edit
+  identical — function existence assertions for both `Show-ImageList`
+  and `Show-ImageSelection` still pass).
+- `tests/test_wim_parser.ps1`: 16 / 0 unchanged.
+- `tests/test_disk_enumeration.ps1`: 34 / 0 unchanged.
+- Smoke test: loaded `Show-ImageList` against a 2-element fake
+  `$Images` array with `Script:Colors` / `Script:Config` stubs and
+  confirmed the rendered banner, per-entry `Size` (`4.19 GB` /
+  `3.54 GB`), `Modified` timestamps, `Location`, and `Path` lines
+  match the format `Show-ImageSelection` used to produce inline. No
+  drift in color tags or `("="*80)` padding.
+
+**Risks / follow-ups:**
+- Minimal. The render is reached only from the public `Show-ImageList`
+  function; the public-surface contract is unchanged. `Show-ImageSelection`
+  now has a hard runtime dependency on `Show-ImageList`, but both are
+  in the required-functions list in `tests/test_parse.ps1`, so a
+  silent deletion of `Show-ImageList` would already trip CI's syntax
+  job before reaching production.
+- Outstanding routine-backlog candidates still deferred:
+  - Masterize CI check #1 should also scan `SCRIPT_REFERENCE.md`
+    for the version string (called out in PR #55's "Follow-ups"
+    section). Blocked on #55 landing first, since SCRIPT_REFERENCE
+    is still at `4.6.0` on `main` and the check would fail until
+    #55 brings it to `4.7.1`.
+  - `docs/SCRIPT_REFERENCE.md` is missing dedicated sections for
+    `scripts/build_iso.ps1` and `scripts/first-login.ps1`. Larger
+    writing effort; deferred.
+  - The `!`-in-PIN issue under `setlocal enabledelayedexpansion` in
+    `scripts/build_boot_wim.ps1` (flagged by PR #54's body). Needs
+    real WinPE verification, so larger than a routine pass.
+
+**Next recommended improvement:** once PR #55 lands and
+`docs/SCRIPT_REFERENCE.md` is at the current script version,
+extend masterize CI check #1 in `.github/workflows/ci.yml` to scan
+`docs/SCRIPT_REFERENCE.md` alongside `CHANGELOG.md` / `CLAUDE.md` /
+`README.md`. Three-character change to one `for f in ... ; do` line,
+zero risk, closes the drift class PR #55 was filed to address.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

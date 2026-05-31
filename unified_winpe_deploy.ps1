@@ -465,26 +465,11 @@ function Show-ImageSelection {
         return $null
     }
 
-    Write-Host ""
-    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
-    Write-Host "AVAILABLE WINDOWS IMAGE FILES".PadLeft(50) -ForegroundColor $Script:Colors.Header
-    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
-
-    for ($i = 0; $i -lt $Images.Count; $i++) {
-        $image = $Images[$i]
-        $sizeGB = [Math]::Round($image.Size / 1GB, 2)
-        $modified = $image.LastModified.ToString('yyyy-MM-dd HH:mm')
-
-        Write-Host ""
-        Write-Host "[$($i + 1)] $($image.Name)" -ForegroundColor $Script:Colors.Success
-        Write-Host "     Size: $sizeGB GB" -ForegroundColor White
-        Write-Host "     Modified: $modified" -ForegroundColor White
-        Write-Host "     Location: $($image.Type)" -ForegroundColor $Script:Colors.Info
-        Write-Host "     Path: $($image.Path)" -ForegroundColor Gray
-    }
-
-    Write-Host ""
-    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+    # Render the menu via Show-ImageList. The two functions used to keep
+    # byte-identical copies of the render block; the duplicate was flagged
+    # as a drift risk across multiple routine passes. The empty-list guard
+    # above means Show-ImageList's own guard is a no-op when called here.
+    Show-ImageList -Images $Images
 
     # Auto-select if only one image
     if ($Images.Count -eq 1) {
