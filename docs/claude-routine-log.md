@@ -5,6 +5,91 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-05-31 — `docs/ARCHITECTURE.md` File Layout resync
+
+**Investigated:** open PRs (#54–#57, all in flight on side branches),
+the routine log's "next recommended improvement" backlog, and the
+File Layout table in `docs/ARCHITECTURE.md` (lines 150-168). PR #57's
+own follow-ups section explicitly called this out as deferred:
+
+> `docs/ARCHITECTURE.md` File Layout (line 158) is still missing rows
+> for `tests/test_wim_parser.ps1`, `tests/test_disk_enumeration.ps1`,
+> `tests/validation-gates.Tests.ps1`, `scripts/build_iso.ps1`,
+> `scripts/first-login.ps1`, `docs/BITLOCKER.md`, `docs/DEPLOY_ARGS.md`,
+> `docs/END_USER_DEPLOY.md`, and `docs/RELEASE_VALIDATION.md`. Same drift
+> class but a larger edit; deferred to a future routine pass.
+
+A `ls`-vs-table diff against `tests/ scripts/ docs/ configs/` and the
+repo root found the same list plus `configs/deploy.args.example`,
+`configs/unattend.example.xml`, `docs/UNATTEND.md`,
+`docs/claude-routine-log.md`, `AGENTS.md`, and `README.md` — none of
+which existed when the table was first written but all of which are
+canonical files now.
+
+The drift was invisible to existing CI: masterize's doc-consistency
+greps don't cross-check the ARCHITECTURE File Layout table against
+the actual file inventory.
+
+**Changed:**
+
+- `docs/ARCHITECTURE.md` — File Layout table: added 14 new rows for
+  the missing files (3 scripts, 3 tests, 2 configs, 5 docs, AGENTS.md,
+  README.md), grouped by directory to match the existing pattern.
+  Existing rows untouched. Header section, "Three Programs, One
+  Product", Runtime Data Flow, Why These Choices, Safety Model,
+  Failure Mode Philosophy, and Non-Goals — all unchanged. Pure
+  additive docs.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the resync. No version bump (docs-only).
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed in the session per the CLAUDE.md bootstrap
+  recipe (a corrupted-tarball false start from parallel curls; second
+  attempt clean).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+- Identical pass counts (vs. pre-edit baselines) are the expected
+  result for docs-only edits. None of the tests assert anything about
+  the ARCHITECTURE table.
+- Visual: read the new table top-to-bottom, each new row matches an
+  actual file on disk, file paths quoted with backticks consistent
+  with sibling rows, no broken column alignment.
+- Internal Markdown links unchanged (no new `[text](docs/X.md)` links
+  introduced — the table cells contain bare backtick paths, not
+  Markdown links, matching the existing pattern).
+
+**Risks / coordination:**
+
+- Minimal. Docs-only addition to one markdown table. No production
+  code, scripts, tests, or CI touched. No new external dependencies.
+- No file-level overlap with the four open PRs (#54 = build_boot_wim
+  startnet, #55 = SCRIPT_REFERENCE.md, #56 = unified_winpe_deploy
+  Show-ImageSelection, #57 = CLAUDE.md/AGENTS.md/README.md). The only
+  shared files are `CHANGELOG.md` and `docs/claude-routine-log.md`,
+  which all four PRs also touch — the new entries are top-of-section
+  appends, so merge is a trivial linear stack with any of them.
+
+**Next recommended improvement:**
+
+- Once PR #55 lands (or this PR, whichever is later), masterize CI
+  check #1 should be extended to also scan `docs/SCRIPT_REFERENCE.md`
+  for the version string — drift of the same class as the
+  File-Layout drift, same invisibility-to-CI mechanism. Three-character
+  change to one CI shell line; deferred until #55 unblocks it.
+- `docs/SCRIPT_REFERENCE.md` is still missing dedicated sections for
+  `scripts/build_iso.ps1` and `scripts/first-login.ps1` (flagged
+  across PRs #55 / #56). Larger writing effort.
+- Masterize CI could also grep the ARCHITECTURE File Layout table
+  against the actual `tests/`, `scripts/`, `configs/`, and `docs/`
+  inventories so the drift class fixed here can't repeat silently.
+  Out of scope for this routine pass — it's a CI workflow change
+  rather than a content fix.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -154,17 +154,32 @@ Fail loud and early:
 | `unified_winpe_deploy.ps1` | The deploy script. Runs inside WinPE. |
 | `scripts/prepare_wim.ps1` | WIM prep tool. ISO → debloated/customized install.wim (admin Windows workstation). |
 | `scripts/build_boot_wim.ps1` | Build-time WinPE builder. Runs on Windows with ADK. |
+| `scripts/build_iso.ps1` | Packages WinPE media + a WIM into a single bootable ISO for end-user distribution (Rufus). |
 | `scripts/refresh_usb.ps1` | Workflow wrapper: new ISO → prep + (optional) boot rebuild. |
-| `tests/test_parse.ps1` | PowerShell syntax validation. Runs in CI. |
+| `scripts/first-login.ps1` | Staged into target images by `prepare_wim.ps1 -DisableExtraBloat`; runs at first login to finish debloat. |
+| `tests/test_parse.ps1` | PowerShell syntax + function-presence + version-consistency check across every shipped pipeline script. Runs locally and in CI. |
+| `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo /English` regex parser used by `Get-WimImageInfo`. Runs locally and in CI. |
+| `tests/test_disk_enumeration.ps1` | Fixture test for `Get-SystemDisks` disk filter + partition rendering (guards the LVM-disk-as-empty regression class). Runs locally and in CI. |
+| `tests/validation-gates.Tests.ps1` | Pester suite: BitLocker defaults, `Resolve-BitLockerKeyPath`, `New-DiskpartScript` source-drive protection, `Start-Deployment` validation gates. **CI only** — PSGallery is blocked in the web-session container. |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule config. Used locally and in CI. |
+| `configs/deploy.args.example` | Template for the per-USB `deploy.args` file consumed by startnet.cmd. |
+| `configs/unattend.example.xml` | Example unattend.xml answer file consumed via `-UnattendFile`. |
 | `docs/USB_SETUP.md` | User-facing: how to prepare the boot USB. |
+| `docs/END_USER_DEPLOY.md` | User-facing: plain-English Rufus guide for non-IT end users. |
 | `docs/SCRIPT_REFERENCE.md` | User-facing: parameters and functions. |
 | `docs/TROUBLESHOOTING.md` | User-facing: failure modes, fixes, and known caveats. |
 | `docs/ARCHITECTURE.md` | This file. Design rationale. |
 | `docs/CCTK.md` | User-facing: Dell CCTK pre-apply BIOS configuration. |
+| `docs/BITLOCKER.md` | User-facing: opt-in BitLocker + data-disk staging. |
+| `docs/UNATTEND.md` | User-facing: unattend.xml usage, validation, and known gotchas. |
+| `docs/DEPLOY_ARGS.md` | User-facing: per-USB `deploy.args` file consumed by startnet.cmd. |
+| `docs/RELEASE_VALIDATION.md` | Internal: manual hardware validation steps before tagging or distributing a build. |
 | `docs/SIGNING.md` | User-facing: enterprise code-signing of the deploy script. |
+| `docs/claude-routine-log.md` | Internal: autonomous-maintenance-agent run log; one entry per run. |
 | `.claude/MASTERIZE.md` | Internal: release-audit playbook (per-release, not per-session). |
 | `CLAUDE.md` | Contributor-facing: project conventions and safety rules. |
+| `AGENTS.md` | Portable pointer to `CLAUDE.md` for non-Claude coding agents. |
+| `README.md` | Repo entry point: end-user ISO workflow, install/use, links to the docs. |
 | `CHANGELOG.md` | Release history (keepachangelog). |
 
 ## Non-Goals

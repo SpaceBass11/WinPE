@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/ARCHITECTURE.md` File Layout table resynced.** The table
+  drifted across several releases — missing rows for
+  `scripts/build_iso.ps1`, `scripts/first-login.ps1`,
+  `tests/test_wim_parser.ps1`, `tests/test_disk_enumeration.ps1`,
+  `tests/validation-gates.Tests.ps1`, `configs/deploy.args.example`,
+  `configs/unattend.example.xml`, and the `docs/BITLOCKER.md`,
+  `docs/DEPLOY_ARGS.md`, `docs/END_USER_DEPLOY.md`,
+  `docs/RELEASE_VALIDATION.md`, `docs/UNATTEND.md`,
+  `docs/claude-routine-log.md`, `AGENTS.md`, and `README.md` entries.
+  All rows added; no other docs touched. Pure documentation, no
+  behavior change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
