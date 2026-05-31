@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/SCRIPT_REFERENCE.md` resynced with v4.7.1 deploy script.**
+  The reference had stalled at v4.6.0 — the displayed `ScriptVersion`,
+  the `$Script:Config` block (missing `BitLockerPin`, `BitLockerKeyDir`,
+  `DataDiskNumber`, `EnableBitLocker`), the Parameters section
+  (missing `-DataDiskNumber`, `-EnableBitLocker`, `-BitLockerPin`,
+  `-BitLockerKeyPath`), the Function tables (missing
+  `Test-FinalWipeConfirmation`, `Resolve-BitLockerKeyPath`,
+  `Initialize-BitLockerSetup`), and the Safety Chain (no `WIPE DATA`
+  step, no BitLocker staging step) all lagged. Masterize CI check #1
+  only scans CHANGELOG.md / CLAUDE.md / README.md for the version
+  string, so the drift was invisible. Doc-only — no script changes.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

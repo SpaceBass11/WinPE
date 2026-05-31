@@ -5,6 +5,119 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-05-31 — `docs/SCRIPT_REFERENCE.md` resynced with v4.7.1
+
+**Investigated:** open + closed PRs (only #54 open — touches startnet
+deploy.args parsing + `build_boot_wim.ps1` / `tests/test_parse.ps1` /
+`docs/DEPLOY_ARGS.md`; this entry deliberately steers clear of those
+files to avoid merge conflict). Routine-log backlog notes from
+2026-05-24 and earlier flagged the `Get-SystemDisks` fixture test
+(now landed) and the `Show-ImageList` / `Show-ImageSelection`
+factoring (still deferred — load-bearing TUI UX). Looked for the
+next highest-confidence small improvement; ran a `grep` audit of
+`docs/SCRIPT_REFERENCE.md` against the current deploy-script reality.
+
+**Found:** `docs/SCRIPT_REFERENCE.md` had stalled at v4.6.0. Concrete
+drift items:
+
+- Line 169 (Configuration block) showed `ScriptVersion = '4.6.0'`;
+  the script is on `4.7.1`. The block also lacked the four
+  v4.7.0 keys (`BitLockerPin`, `BitLockerKeyDir`, `DataDiskNumber`,
+  `EnableBitLocker`).
+- The Parameters section had no entries for `-DataDiskNumber`,
+  `-EnableBitLocker`, `-BitLockerPin`, `-BitLockerKeyPath` — all
+  shipped in v4.7.0 / v4.7.1 and documented in `docs/BITLOCKER.md`.
+- The `-Silent` description didn't mention the silent-mode
+  prerequisites for BitLocker / data-disk runs (`-BitLockerPin`
+  required when `-EnableBitLocker`; `-Force` required when
+  `-DataDiskNumber`).
+- The Functions tables were missing three functions added in v4.5+ /
+  v4.7.0: `Test-FinalWipeConfirmation` (typed-confirmation parser
+  for the destructive-op gate), `Resolve-BitLockerKeyPath` (escrow
+  precedence), `Initialize-BitLockerSetup` (first-boot staging).
+- The Safety Chain didn't include the `WIPE DATA` confirmation, the
+  data-disk validation, the silent-mode prereq gate, the BitLocker
+  PIN prompt, or the BitLocker staging step.
+
+Masterize CI check #1 (version-string consistency) scans CHANGELOG.md,
+CLAUDE.md, and README.md only — not SCRIPT_REFERENCE.md — so this drift
+was invisible. The `## Functions` and `### Image Deployment` tables
+in SCRIPT_REFERENCE.md are the canonical reference operators search
+when they hit an unknown function name in the log; missing entries
+for `Resolve-BitLockerKeyPath` and `Initialize-BitLockerSetup`
+meant a BitLocker first-boot failure would lead an operator to
+believe the log line came from somewhere undocumented.
+
+**Changed:** `docs/SCRIPT_REFERENCE.md` only —
+- Added five new Parameter sections after `-ListOnly` for the
+  v4.7.x BitLocker / data-disk flags, mirroring the style and
+  detail level of the existing `-UnattendFile` block. Each links
+  to `BITLOCKER.md` where the doc already exists, instead of
+  duplicating content.
+- Added `Test-FinalWipeConfirmation` to the Disk Management table.
+- Added a new "BitLocker / Data-Disk Staging" function table after
+  "Image Deployment", covering `Resolve-BitLockerKeyPath` and
+  `Initialize-BitLockerSetup`.
+- Bumped the `$Script:Config` example to `4.7.1` and added the
+  four BitLocker keys. Added a comment noting the
+  "never set BitLockerPin to a non-null default" rule from
+  CLAUDE.md.
+- Rewrote the Safety Chain block to include the silent-mode prereq
+  gate, the BitLocker PIN prompt + length check, the data-disk
+  validation + `WIPE DATA` typed prompt, and the BitLocker staging
+  step. Also annotated the existing diskpart / DISM steps with the
+  drive letters and flags ( `D:`, `/CheckIntegrity`) that they
+  actually use in v4.7.x.
+- Extended the `-Silent` bullet list with the two BitLocker /
+  data-disk silent-mode prerequisites.
+
+CHANGELOG.md gets a `## Unreleased / ### Changed` entry naming the
+drift and the resync. No version bump (doc-only change, no
+`$Script:Config.ScriptVersion` touch — matches the bumping rule in
+CLAUDE.md item 5).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session via the CLAUDE.md
+  bootstrap recipe.
+- Baselines (pre-edit, on this branch): `tests/test_parse.ps1` 48 / 0,
+  `tests/test_wim_parser.ps1` 16 / 0, `tests/test_disk_enumeration.ps1`
+  34 / 0.
+- Post-edit (doc-only change, but re-run for sanity): same 48 / 0,
+  16 / 0, 34 / 0. No PowerShell touched.
+- `grep -nE "Test-FinalWipeConfirmation|Resolve-BitLockerKeyPath|Initialize-BitLockerSetup|DataDiskNumber|EnableBitLocker|BitLockerPin|BitLockerKeyPath|BitLockerKeyDir|ScriptVersion|4\.[0-9]\.[0-9]|WIPE DATA"`
+  on `docs/SCRIPT_REFERENCE.md` returned 22 matches post-edit (was 1
+  pre-edit, the stale `ScriptVersion = '4.6.0'` line).
+- No links added that aren't already in the lychee config (only
+  internal `BITLOCKER.md` link, which is the same form already used
+  by the `-UnattendFile` section).
+
+**Risks / follow-ups:**
+- Minimal. Docs-only change. No production code, scripts, or CI
+  changes. No new dependencies. No overlap with the open PR #54
+  (`scripts/build_boot_wim.ps1` / `tests/test_parse.ps1` /
+  `docs/DEPLOY_ARGS.md` / `CHANGELOG.md` — only CHANGELOG.md is
+  shared, and my new bullet sits at the top of the same
+  `## Unreleased / ### Changed` block as PR #54's, so merge will be
+  trivial).
+- Outstanding backlog from earlier entries that I did not take this
+  pass:
+  - **`Show-ImageList` / `Show-ImageSelection` factoring** — still
+    ~30 lines of identical render code. Deferred across multiple
+    routine entries because the TUI render is load-bearing UX; a
+    factoring would need to preserve byte-identical output. Worth
+    revisiting once PR #54 is merged (so the test diff stays small).
+  - **`docs/SCRIPT_REFERENCE.md` is still missing dedicated
+    sections for `scripts/build_iso.ps1` and `scripts/first-login.ps1`.**
+    The other four pipeline scripts have full sections; these two
+    only get passing mentions. Larger writing effort — would take
+    a full session — so kept out of this resync.
+  - **Masterize CI check #1 doesn't scan SCRIPT_REFERENCE.md for the
+    version string.** Adding that file to the loop would catch this
+    same drift class next time. Defer to the next routine pass — a
+    code change to CI is a separate concern from this doc resync.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
