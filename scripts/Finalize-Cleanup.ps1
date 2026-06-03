@@ -21,6 +21,17 @@ try {
         }
     }
 
+    # Reclaim the staged Docker data disk (potentially many GB) once it has
+    # been copied into Level 1's profile. Only delete the source if staging
+    # succeeded (the State marker exists); a failed stage keeps the source so
+    # the payload can be recovered for triage. Not a secret -- just bulk.
+    $dockerPayload = Join-Path $root 'Payload\docker_data.vhdx'
+    $dockerMarker  = Join-Path $root 'State\docker-data.staged.sha256'
+    if ((Test-Path $dockerMarker) -and (Test-Path $dockerPayload)) {
+        Remove-Item -Path $dockerPayload -Force
+        Write-Host "Removed staged Docker payload $dockerPayload (already seeded into Level 1)."
+    }
+
     # State\ is intentionally preserved (it holds the Dell config SHA256
     # idempotency marker, not secrets). The BitLocker recovery keys live in
     # C:\ProgramData\BitLockers\ (ACL-locked, outside this tree) and are also

@@ -23,6 +23,11 @@ bitlocker-pin.txt
 dell-config.cctk
 npp-installer.exe
 
+# Staged Docker data disk (multi-GB persistent images/volumes store; lives on
+# the gold image's Payload\ folder, never in the repo).
+*.vhdx
+docker_data.vhdx
+
 # Deploy logs
 deploy_*.log
 *.log

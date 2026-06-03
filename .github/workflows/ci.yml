@@ -50,7 +50,7 @@ jobs:
 
           echo "=== 1. SetupComplete orchestrates the first-boot PS scripts ==="
           ok=1
-          for n in Apply-DellConfig.ps1 Scrub-AuditArtifacts.ps1 New-LocalAccounts.ps1 Set-Level0ACL.ps1 Disable-RDP.ps1 Harden-Administrator.ps1 Apply-StigHardening.ps1 Enable-BitLocker.ps1 Install-NotepadPP.ps1 Finalize-Cleanup.ps1; do
+          for n in Apply-DellConfig.ps1 Scrub-AuditArtifacts.ps1 New-LocalAccounts.ps1 Stage-DockerData.ps1 Set-Level0ACL.ps1 Disable-RDP.ps1 Harden-Administrator.ps1 Apply-StigHardening.ps1 Enable-BitLocker.ps1 Install-NotepadPP.ps1 Finalize-Cleanup.ps1; do
             grep -qF "$n" "$sc" || { echo "  $sc missing $n"; ok=0; }
           done
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
@@ -173,6 +173,15 @@ jobs:
             echo "OK"
           else
             echo "FAIL: Apply-StigHardening invariants"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7i. Stage-DockerData uses CreateProfile and is non-fatal (exit 0) ==="
+          sd=scripts/Stage-DockerData.ps1
+          if grep -qF 'CreateProfile' "$sd" && grep -qF 'docker_data.vhdx' "$sd" && grep -qE '^exit 0' "$sd"; then
+            echo "OK"
+          else
+            echo "FAIL: Stage-DockerData CreateProfile / non-fatal invariant"; fail=1
           fi
 
           exit $fail

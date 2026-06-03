@@ -101,13 +101,14 @@ On first boot (after Windows specialize completes):
     1. Apply-DellConfig.ps1      (cctk --import dell-config.cctk)
     2. Scrub-AuditArtifacts.ps1  (clear Winlogon autologon + Panther unattend)
     3. New-LocalAccounts.ps1     (Level 0-3 + IT_Admin from accounts.csv)
+    3a. Stage-DockerData.ps1     (CreateProfile Level 1 + seed docker_data.vhdx; NON-FATAL)
     4. Set-Level0ACL.ps1         (Deny ACE for Level 0 on restricted folders)
     5. Disable-RDP.ps1           (TEMPORARILY LINED OUT for now; RDP stays ON)
     6. Harden-Administrator.ps1  (STIG rotate/disable/rename built-in admin)
     7. Apply-StigHardening.ps1   (TEMPORARILY LINED OUT -- not used for now)
     8. Enable-BitLocker.ps1      (TPM+PIN on C:, export recovery key to C:\ProgramData\BitLockers\)
     9. Install-NotepadPP.ps1     (silent /S install; NON-FATAL)
-   10. Finalize-Cleanup.ps1      (delete dell-config.cctk, bitlocker-pin.txt, accounts.csv)
+   10. Finalize-Cleanup.ps1      (delete dell-config.cctk, bitlocker-pin.txt, accounts.csv; reclaim staged docker_data.vhdx)
 
   Note: the built-in Administrator profile is deleted by sysprep /generalize
   itself (CopyProfile copies it to Default first), so no deploy-side profile
@@ -122,18 +123,19 @@ On first boot (after Windows specialize completes):
 
 | File | Purpose |
 |------|---------|
-| `scripts/SetupComplete.cmd` | First-boot orchestrator. Auto-runs from `C:\Windows\Setup\Scripts\` after Windows specialize. Calls the PS1s in order. Any non-zero exit logs and exits -- except the non-fatal Notepad++ install. Order: Apply-DellConfig -> Scrub-AuditArtifacts -> New-LocalAccounts -> Set-Level0ACL -> ~~Disable-RDP~~ (lined out) -> Harden-Administrator -> ~~Apply-StigHardening~~ (lined out) -> Enable-BitLocker -> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. The Disable-RDP and Apply-StigHardening calls are currently REM-commented (see chain note above). |
+| `scripts/SetupComplete.cmd` | First-boot orchestrator. Auto-runs from `C:\Windows\Setup\Scripts\` after Windows specialize. Calls the PS1s in order. Any non-zero exit logs and exits -- except the non-fatal Notepad++ install. Order: Apply-DellConfig -> Scrub-AuditArtifacts -> New-LocalAccounts -> Stage-DockerData (non-fatal) -> Set-Level0ACL -> ~~Disable-RDP~~ (lined out) -> Harden-Administrator -> ~~Apply-StigHardening~~ (lined out) -> Enable-BitLocker -> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. The Disable-RDP and Apply-StigHardening calls are currently REM-commented (see chain note above). |
 | `scripts/Common.ps1` | Shared pure helpers dot-sourced by other scripts (`New-RandomName`, `New-RandomPassword`, `New-RecoveryKeyFileName`, `Test-AccountRow`). No side effects -- safe to dot-source from a script or a Pester test. Unit-tested by `tests/Common.Tests.ps1`. Must be staged alongside the scripts that dot-source it (Harden-Administrator, New-LocalAccounts, Enable-BitLocker). |
 | `scripts/Apply-DellConfig.ps1` | Imports `Config\dell-config.cctk` via `cctk.exe --import`. Idempotent via SHA256 marker file in `State\`. Hard-fails when cctk.exe or the config file is missing (intentional — silent BIOS misconfig is worse than a loud failure). |
 | `scripts/Scrub-AuditArtifacts.ps1` | Clears audit-mode/sysprep secret leftovers: Winlogon `AutoAdminLogon`/`DefaultPassword`/`DefaultUserName`/`DefaultDomainName`, and processed `Panther\unattend.xml` copies. Runs early so secrets are gone before the rest of the chain. Idempotent. |
 | `scripts/New-LocalAccounts.ps1` | Creates `Level 0`-`Level 3` (Standard, local Users) and `IT_Admin` (Admin, local Administrators) from `Config\accounts.csv` (`Username,Password,Role`). Plaintext passwords, same trust model as the PIN file; wiped by Finalize-Cleanup. Idempotent (re-asserts password/enabled/membership). Groups resolved by well-known SID. |
+| `scripts/Stage-DockerData.ps1` | **NON-FATAL** (always exits 0). Seeds the Docker Desktop WSL *data* disk (`docker_data.vhdx`) into the `Level 1` profile. Reads from `C:\ProgramData\ManualClonezilla\Payload\docker_data.vhdx`; no-op if absent. Because Level 1's profile does not exist at first-boot time (and a bare `mkdir` would orphan into a `Level 1.000` profile), it calls the Win32 **`CreateProfile`** API (userenv.dll) to register a real profile seeded from Default, then drops the VHDX into `AppData\Local\Docker\wsl\disk\`. Idempotent via SHA256 marker in `State\`. **Open validation:** pre-seeds before Docker's first run for Level 1 -- only *overwrite-of-existing* is bench-confirmed; whether Docker adopts a pre-placed disk vs. recreating an empty one must be tested (fallback: a Level-1 first-logon overwrite task). |
 | `scripts/Set-Level0ACL.ps1` | Inherited Deny (Full) ACE for `Level 0` on `C:\Programs` and `C:\Users\Public\Desktop\Quick Links` (can neither see nor modify). Idempotent (clears prior Deny first). Missing folder = warn; missing account = hard fail. |
 | `scripts/Harden-Administrator.ps1` | STIG: disables built-in Administrator (first), rotates its password to random, renames it off "Administrator" to a random `x`-prefixed name. Found by RID 500 (SID), not name. Never logs the new name. `IT_Admin` is the admin going forward. |
 | `scripts/Disable-RDP.ps1` | **Currently LINED OUT of SetupComplete.cmd by choice for now** (RDP stays ON while lined out). Fail-safe RDP off via the Terminal Services **policy** hive (`HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services`) -- the gpedit-equivalent values, written directly (no LGPO.exe to stage): `fDenyTSConnections=1` (read back + hard-fail if not applied), NLA (`UserAuthentication=1`), plus `TermService`/`UmRdpService` Disabled. (RDP was only on for Hyper-V enhanced session during build.) Firewall rule-group disable intentionally removed (redundant once the service is disabled + policy denies). Policy hive takes precedence over the System Properties preference and shows as managed in gpedit. |
 | `scripts/Apply-StigHardening.ps1` | **Currently LINED OUT of SetupComplete.cmd (not used for now).** STIG baseline the other scripts don't cover: disables/renames Guest (RID 501); password + lockout policy via `secedit`; UAC (`EnableLUA`, secure-desktop consent, `FilterAdministratorToken`); firewall profiles on + default inbound block (best-effort); logon banner + `DontDisplayLastUserName`; and a **hard-fail assertion** that only `IT_Admin` + the disabled built-in admin are in local Administrators. |
 | `scripts/Enable-BitLocker.ps1` | Enables TPM+PIN on C: using the PIN from `Config\bitlocker-pin.txt`. Adds RecoveryPassword protector. ACL-locks `C:\ProgramData\BitLockers` to SYSTEM + Administrators, then exports the recovery key to `BitLocker-RecoveryKey-<host>-<ts>.txt` there. Skip-path (already-encrypted) still guarantees a recovery protector + key file. Hard-fails if either protector is missing after enable. |
 | `scripts/Install-NotepadPP.ps1` | Silent (`/S`) install from `Installers\npp-installer.exe`. **Non-fatal** by design (exits 0 even on failure) so it cannot abort the security chain. |
-| `scripts/Finalize-Cleanup.ps1` | Removes `dell-config.cctk`, `bitlocker-pin.txt`, and `accounts.csv` from disk. **Does not** remove `State\`, `C:\ProgramData\BitLockers\` (recovery key files live there), or `Logs\`. |
+| `scripts/Finalize-Cleanup.ps1` | Removes `dell-config.cctk`, `bitlocker-pin.txt`, and `accounts.csv` from disk. Also reclaims the staged `Payload\docker_data.vhdx` (multi-GB, not a secret) -- but **only** when the `State\docker-data.staged.sha256` success marker exists, so a failed stage keeps the source for triage. **Does not** remove `State\`, `C:\ProgramData\BitLockers\` (recovery key files live there), or `Logs\`. |
 | `configs/unattend.example.xml` | Skeleton answer file for the golden image. `specialize` CopyProfile=true + OOBE skip + UTC timezone + random ComputerName. Edit for your environment before baking into the gold. |
 | `configs/accounts.example.csv` | Template for the staged `Config\accounts.csv`. Edit with real passwords before baking; never commit the real file. |
 | `configs/bitlocker-pin.example.txt` | Copy/paste template for the staged `Config\bitlocker-pin.txt`. Single line, plaintext PIN (numeric placeholder; use enhanced-PIN charset only if that policy is enabled in the gold). The real `bitlocker-pin.txt` is gitignored and wiped by Finalize-Cleanup. |
@@ -219,7 +221,8 @@ contribution policy, license, or security disclosure:
   invariants (TPM+PIN protector, recovery key export path + ACL lock,
   PIN file path), the SetupComplete orchestration, the per-script
   behavior invariants (deny ACE, RID-500 disable/rename, fDenyTSConnections,
-  group-by-SID, Notepad++ exit 0, autologon/Panther scrub, Guest/lockout/UAC,
+  group-by-SID, Notepad++ exit 0, Stage-DockerData CreateProfile seed,
+  autologon/Panther scrub, Guest/lockout/UAC,
   CopyProfile, accounts.csv staging, no stale `State\` path), and doc
   coverage. See `ci.yml` for the exact greps.
 - **ps-parse** (ubuntu, `pwsh`) - parses every `scripts/*.ps1` with the

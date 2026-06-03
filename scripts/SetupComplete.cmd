@@ -16,6 +16,11 @@ if errorlevel 1 goto :Fail
 call :RunPS New-LocalAccounts.ps1
 if errorlevel 1 goto :Fail
 
+REM Pre-create Level 1's profile (Win32 CreateProfile) and seed the Docker
+REM data disk into it. Non-fatal (script always exits 0) so a missing or
+REM failed Docker payload cannot abort the security chain.
+call :RunPS Stage-DockerData.ps1
+
 call :RunPS Set-Level0ACL.ps1
 if errorlevel 1 goto :Fail
 

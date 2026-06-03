@@ -16,6 +16,7 @@ Place assets before sysprep in `C:\ProgramData\ManualClonezilla`:
 - `Scripts\Apply-DellConfig.ps1`
 - `Scripts\Scrub-AuditArtifacts.ps1`
 - `Scripts\New-LocalAccounts.ps1`
+- `Scripts\Stage-DockerData.ps1` (optional; only does anything if a Docker payload is staged -- see "Docker data disk" below)
 - `Scripts\Set-Level0ACL.ps1`
 - `Scripts\Disable-RDP.ps1` (currently lined out of `SetupComplete.cmd`; still staged)
 - `Scripts\Harden-Administrator.ps1`
@@ -31,11 +32,15 @@ Place assets before sysprep in `C:\ProgramData\ManualClonezilla`:
   accepted risk as the PIN file; deleted by `Finalize-Cleanup.ps1`.)
 - `Installers\npp-installer.exe` (Notepad++ NSIS installer; installed silently
   with `/S` at first boot since sysprep strips provisioned apps)
+- `Payload\docker_data.vhdx` (optional; the Docker Desktop WSL persistent data
+  disk to seed into Level 1 -- see "Docker data disk" below. Omit if the fleet
+  has no Docker payload.)
 
 The first-boot chain runs in this order: Apply-DellConfig -> Scrub-AuditArtifacts
--> New-LocalAccounts -> Set-Level0ACL -> ~~Disable-RDP~~ (lined out) ->
-Harden-Administrator -> ~~Apply-StigHardening~~ (lined out) -> Enable-BitLocker
--> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. Build the gold master in
+-> New-LocalAccounts -> Stage-DockerData (non-fatal) -> Set-Level0ACL ->
+~~Disable-RDP~~ (lined out) -> Harden-Administrator -> ~~Apply-StigHardening~~
+(lined out) -> Enable-BitLocker -> Install-NotepadPP (non-fatal) ->
+Finalize-Cleanup. Build the gold master in
 **audit mode** under the built-in
 Administrator; the named accounts and hardening are applied at first boot, not
 in the GM. Set unattend `CopyProfile=true` (specialize pass) if you want new
@@ -76,6 +81,40 @@ can read it. This is an accepted-risk same-PIN-fleet-wide design; if you
 need per-machine PINs, this workflow is the wrong tool. `Finalize-Cleanup.ps1`
 deletes the PIN file at end of `SetupComplete`, so the deployed machine
 does not retain it on disk.
+
+### Docker data disk
+
+If the fleet ships with pre-loaded Docker images/volumes, stage the Docker
+Desktop WSL **data** disk so a deployed machine comes up with that data already
+present for the `Level 1` user.
+
+- Install Docker Desktop (WSL2 backend) **machine-wide** in the gold. The
+  per-user WSL distro registration and an empty data disk are created on each
+  user's first Docker run -- so this does **not** require Level 1 to exist in
+  the gold, and the gold can stay a clean Administrator-only sysprep.
+- Build/populate `docker_data.vhdx` once (any throwaway account or a separate
+  workstation), then drop it at
+  `C:\ProgramData\ManualClonezilla\Payload\docker_data.vhdx` before sysprep.
+  Treat it as a versioned release artifact rather than rebuilding it inside
+  every gold. (It is gitignored -- never commit the VHDX.)
+
+At first boot, `Stage-DockerData.ps1` runs after `New-LocalAccounts`. Level 1's
+profile does **not** exist yet (the account is created but never logged in), so
+the script calls the Win32 `CreateProfile` API to register a real profile for
+Level 1 (seeded from Default) and copies the data disk into
+`AppData\Local\Docker\wsl\disk\`. Because Level 1 has never logged in, Docker is
+not running and the `.vhdx` is not locked -- no shutdown dance. The step is
+**non-fatal**: a missing or failed payload never aborts the security chain, and
+`Finalize-Cleanup.ps1` reclaims the staged copy once it has been seeded.
+
+> **Bench-test before relying on it.** This *pre-seeds* the disk before Docker's
+> first run for Level 1. Only *overwriting an already-present* disk is
+> confirmed-working; whether Docker **adopts** a pre-placed disk on first launch
+> (vs. recreating an empty one and stomping it) has not been validated. On a
+> test deploy, log in as Level 1, start Docker, and confirm the seeded
+> images/volumes are present. If Docker stomps the pre-seed, switch to a
+> Level-1 first-logon overwrite (scheduled task that stops Docker + `wsl
+> --shutdown`, then overwrites the disk Docker created).
 
 ### Dell Command | Configure
 
