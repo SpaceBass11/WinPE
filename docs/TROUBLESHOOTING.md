@@ -57,7 +57,7 @@ See [docs/CCTK.md](CCTK.md#troubleshooting). Common cases:
 
 | Error in log | Cause | Fix |
 |---|---|---|
-| `Accounts file not found` | `Config\accounts.csv` wasn't staged in the gold image | Stage it (see `configs/accounts.example.csv`); the chain hard-fails without it. Recapture. |
+| `Accounts file not found` | `Config\accounts.csv` wasn't staged in the gold image | Stage it (see `ManualClonezilla/Config/accounts.example.csv`); the chain hard-fails without it. Recapture. |
 | `... has an empty Password` / `empty Username` | Malformed CSV row | Fix the row; every account needs a username and password. |
 | `... has invalid Role` | Role column isn't `Admin` or `Standard` | Correct the Role value. |
 
@@ -139,7 +139,7 @@ This workflow is unmanaged (no AD, no MDM). Keys land at
 `C:\ProgramData\ManualClonezilla\RecoveryKeys\BitLocker-RecoveryKey-*.txt` (ACL-locked to
 administrators) on each deployed machine. Operator SOP is responsible for collecting them
 before handoff. If you need centralized escrow, modify
-`Export-RecoveryKey` in `scripts/Enable-BitLocker.ps1`.
+`Export-RecoveryKey` in `ManualClonezilla/Scripts/Enable-BitLocker.ps1`.
 
 ### Image size is larger than a WIM
 Captured Clonezilla images are typically 15-25 GB compressed (vs.

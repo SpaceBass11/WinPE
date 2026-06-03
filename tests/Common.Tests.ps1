@@ -1,11 +1,11 @@
-# Pester tests for the pure helper functions in scripts/Common.ps1.
+# Pester tests for the pure helper functions in ManualClonezilla/Scripts/Common.ps1.
 # These functions are cross-platform (no Windows-only cmdlets), so they can
 # be unit-tested on any runner. Run with: Invoke-Pester -Path tests
 #
 # Pester 5 syntax.
 
 BeforeAll {
-    . (Join-Path $PSScriptRoot '..' | Join-Path -ChildPath 'scripts' | Join-Path -ChildPath 'Common.ps1')
+    . (Join-Path $PSScriptRoot '..' | Join-Path -ChildPath 'ManualClonezilla' | Join-Path -ChildPath 'Scripts' | Join-Path -ChildPath 'Common.ps1')
 }
 
 Describe 'New-RandomName' {

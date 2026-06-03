@@ -10,7 +10,7 @@ assignees: ''
 A short description of what's broken.
 
 ## Environment
-- Which script and the commit SHA (e.g., `scripts/Enable-BitLocker.ps1 @ abc1234`):
+- Which script and the commit SHA (e.g., `ManualClonezilla/Scripts/Enable-BitLocker.ps1 @ abc1234`):
 - Reference / target hardware (make, model, BIOS version, TPM type):
 - Windows build (Win11 24H2, etc.):
 - Dell Command | Configure version (if CCTK related):

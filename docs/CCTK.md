@@ -12,7 +12,7 @@
 CCTK is a one-shot CLI tool that flips BIOS settings via WMI-ACPI (or
 HAPI on legacy versions). In this workflow it runs once per deployed
 machine inside `SetupComplete.cmd`, post-OOBE, via
-[`scripts/Apply-DellConfig.ps1`](../scripts/Apply-DellConfig.ps1).
+[`ManualClonezilla/Scripts/Apply-DellConfig.ps1`](../ManualClonezilla/Scripts/Apply-DellConfig.ps1).
 
 ## Timing
 

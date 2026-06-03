@@ -20,7 +20,7 @@ OOBE (PowerShell 5.1). For syntax checking on any platform with
 PowerShell 7:
 
 ```bash
-pwsh -NoProfile -Command "[System.Management.Automation.PSParser]::Tokenize((Get-Content scripts/<file>.ps1 -Raw), [ref]\$null)"
+pwsh -NoProfile -Command "[System.Management.Automation.PSParser]::Tokenize((Get-Content ManualClonezilla/Scripts/<file>.ps1 -Raw), [ref]\$null)"
 ```
 
 End-to-end testing requires:

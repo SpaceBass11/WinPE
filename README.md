@@ -80,7 +80,7 @@ Don't use this if:
      Install-NotepadPP)
    - `Config\dell-config.cctk`
    - `Config\bitlocker-pin.txt` (one line, the BitLocker PIN)
-   - `Config\accounts.csv` (named accounts; see `configs/accounts.example.csv`)
+   - `Config\accounts.csv` (named accounts; see `ManualClonezilla/Config/accounts.example.csv`)
    - `Installers\npp-installer.exe` (Notepad++ silent installer; consumed in the gold)
 3. In the gold, run `Apply-GoldHardening.ps1` as the last step before sysprep
    (Notepad++ + STIG baseline + RDP-off -- captured into the image).
@@ -105,25 +105,32 @@ See [docs/USB_SETUP.md](docs/USB_SETUP.md) for the operator's full SOP.
 
 ```
 .
-├── scripts/
-│   ├── SetupComplete.cmd        First-boot orchestrator. Auto-runs after OOBE.
-│   ├── Common.ps1               Shared helper functions (dot-sourced).
-│   ├── Apply-DellConfig.ps1     Imports the Dell CCTK BIOS config package.
-│   ├── Scrub-AuditArtifacts.ps1 Clears autologon + Panther unattend secrets.
-│   ├── New-LocalAccounts.ps1    Creates Level 0-3 + IT_Admin from accounts.csv.
-│   ├── Stage-DockerData.ps1     Seeds Level 1 Docker data disk (non-fatal).
-│   ├── Set-Level0ACL.ps1        Deny ACLs locking Level 0 out of folders.
-│   ├── Harden-Administrator.ps1 STIG disable/rotate/rename of built-in admin.
-│   ├── Assert-AdminGroup.ps1    Hard-fail unless only IT_Admin + disabled admin.
-│   ├── Enable-BitLocker.ps1     TPM+PIN on C:, exports recovery key locally.
-│   ├── Finalize-Cleanup.ps1     Removes one-time secrets from disk.
-│   ├── Apply-GoldHardening.ps1  GOLD pre-sysprep runner for the three below.
-│   ├── Apply-StigHardening.ps1  (gold) Guest, password/lockout, UAC, firewall.
-│   ├── Disable-RDP.ps1          (gold) Fail-safe RDP disable (last).
-│   └── Install-NotepadPP.ps1    (gold) Silent Notepad++ install (non-fatal).
+├── ManualClonezilla/            Copy this whole folder to C:\ProgramData\ on the gold image.
+│   ├── Scripts/
+│   │   ├── SetupComplete.cmd        First-boot orchestrator. Auto-runs after OOBE.
+│   │   ├── Common.ps1               Shared helper functions (dot-sourced).
+│   │   ├── Apply-DellConfig.ps1     Imports the Dell CCTK BIOS config package.
+│   │   ├── Scrub-AuditArtifacts.ps1 Clears autologon + Panther unattend secrets.
+│   │   ├── New-LocalAccounts.ps1    Creates Level 0-3 + IT_Admin from accounts.csv.
+│   │   ├── Stage-DockerData.ps1     Seeds Level 1 Docker data disk (non-fatal).
+│   │   ├── Set-Level0ACL.ps1        Deny ACLs locking Level 0 out of folders.
+│   │   ├── Harden-Administrator.ps1 STIG disable/rotate/rename of built-in admin.
+│   │   ├── Assert-AdminGroup.ps1    Hard-fail unless only IT_Admin + disabled admin.
+│   │   ├── Enable-BitLocker.ps1     TPM+PIN on C:, exports recovery key locally.
+│   │   ├── Finalize-Cleanup.ps1     Removes one-time secrets from disk.
+│   │   ├── Apply-GoldHardening.ps1  GOLD pre-sysprep runner for the three below.
+│   │   ├── Apply-StigHardening.ps1  (gold) Guest, password/lockout, UAC, firewall.
+│   │   ├── Disable-RDP.ps1          (gold) Fail-safe RDP disable (last).
+│   │   └── Install-NotepadPP.ps1    (gold) Silent Notepad++ install (non-fatal).
+│   ├── Config/
+│   │   ├── accounts.example.csv     Template for the staged accounts.csv.
+│   │   └── bitlocker-pin.example.txt Template for the staged bitlocker-pin.txt.
+│   ├── Installers/
+│   │   └── README.md                What to drop here (npp-installer.exe; git-ignored).
+│   └── Payload/
+│       └── README.md                What to drop here (docker_data.vhdx; git-ignored).
 ├── configs/
-│   ├── unattend.example.xml     Skeleton unattend.xml for the golden image.
-│   └── accounts.example.csv     Template for the staged accounts.csv.
+│   └── unattend.example.xml     Skeleton unattend.xml (OS answer file; not staged into the tree).
 ├── docs/
 │   ├── RUNBOOK.md               End-to-end admin build + release process.
 │   ├── OPERATIONS.md            Day-2 ops, rotation, rollback, triage.
