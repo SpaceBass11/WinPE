@@ -19,14 +19,23 @@ if errorlevel 1 goto :Fail
 call :RunPS Set-Level0ACL.ps1
 if errorlevel 1 goto :Fail
 
-call :RunPS Disable-RDP.ps1
-if errorlevel 1 goto :Fail
+REM Disable-RDP.ps1 TEMPORARILY LINED OUT by choice for now. The script itself
+REM is reworked (registry fDenyTSConnections + NLA + service disable; firewall
+REM changes removed). WARNING: while lined out, RDP stays ENABLED on deployed
+REM machines (it was turned on for the Hyper-V enhanced-session build).
+REM Re-enable by un-commenting the two lines below.
+REM call :RunPS Disable-RDP.ps1
+REM if errorlevel 1 goto :Fail
 
 call :RunPS Harden-Administrator.ps1
 if errorlevel 1 goto :Fail
 
-call :RunPS Apply-StigHardening.ps1
-if errorlevel 1 goto :Fail
+REM Apply-StigHardening.ps1 TEMPORARILY LINED OUT -- not used for now. WARNING:
+REM this removes Guest disable/rename, password+lockout policy, UAC hardening,
+REM the logon banner, AND the assertion that only IT_Admin + the disabled
+REM built-in admin are in local Administrators.
+REM call :RunPS Apply-StigHardening.ps1
+REM if errorlevel 1 goto :Fail
 
 call :RunPS Enable-BitLocker.ps1
 if errorlevel 1 goto :Fail

@@ -17,28 +17,51 @@ Place assets before sysprep in `C:\ProgramData\ManualClonezilla`:
 - `Scripts\Scrub-AuditArtifacts.ps1`
 - `Scripts\New-LocalAccounts.ps1`
 - `Scripts\Set-Level0ACL.ps1`
-- `Scripts\Disable-RDP.ps1`
+- `Scripts\Disable-RDP.ps1` (currently lined out of `SetupComplete.cmd`; still staged)
 - `Scripts\Harden-Administrator.ps1`
-- `Scripts\Apply-StigHardening.ps1`
+- `Scripts\Apply-StigHardening.ps1` (currently lined out of `SetupComplete.cmd`; still staged)
 - `Scripts\Enable-BitLocker.ps1`
 - `Scripts\Install-NotepadPP.ps1`
 - `Scripts\Finalize-Cleanup.ps1`
 - `Config\dell-config.cctk` (Dell Command Configure package)
-- `Config\bitlocker-pin.txt` (single-line plaintext PIN for TPM+PIN)
+- `Config\bitlocker-pin.txt` (single-line plaintext PIN for TPM+PIN -- copy
+  `configs/bitlocker-pin.example.txt` and replace the placeholder)
 - `Config\accounts.csv` (named local accounts; `Username,Password,Role` --
   see `configs/accounts.example.csv`. Plaintext, baked into the image, same
   accepted risk as the PIN file; deleted by `Finalize-Cleanup.ps1`.)
 - `Installers\npp-installer.exe` (Notepad++ NSIS installer; installed silently
   with `/S` at first boot since sysprep strips provisioned apps)
 
-The first-boot chain runs in this order: Apply-DellConfig -> New-LocalAccounts
--> Set-Level0ACL -> Disable-RDP -> Harden-Administrator -> Enable-BitLocker ->
-Install-NotepadPP (non-fatal) -> Finalize-Cleanup. Build the gold master in
-**audit mode** under the built-in Administrator; the named accounts and
-hardening are applied at first boot, not in the GM. Set unattend
-`CopyProfile=true` (specialize pass) if you want new accounts to inherit the
-Administrator profile -- it is processed before the first-boot Administrator
-rename/disable, so the two do not race.
+The first-boot chain runs in this order: Apply-DellConfig -> Scrub-AuditArtifacts
+-> New-LocalAccounts -> Set-Level0ACL -> ~~Disable-RDP~~ (lined out) ->
+Harden-Administrator -> ~~Apply-StigHardening~~ (lined out) -> Enable-BitLocker
+-> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. Build the gold master in
+**audit mode** under the built-in
+Administrator; the named accounts and hardening are applied at first boot, not
+in the GM. Set unattend `CopyProfile=true` (specialize pass) if you want new
+accounts to inherit the Administrator profile -- it is processed before the
+first-boot Administrator rename/disable, so the two do not race.
+
+> **Temporarily disabled steps:** the `Disable-RDP` and `Apply-StigHardening`
+> calls are currently REM-commented in `SetupComplete.cmd`. Until they are
+> restored, deployed machines keep **RDP enabled** and do **not** receive the
+> STIG baseline (Guest disable, password/lockout policy, UAC hardening, logon
+> banner, and the only-IT_Admin-in-Administrators assertion).
+
+### Clean the Administrator profile before sysprep
+
+Because `CopyProfile=true` clones the *entire* built-in Administrator profile
+into the Default profile during specialize, any junk accumulated while building
+in audit mode (browser/Edge first-run state, `%TEMP%`, recent-docs) gets baked
+into Default and inherited by every new account. Before sysprep, clean the
+Administrator profile -- clear `%TEMP%`, browser data, and recent items -- so
+the Default template stays tidy. Do **not** delete the Administrator profile
+itself here: CopyProfile needs it at sysprep time. `sysprep /generalize`
+processes CopyProfile (copying the Administrator profile to Default) and then
+**deletes the built-in Administrator profile itself**, so a properly generalized
+deploy has no leftover `C:\Users\Administrator` -- no deploy-side cleanup script
+is required. (If you see `C:\Users\Administrator` while still in audit mode,
+that is expected: the generalize step that removes it has not run yet.)
 
 ### BitLocker PIN file
 
