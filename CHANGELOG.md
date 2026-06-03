@@ -8,6 +8,22 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Changed (repo layout mirrors the staging tree)
+- **Repo now mirrors the deploy-time staging tree.** `scripts/` ->
+  `ManualClonezilla/Scripts/`; `configs/accounts.example.csv` and
+  `configs/bitlocker-pin.example.txt` -> `ManualClonezilla/Config/`; new
+  `ManualClonezilla/Installers/` and `ManualClonezilla/Payload/` carry
+  placeholder READMEs (the real `npp-installer.exe` / `docker_data.vhdx`
+  stay git-ignored). An admin can now copy the whole `ManualClonezilla\`
+  folder straight to `C:\ProgramData\` on the gold image instead of mapping
+  `configs` -> `Config` and hand-creating the staging subfolders.
+  `unattend.example.xml` intentionally stays in `configs/` -- it is an OS
+  answer file consumed by sysprep, not part of the staged tree. CI path
+  greps (masterize/ps-parse/ps-analyze), the Pester dot-source path, the
+  docs, README tree, and contributor templates were updated to match. No
+  script logic changed; the scripts already hard-code
+  `C:\ProgramData\ManualClonezilla`.
+
 ### Changed (pre/post-sysprep split + layout)
 - **Moved SID-independent hardening into the gold (pre-sysprep).** RDP-off,
   the STIG baseline, and the Notepad++ install no longer run at first boot --

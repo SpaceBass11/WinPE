@@ -43,10 +43,10 @@ jobs:
         run: |
           set +e
           fail=0
-          bl=scripts/Enable-BitLocker.ps1
-          fc=scripts/Finalize-Cleanup.ps1
-          sc=scripts/SetupComplete.cmd
-          dc=scripts/Apply-DellConfig.ps1
+          bl=ManualClonezilla/Scripts/Enable-BitLocker.ps1
+          fc=ManualClonezilla/Scripts/Finalize-Cleanup.ps1
+          sc=ManualClonezilla/Scripts/SetupComplete.cmd
+          dc=ManualClonezilla/Scripts/Apply-DellConfig.ps1
 
           echo "=== 1. SetupComplete orchestrates the first-boot PS scripts ==="
           # First-boot (post-sysprep) set only. RDP-off, the STIG baseline, and
@@ -114,7 +114,7 @@ jobs:
 
           echo ""
           echo "=== 7a. Set-Level0ACL applies an inherited Deny ACE ==="
-          la=scripts/Set-Level0ACL.ps1
+          la=ManualClonezilla/Scripts/Set-Level0ACL.ps1
           if grep -qF 'icacls' "$la" && grep -qF '(OI)(CI)F' "$la" && grep -qF 'C:\Programs' "$la"; then
             echo "OK"
           else
@@ -123,7 +123,7 @@ jobs:
 
           echo ""
           echo "=== 7b. Harden-Administrator finds RID 500 by SID and disables ==="
-          ha=scripts/Harden-Administrator.ps1
+          ha=ManualClonezilla/Scripts/Harden-Administrator.ps1
           if grep -qF "S-1-5-*-500" "$ha" && grep -qF 'Disable-LocalUser' "$ha" && grep -qF 'Rename-LocalUser' "$ha"; then
             echo "OK"
           else
@@ -132,7 +132,7 @@ jobs:
 
           echo ""
           echo "=== 7c. Disable-RDP sets fDenyTSConnections ==="
-          rd=scripts/Disable-RDP.ps1
+          rd=ManualClonezilla/Scripts/Disable-RDP.ps1
           if grep -qF 'fDenyTSConnections' "$rd" && grep -qF 'Set-ItemProperty' "$rd"; then
             echo "OK"
           else
@@ -141,7 +141,7 @@ jobs:
 
           echo ""
           echo "=== 7d. New-LocalAccounts resolves groups by well-known SID ==="
-          na=scripts/New-LocalAccounts.ps1
+          na=ManualClonezilla/Scripts/New-LocalAccounts.ps1
           if grep -qF 'S-1-5-32-544' "$na" && grep -qF 'S-1-5-32-545' "$na"; then
             echo "OK"
           else
@@ -150,7 +150,7 @@ jobs:
 
           echo ""
           echo "=== 7e. Install-NotepadPP is non-fatal (exit 0) ==="
-          np=scripts/Install-NotepadPP.ps1
+          np=ManualClonezilla/Scripts/Install-NotepadPP.ps1
           if grep -qE '^exit 0' "$np"; then
             echo "OK"
           else
@@ -167,7 +167,7 @@ jobs:
 
           echo ""
           echo "=== 7g. Scrub-AuditArtifacts clears autologon + Panther unattend ==="
-          sa=scripts/Scrub-AuditArtifacts.ps1
+          sa=ManualClonezilla/Scripts/Scrub-AuditArtifacts.ps1
           if grep -qF 'AutoAdminLogon' "$sa" && grep -qF 'DefaultPassword' "$sa" && grep -qF 'Panther' "$sa"; then
             echo "OK"
           else
@@ -176,7 +176,7 @@ jobs:
 
           echo ""
           echo "=== 7h. Apply-StigHardening (gold baseline): Guest RID 501, lockout, UAC ==="
-          st=scripts/Apply-StigHardening.ps1
+          st=ManualClonezilla/Scripts/Apply-StigHardening.ps1
           if grep -qF "S-1-5-*-501" "$st" && grep -qF 'LockoutBadCount' "$st" && grep -qF 'FilterAdministratorToken' "$st"; then
             echo "OK"
           else
@@ -185,7 +185,7 @@ jobs:
 
           echo ""
           echo "=== 7i. Stage-DockerData uses CreateProfile and is non-fatal (exit 0) ==="
-          sd=scripts/Stage-DockerData.ps1
+          sd=ManualClonezilla/Scripts/Stage-DockerData.ps1
           if grep -qF 'CreateProfile' "$sd" && grep -qF 'docker_data.vhdx' "$sd" && grep -qE '^exit 0' "$sd"; then
             echo "OK"
           else
@@ -194,7 +194,7 @@ jobs:
 
           echo ""
           echo "=== 7j. Assert-AdminGroup (first-boot) hard-fails on extra Administrators ==="
-          ag=scripts/Assert-AdminGroup.ps1
+          ag=ManualClonezilla/Scripts/Assert-AdminGroup.ps1
           if grep -qF 'S-1-5-32-544' "$ag" && grep -qF "S-1-5-*-500" "$ag" && grep -qF 'Unexpected member' "$ag"; then
             echo "OK"
           else
@@ -203,7 +203,7 @@ jobs:
 
           echo ""
           echo "=== 7k. Apply-GoldHardening runs the 3 gold-phase scripts (RDP last) ==="
-          gh=scripts/Apply-GoldHardening.ps1
+          gh=ManualClonezilla/Scripts/Apply-GoldHardening.ps1
           if grep -qF 'Install-NotepadPP.ps1' "$gh" && grep -qF 'Apply-StigHardening.ps1' "$gh" && grep -qF 'Disable-RDP.ps1' "$gh"; then
             echo "OK"
           else
@@ -283,9 +283,9 @@ jobs:
 
           echo ""
           echo "=== 16. No stale C:\\ProgramData\\BitLockers path in current docs/scripts ==="
-          if grep -rqF 'C:\ProgramData\BitLockers' docs/ README.md scripts/; then
+          if grep -rqF 'C:\ProgramData\BitLockers' docs/ README.md ManualClonezilla/Scripts/; then
             echo "FAIL: stale C:\\ProgramData\\BitLockers path still present (now RecoveryKeys)"
-            grep -rlF 'C:\ProgramData\BitLockers' docs/ README.md scripts/
+            grep -rlF 'C:\ProgramData\BitLockers' docs/ README.md ManualClonezilla/Scripts/
             fail=1
           else
             echo "OK"
@@ -304,7 +304,7 @@ jobs:
         shell: pwsh
         run: |
           $bad = 0
-          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+          Get-ChildItem ManualClonezilla/Scripts/*.ps1 | ForEach-Object {
             $errs = $null; $toks = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$toks, [ref]$errs)
             if ($errs.Count) {
@@ -340,7 +340,7 @@ jobs:
           # Settings file keeps PSUseCompatibleSyntax (5.1) and excludes the
           # plaintext-credential rules that flag this workflow's documented,
           # accepted-risk trust model. See PSScriptAnalyzerSettings.psd1.
-          $res = Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          $res = Invoke-ScriptAnalyzer -Path ManualClonezilla/Scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
           $res | Format-Table -AutoSize RuleName, Severity, ScriptName, Line
           $errors = @($res | Where-Object { $_.Severity -eq 'Error' })
           if ($errors.Count) { Write-Host "Analyzer errors: $($errors.Count)"; exit 1 }

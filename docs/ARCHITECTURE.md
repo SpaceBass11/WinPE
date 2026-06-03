@@ -104,23 +104,23 @@ re-cut with that family's drivers added.
 
 | File / Directory | Role |
 |---|---|
-| `scripts/SetupComplete.cmd` | First-boot orchestrator. Copied to `C:\Windows\Setup\Scripts\` on the gold image |
-| `scripts/Common.ps1` | Shared pure helper functions, dot-sourced by the scripts that use them. Unit-tested by `tests/` |
-| `scripts/Apply-DellConfig.ps1` | CCTK BIOS import. Idempotent via SHA256 marker |
-| `scripts/Scrub-AuditArtifacts.ps1` | Clears autologon + Panther unattend secrets |
-| `scripts/New-LocalAccounts.ps1` | Creates Level 0-3 + IT_Admin from accounts.csv |
-| `scripts/Stage-DockerData.ps1` | First-boot: seeds Level 1 Docker data disk via CreateProfile (non-fatal) |
-| `scripts/Set-Level0ACL.ps1` | Deny ACLs locking Level 0 out of restricted folders |
-| `scripts/Harden-Administrator.ps1` | STIG disable/rotate/rename of built-in admin |
-| `scripts/Assert-AdminGroup.ps1` | First-boot hard-fail: only IT_Admin + disabled built-in admin in Administrators |
-| `scripts/Enable-BitLocker.ps1` | TPM+PIN enable + recovery key export (ACL-locked dir) |
-| `scripts/Finalize-Cleanup.ps1` | Removes one-time secrets from disk |
-| `scripts/Apply-GoldHardening.ps1` | **Gold pre-sysprep** runner: Install-NotepadPP -> Apply-StigHardening -> Disable-RDP |
-| `scripts/Apply-StigHardening.ps1` | **Gold pre-sysprep**: Guest, password/lockout, UAC, firewall, banner |
-| `scripts/Disable-RDP.ps1` | **Gold pre-sysprep**: fail-safe RDP disable (last) |
-| `scripts/Install-NotepadPP.ps1` | **Gold pre-sysprep**: silent Notepad++ install (non-fatal) |
+| `ManualClonezilla/Scripts/SetupComplete.cmd` | First-boot orchestrator. Copied to `C:\Windows\Setup\Scripts\` on the gold image |
+| `ManualClonezilla/Scripts/Common.ps1` | Shared pure helper functions, dot-sourced by the scripts that use them. Unit-tested by `tests/` |
+| `ManualClonezilla/Scripts/Apply-DellConfig.ps1` | CCTK BIOS import. Idempotent via SHA256 marker |
+| `ManualClonezilla/Scripts/Scrub-AuditArtifacts.ps1` | Clears autologon + Panther unattend secrets |
+| `ManualClonezilla/Scripts/New-LocalAccounts.ps1` | Creates Level 0-3 + IT_Admin from accounts.csv |
+| `ManualClonezilla/Scripts/Stage-DockerData.ps1` | First-boot: seeds Level 1 Docker data disk via CreateProfile (non-fatal) |
+| `ManualClonezilla/Scripts/Set-Level0ACL.ps1` | Deny ACLs locking Level 0 out of restricted folders |
+| `ManualClonezilla/Scripts/Harden-Administrator.ps1` | STIG disable/rotate/rename of built-in admin |
+| `ManualClonezilla/Scripts/Assert-AdminGroup.ps1` | First-boot hard-fail: only IT_Admin + disabled built-in admin in Administrators |
+| `ManualClonezilla/Scripts/Enable-BitLocker.ps1` | TPM+PIN enable + recovery key export (ACL-locked dir) |
+| `ManualClonezilla/Scripts/Finalize-Cleanup.ps1` | Removes one-time secrets from disk |
+| `ManualClonezilla/Scripts/Apply-GoldHardening.ps1` | **Gold pre-sysprep** runner: Install-NotepadPP -> Apply-StigHardening -> Disable-RDP |
+| `ManualClonezilla/Scripts/Apply-StigHardening.ps1` | **Gold pre-sysprep**: Guest, password/lockout, UAC, firewall, banner |
+| `ManualClonezilla/Scripts/Disable-RDP.ps1` | **Gold pre-sysprep**: fail-safe RDP disable (last) |
+| `ManualClonezilla/Scripts/Install-NotepadPP.ps1` | **Gold pre-sysprep**: silent Notepad++ install (non-fatal) |
 | `configs/unattend.example.xml` | Skeleton answer file for the gold image |
-| `configs/accounts.example.csv` | Template for the staged accounts.csv |
+| `ManualClonezilla/Config/accounts.example.csv` | Template for the staged accounts.csv |
 | `docs/RUNBOOK.md` | End-to-end admin build process (source of truth) |
 | `docs/OPERATIONS.md` | Day-2 ops, rotation, rollback, triage |
 | `docs/USB_SETUP.md` | Operator SOP (Rufus + boot + recovery key collection) |

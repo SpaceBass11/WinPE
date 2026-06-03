@@ -41,9 +41,9 @@ Anything that is SID-independent image state (survives generalize) is applied
 - `Scripts\Finalize-Cleanup.ps1`
 - `Config\dell-config.cctk` (Dell Command Configure package)
 - `Config\bitlocker-pin.txt` (single-line plaintext PIN for TPM+PIN -- copy
-  `configs/bitlocker-pin.example.txt` and replace the placeholder)
+  `ManualClonezilla/Config/bitlocker-pin.example.txt` and replace the placeholder)
 - `Config\accounts.csv` (named local accounts; `Username,Password,Role` --
-  see `configs/accounts.example.csv`. Plaintext, baked into the image, same
+  see `ManualClonezilla/Config/accounts.example.csv`. Plaintext, baked into the image, same
   accepted risk as the PIN file; deleted by `Finalize-Cleanup.ps1`.)
 - `Payload\docker_data.vhdx` (optional; the Docker Desktop WSL persistent data
   disk to seed into Level 1 -- see "Docker data disk" below. Omit if the fleet
