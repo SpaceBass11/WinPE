@@ -16,32 +16,28 @@ if errorlevel 1 goto :Fail
 call :RunPS New-LocalAccounts.ps1
 if errorlevel 1 goto :Fail
 
+REM Pre-create Level 1's profile (Win32 CreateProfile) and seed the Docker
+REM data disk into it. Non-fatal (script always exits 0) so a missing or
+REM failed Docker payload cannot abort the security chain.
+call :RunPS Stage-DockerData.ps1
+
 call :RunPS Set-Level0ACL.ps1
 if errorlevel 1 goto :Fail
 
-REM Disable-RDP.ps1 TEMPORARILY LINED OUT by choice for now. The script itself
-REM is reworked (registry fDenyTSConnections + NLA + service disable; firewall
-REM changes removed). WARNING: while lined out, RDP stays ENABLED on deployed
-REM machines (it was turned on for the Hyper-V enhanced-session build).
-REM Re-enable by un-commenting the two lines below.
-REM call :RunPS Disable-RDP.ps1
-REM if errorlevel 1 goto :Fail
+REM RDP-off, the STIG baseline, and the Notepad++ install are baked into the
+REM gold PRE-SYSPREP (see Apply-GoldHardening.ps1) -- they are SID-independent
+REM image state that survives generalize, so they are NOT re-run here.
 
 call :RunPS Harden-Administrator.ps1
 if errorlevel 1 goto :Fail
 
-REM Apply-StigHardening.ps1 TEMPORARILY LINED OUT -- not used for now. WARNING:
-REM this removes Guest disable/rename, password+lockout policy, UAC hardening,
-REM the logon banner, AND the assertion that only IT_Admin + the disabled
-REM built-in admin are in local Administrators.
-REM call :RunPS Apply-StigHardening.ps1
-REM if errorlevel 1 goto :Fail
+REM Post-sysprep safety gate: only IT_Admin + the disabled built-in admin may
+REM be local Administrators. Hard-fail (needs the post-generalize accounts).
+call :RunPS Assert-AdminGroup.ps1
+if errorlevel 1 goto :Fail
 
 call :RunPS Enable-BitLocker.ps1
 if errorlevel 1 goto :Fail
-
-REM Best-effort app install: never aborts the chain (script exits 0).
-call :RunPS Install-NotepadPP.ps1
 
 call :RunPS Finalize-Cleanup.ps1
 if errorlevel 1 goto :Fail

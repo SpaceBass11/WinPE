@@ -11,17 +11,33 @@
 
 Place assets before sysprep in `C:\ProgramData\ManualClonezilla`:
 
+The work is split into two phases by what `sysprep /generalize` does to it.
+Anything that is SID-independent image state (survives generalize) is applied
+**once in the gold, pre-sysprep**, and captured. Anything that is per-machine
+(BIOS/TPM) or binds a post-generalize local-account SID runs at **first boot**.
+
+**Gold pre-sysprep scripts** (run via `Apply-GoldHardening.ps1` -- see step 2a):
+
+- `Scripts\Apply-GoldHardening.ps1` (runner for the three below)
+- `Scripts\Install-NotepadPP.ps1` (Win32 install; survives generalize)
+- `Scripts\Apply-StigHardening.ps1` (Guest disable/rename, password/lockout
+  policy, UAC, firewall, logon banner)
+- `Scripts\Disable-RDP.ps1` (Terminal Services policy + service disable; run
+  last, since RDP is on during the build)
+- `Installers\npp-installer.exe` (Notepad++ NSIS installer, consumed by the above)
+
+**First-boot scripts** (auto-run by `SetupComplete.cmd` after specialize):
+
 - `Scripts\SetupComplete.cmd`
 - `Scripts\Common.ps1` (shared helper functions; dot-sourced by the scripts below -- must be staged or they fail)
 - `Scripts\Apply-DellConfig.ps1`
 - `Scripts\Scrub-AuditArtifacts.ps1`
 - `Scripts\New-LocalAccounts.ps1`
+- `Scripts\Stage-DockerData.ps1` (optional; only does anything if a Docker payload is staged -- see "Docker data disk" below)
 - `Scripts\Set-Level0ACL.ps1`
-- `Scripts\Disable-RDP.ps1` (currently lined out of `SetupComplete.cmd`; still staged)
 - `Scripts\Harden-Administrator.ps1`
-- `Scripts\Apply-StigHardening.ps1` (currently lined out of `SetupComplete.cmd`; still staged)
+- `Scripts\Assert-AdminGroup.ps1` (post-sysprep safety gate: only IT_Admin + the disabled built-in admin in local Administrators)
 - `Scripts\Enable-BitLocker.ps1`
-- `Scripts\Install-NotepadPP.ps1`
 - `Scripts\Finalize-Cleanup.ps1`
 - `Config\dell-config.cctk` (Dell Command Configure package)
 - `Config\bitlocker-pin.txt` (single-line plaintext PIN for TPM+PIN -- copy
@@ -29,24 +45,42 @@ Place assets before sysprep in `C:\ProgramData\ManualClonezilla`:
 - `Config\accounts.csv` (named local accounts; `Username,Password,Role` --
   see `configs/accounts.example.csv`. Plaintext, baked into the image, same
   accepted risk as the PIN file; deleted by `Finalize-Cleanup.ps1`.)
-- `Installers\npp-installer.exe` (Notepad++ NSIS installer; installed silently
-  with `/S` at first boot since sysprep strips provisioned apps)
+- `Payload\docker_data.vhdx` (optional; the Docker Desktop WSL persistent data
+  disk to seed into Level 1 -- see "Docker data disk" below. Omit if the fleet
+  has no Docker payload.)
 
 The first-boot chain runs in this order: Apply-DellConfig -> Scrub-AuditArtifacts
--> New-LocalAccounts -> Set-Level0ACL -> ~~Disable-RDP~~ (lined out) ->
-Harden-Administrator -> ~~Apply-StigHardening~~ (lined out) -> Enable-BitLocker
--> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. Build the gold master in
-**audit mode** under the built-in
-Administrator; the named accounts and hardening are applied at first boot, not
-in the GM. Set unattend `CopyProfile=true` (specialize pass) if you want new
-accounts to inherit the Administrator profile -- it is processed before the
-first-boot Administrator rename/disable, so the two do not race.
+-> New-LocalAccounts -> Stage-DockerData (non-fatal) -> Set-Level0ACL ->
+Harden-Administrator -> Assert-AdminGroup -> Enable-BitLocker ->
+Finalize-Cleanup. Build the gold master in **audit mode** under the built-in
+Administrator; the named accounts and the per-machine hardening are applied at
+first boot, not in the GM. Set unattend `CopyProfile=true` (specialize pass) if
+you want new accounts to inherit the Administrator profile -- it is processed
+before the first-boot Administrator rename/disable, so the two do not race.
 
-> **Temporarily disabled steps:** the `Disable-RDP` and `Apply-StigHardening`
-> calls are currently REM-commented in `SetupComplete.cmd`. Until they are
-> restored, deployed machines keep **RDP enabled** and do **not** receive the
-> STIG baseline (Guest disable, password/lockout policy, UAC hardening, logon
-> banner, and the only-IT_Admin-in-Administrators assertion).
+> **Why the split:** `sysprep /generalize` regenerates the machine SID, so any
+> local-account SID (accounts, NTFS ACLs, admin/Guest membership) baked into
+> the gold would be orphaned after generalize -- those steps must run at first
+> boot. BIOS (Dell CCTK) and BitLocker (TPM-sealed) are per-machine and also
+> can't be baked. Everything else (RDP policy, the STIG baseline, the Notepad++
+> install) is SID-independent registry/filesystem state that survives
+> generalize, so it is applied once in the gold instead of on every deploy.
+
+### 2a) Apply gold hardening (last thing before sysprep)
+
+In the gold, in audit mode under the built-in Administrator, run the
+pre-sysprep hardening as the final step before sysprep:
+
+```
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\ManualClonezilla\Scripts\Apply-GoldHardening.ps1
+```
+
+This installs Notepad++, applies the STIG baseline, and disables RDP **last**
+(RDP is intentionally left on during the build for the Hyper-V enhanced
+session). The STIG/RDP steps are fatal -- do not sysprep a gold that failed to
+harden. After the first release, confirm the secpol/UAC/firewall values
+actually survive your specific generalize + OOBE (they should; OOBE can
+re-touch a few security defaults).
 
 ### Clean the Administrator profile before sysprep
 
@@ -76,6 +110,40 @@ can read it. This is an accepted-risk same-PIN-fleet-wide design; if you
 need per-machine PINs, this workflow is the wrong tool. `Finalize-Cleanup.ps1`
 deletes the PIN file at end of `SetupComplete`, so the deployed machine
 does not retain it on disk.
+
+### Docker data disk
+
+If the fleet ships with pre-loaded Docker images/volumes, stage the Docker
+Desktop WSL **data** disk so a deployed machine comes up with that data already
+present for the `Level 1` user.
+
+- Install Docker Desktop (WSL2 backend) **machine-wide** in the gold. The
+  per-user WSL distro registration and an empty data disk are created on each
+  user's first Docker run -- so this does **not** require Level 1 to exist in
+  the gold, and the gold can stay a clean Administrator-only sysprep.
+- Build/populate `docker_data.vhdx` once (any throwaway account or a separate
+  workstation), then drop it at
+  `C:\ProgramData\ManualClonezilla\Payload\docker_data.vhdx` before sysprep.
+  Treat it as a versioned release artifact rather than rebuilding it inside
+  every gold. (It is gitignored -- never commit the VHDX.)
+
+At first boot, `Stage-DockerData.ps1` runs after `New-LocalAccounts`. Level 1's
+profile does **not** exist yet (the account is created but never logged in), so
+the script calls the Win32 `CreateProfile` API to register a real profile for
+Level 1 (seeded from Default) and copies the data disk into
+`AppData\Local\Docker\wsl\disk\`. Because Level 1 has never logged in, Docker is
+not running and the `.vhdx` is not locked -- no shutdown dance. The step is
+**non-fatal**: a missing or failed payload never aborts the security chain, and
+`Finalize-Cleanup.ps1` reclaims the staged copy once it has been seeded.
+
+> **Bench-test before relying on it.** This *pre-seeds* the disk before Docker's
+> first run for Level 1. Only *overwriting an already-present* disk is
+> confirmed-working; whether Docker **adopts** a pre-placed disk on first launch
+> (vs. recreating an empty one and stomping it) has not been validated. On a
+> test deploy, log in as Level 1, start Docker, and confirm the seeded
+> images/volumes are present. If Docker stomps the pre-seed, switch to a
+> Level-1 first-logon overwrite (scheduled task that stops Docker + `wsl
+> --shutdown`, then overwrites the disk Docker created).
 
 ### Dell Command | Configure
 
@@ -136,7 +204,7 @@ per your workflow).
   - `manage-bde -status C:` shows protection enabled (or encryption in progress).
   - `manage-bde -protectors -get C:` lists both a TPM And PIN protector and a
     Numerical Password (recovery) protector.
-  - `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-*.txt` exists
+  - `C:\ProgramData\ManualClonezilla\RecoveryKeys\BitLocker-RecoveryKey-*.txt` exists
     and contains a 48-digit recovery password.
   - PIN file `C:\ProgramData\ManualClonezilla\Config\bitlocker-pin.txt` is
     gone (Finalize-Cleanup ran).
@@ -174,13 +242,13 @@ Recommended Dell-specific validation per model family:
 
 3. **Lost recovery key risk (medium):**
    - Risk: This is an offline, unmanaged workflow. Recovery keys are written to
-     `C:\ProgramData\BitLockers\` (ACL-locked to administrators) and stay there
+     `C:\ProgramData\ManualClonezilla\RecoveryKeys\` (ACL-locked to administrators) and stay there
      until manually collected. A user-initiated reset or reimage wipes them.
    - Fix: Operator SOP must include "collect the recovery key file off the
      machine before handing over" (log in as `IT_Admin`; the built-in admin is
      disabled). If you need centralized escrow, replace `Export-RecoveryKey` in
      `Enable-BitLocker.ps1` with a write to your shared/SMB/MDM target instead
-     of `C:\ProgramData\BitLockers\`.
+     of `C:\ProgramData\ManualClonezilla\RecoveryKeys\`.
 
 4. **Cross-model BIOS package risk (medium):**
    - Risk: One Dell CCTK package may not apply cleanly across all model families.
@@ -191,7 +259,7 @@ Recommended Dell-specific validation per model family:
    - Fix: Enforce a strict capture-immediately policy and re-run sysprep if accidental boot occurs.
 
 6. **Administrators-group assertion (by design):**
-   - Risk: `Apply-StigHardening.ps1` hard-fails the deploy if any account other
+   - Risk: `Assert-AdminGroup.ps1` hard-fails the deploy if any account other
      than `IT_Admin` and the disabled built-in admin is in local Administrators.
    - Fix: This is intentional -- it guarantees `Level 0`-`Level 3` stay standard
      users. If it fires, fix the `Role` column in `accounts.csv` (only `IT_Admin`

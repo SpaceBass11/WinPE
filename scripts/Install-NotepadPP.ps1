@@ -1,11 +1,12 @@
 # Install-NotepadPP.ps1
-# Silent-installs Notepad++ from the bundled NSIS installer staged in the
-# gold image. Sysprep strips provisioned per-user apps, so this re-installs
-# at first boot.
+# RUNS IN THE GOLD PRE-SYSPREP (not at first boot). Notepad++ is a machine-
+# wide Win32/NSIS install, NOT a provisioned Appx package -- sysprep
+# /generalize only strips Appx, so a Win32 install done in the gold is
+# captured into the image and survives generalize. There is therefore no
+# reason to re-install it on every deploy. Invoke via Apply-GoldHardening.ps1.
 #
-# Best-effort by design: a missing or failing app installer must NOT abort
-# the security-critical chain (accounts, ACLs, RDP, Administrator hardening,
-# BitLocker all run before this). The script logs and exits 0 on failure.
+# Best-effort by design (logs and exits 0 on failure) so a missing or failing
+# installer cannot abort the gold-hardening run.
 
 $ErrorActionPreference = 'Stop'
 

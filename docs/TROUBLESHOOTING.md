@@ -75,21 +75,31 @@ See [docs/CCTK.md](CCTK.md#troubleshooting). Common cases:
 | `Could not locate the built-in Administrator account (RID 500)` | Unusual; account enumeration failed | Check the account exists (`Get-LocalUser`); inspect `Harden-Administrator.log`. |
 | Re-run says "already renamed; leaving as-is" | Normal idempotent path on a second run | No action -- the account is found by RID 500 regardless of name. |
 
-### Apply-StigHardening fails
+### Assert-AdminGroup fails (first boot)
 
 | Error in log | Cause | Fix |
 |---|---|---|
-| `Unexpected member(s) in 'Administrators'` (hard fail) | An account other than `IT_Admin` + the disabled built-in admin is a local admin | Investigate how it got there (CSV Role, manual change). The whole posture depends on Level 0-3 being standard users. |
+| `Unexpected member(s) in 'Administrators'` (hard fail) | An account other than `IT_Admin` + the disabled built-in admin is a local admin | Investigate how it got there (CSV Role, manual change). The whole posture depends on Level 0-3 being standard users. Fix the `Role` column in `accounts.csv` (only `IT_Admin` is `Admin`). |
+
+### Apply-StigHardening fails (gold pre-sysprep)
+
+These run in the gold via `Apply-GoldHardening.ps1`, before sysprep -- not at
+deploy. A failure here means **do not sysprep yet**; fix and re-run.
+
+| Error in log | Cause | Fix |
+|---|---|---|
 | `secedit failed to apply password/lockout policy` | secedit returned non-zero | Check `Apply-StigHardening.log`; inspect `C:\Windows\security\logs\scesrv.log`. |
 | `Could not set firewall profiles` (warning, non-fatal) | NetSecurity module stripped from the image | Non-fatal; set firewall posture another way if required. |
 
-### Install-NotepadPP "fails" (non-fatal)
+### Install-NotepadPP "fails" (gold pre-sysprep, non-fatal)
 
-`Install-NotepadPP.ps1` is **non-fatal by design** -- it logs and exits 0
-even on failure, so it never aborts the chain. A `installer not found`
-or non-zero installer warning in `Install-NotepadPP.log` does **not** stop
-deployment. To actually get Notepad++ installed, stage
-`Installers\npp-installer.exe` in the gold image.
+`Install-NotepadPP.ps1` runs in the gold (via `Apply-GoldHardening.ps1`) and is
+**non-fatal by design** -- it logs and exits 0 even on failure, so it never
+aborts the gold-hardening run. A `installer not found` or non-zero installer
+warning in `Install-NotepadPP.log` does **not** stop the build. To actually get
+Notepad++ installed, stage `Installers\npp-installer.exe` in the gold before
+running `Apply-GoldHardening.ps1`. (It is a Win32 install, so it is captured
+into the image and survives generalize -- no per-deploy reinstall.)
 
 ### Enable-BitLocker fails
 
@@ -126,7 +136,7 @@ model](../README.md#bitlocker-pin-trust-model) in the README.
 
 ### Recovery keys are local-only
 This workflow is unmanaged (no AD, no MDM). Keys land at
-`C:\ProgramData\BitLockers\BitLocker-RecoveryKey-*.txt` (ACL-locked to
+`C:\ProgramData\ManualClonezilla\RecoveryKeys\BitLocker-RecoveryKey-*.txt` (ACL-locked to
 administrators) on each deployed machine. Operator SOP is responsible for collecting them
 before handoff. If you need centralized escrow, modify
 `Export-RecoveryKey` in `scripts/Enable-BitLocker.ps1`.
