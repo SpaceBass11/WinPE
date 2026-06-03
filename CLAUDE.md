@@ -21,24 +21,26 @@ no deployment server, no per-machine variation, no MDM.
 > **not** a violation of the "identical deploys" idea -- every deployed
 > machine still ends up identically configured. The "no app install / walk
 > away minimalism" entries in the locked table below describe the *narrower*
-> clonezilla-v2 origin; on this line they have been deliberately relaxed by
-> the user. Do not re-flag account creation, app install, or the
+> original Clonezilla design point; on this line they have been deliberately
+> relaxed by the user. Do not re-flag account creation, app install, or the
 > `C:\ProgramData\ManualClonezilla\RecoveryKeys` key path as scope violations.
 
 **Branches in the repo and what they mean:**
 
 | Branch | Status | Use |
 |---|---|---|
-| `main` | active alternate | WinPE per-USB deploy tool. Different design point (per-machine variation: different PIN per laptop, different image per model). Kept for environments that need it. Do not pollute with Clonezilla-specific work. |
-| `claude/clonezilla-v2` | **current active** | The Clonezilla pivot. This is the one being iterated. |
-| `feature-clonezilla` | parent / archive | The original Clonezilla branch that this one was forked from. Carried MDT scaffolding alongside; `claude/clonezilla-v2` is the cleaned-up successor. |
+| `main` | active alternate | WinPE per-USB deploy tool. Different design point (per-machine variation: different PIN per laptop, different image per model). Kept for environments that need it. Do not pollute with Clonezilla-specific work. Wildly diverged from the Clonezilla line -- never target it with a Clonezilla PR. |
+| `feature-clonezilla` | **current integration branch** | The live Clonezilla line. This is the long-lived branch Clonezilla work merges INTO -- PRs land here (e.g. #59, #61), not on `main`. When you open a PR, the base is `feature-clonezilla`. |
+| `claude/*` (e.g. `claude/affectionate-ritchie-NegRj`) | **ephemeral work branches** | Short-lived per-session branches. Develop here, then open a PR into `feature-clonezilla`. Often deleted after merge; a fresh session typically gets a new one. |
+| `claude/clonezilla-v2` | **does NOT exist on the remote** | Earlier docs called this the "current active" branch. It was never pushed / no longer exists. Ignore it -- the integration branch is `feature-clonezilla`. |
 | `feature-mdt`, `feature-manual-mdt-guide` | dead end | Earlier MDT-based pivot. Abandoned -- too much surface area for a static fleet. |
 | `feature-SimplifiedManualUse` | dead end | Earlier exploration. Superseded. |
 | `archive-*` | archive | Historical states preserved for reference. Don't build on these. |
 
 **If you're starting a fresh session and not sure which branch to use:**
-- For Clonezilla work -> `claude/clonezilla-v2` (or the branch it
-  eventually merges into).
+- For Clonezilla work -> develop on your session's `claude/*` working branch
+  (create one if you don't have it), and open the PR with base
+  `feature-clonezilla`. Never base a Clonezilla PR on `main`.
 - For the WinPE per-USB tool -> `main`.
 - Anything else -> ask the user first; the repo has a lot of history.
 
@@ -289,12 +291,19 @@ loose ends."
 
 ## Git Workflow (Claude Code Web)
 
-Direct push to `main` is blocked by the Claude Code Web harness. Push
-to a side branch:
+Clonezilla work happens on a `claude/*` working branch and is merged via
+PR into **`feature-clonezilla`** (NOT `main` -- `main` is the unrelated
+WinPE line). Push the working branch:
 
 ```
 git push -u origin <branch-name>
 ```
 
-User opens a PR via the GitHub UI and merges. Do not retry failed
-pushes to main - they will all fail.
+Then open a PR with base `feature-clonezilla` (the GitHub MCP tools can do
+this: `create_pull_request` with `base: feature-clonezilla`). If you ever
+target `main` by mistake, retarget with `update_pull_request` (`base:
+feature-clonezilla`) -- do not merge a Clonezilla PR into `main`.
+
+Direct push to `main` is blocked by the Claude Code Web harness; do not
+retry failed pushes to `main`, they will all fail. Pushes to the `claude/*`
+working branch update any open PR.
