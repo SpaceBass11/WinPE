@@ -49,9 +49,17 @@ jobs:
           dc=scripts/Apply-DellConfig.ps1
 
           echo "=== 1. SetupComplete orchestrates the first-boot PS scripts ==="
+          # First-boot (post-sysprep) set only. RDP-off, the STIG baseline, and
+          # Notepad++ are baked into the gold pre-sysprep (Apply-GoldHardening),
+          # so they intentionally do NOT appear in SetupComplete.
           ok=1
-          for n in Apply-DellConfig.ps1 Scrub-AuditArtifacts.ps1 New-LocalAccounts.ps1 Stage-DockerData.ps1 Set-Level0ACL.ps1 Disable-RDP.ps1 Harden-Administrator.ps1 Apply-StigHardening.ps1 Enable-BitLocker.ps1 Install-NotepadPP.ps1 Finalize-Cleanup.ps1; do
+          for n in Apply-DellConfig.ps1 Scrub-AuditArtifacts.ps1 New-LocalAccounts.ps1 Stage-DockerData.ps1 Set-Level0ACL.ps1 Harden-Administrator.ps1 Assert-AdminGroup.ps1 Enable-BitLocker.ps1 Finalize-Cleanup.ps1; do
             grep -qF "$n" "$sc" || { echo "  $sc missing $n"; ok=0; }
+          done
+          # The gold-phase scripts must NOT be actively called from first-boot
+          # (an active call line starts with "call"; REM lines do not).
+          for n in Disable-RDP.ps1 Apply-StigHardening.ps1 Install-NotepadPP.ps1; do
+            grep -qE "^call .*RunPS $n" "$sc" && { echo "  $sc should not call $n (gold-phase)"; ok=0; }
           done
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL"; fail=1; fi
 
@@ -72,10 +80,10 @@ jobs:
           fi
 
           echo ""
-          echo "=== 4. Recovery key export path is C:\\ProgramData\\BitLockers ==="
+          echo "=== 4. Recovery key export path is C:\\ProgramData\\ManualClonezilla\\RecoveryKeys ==="
           # Whitespace-agnostic: assert the var, the filename stem, and the
           # literal path independently rather than matching exact formatting.
-          if grep -qiE 'keyDir' "$bl" && grep -qF 'BitLocker-RecoveryKey-' "$bl" && grep -qF "'C:\\ProgramData\\BitLockers'" "$bl"; then
+          if grep -qiE 'keyDir' "$bl" && grep -qF 'BitLocker-RecoveryKey-' "$bl" && grep -qF "'C:\\ProgramData\\ManualClonezilla\\RecoveryKeys'" "$bl"; then
             echo "OK"
           else
             echo "FAIL: recovery key export path"; fail=1
@@ -167,7 +175,7 @@ jobs:
           fi
 
           echo ""
-          echo "=== 7h. Apply-StigHardening: Guest RID 501, lockout policy, admin-group assertion ==="
+          echo "=== 7h. Apply-StigHardening (gold baseline): Guest RID 501, lockout, UAC ==="
           st=scripts/Apply-StigHardening.ps1
           if grep -qF "S-1-5-*-501" "$st" && grep -qF 'LockoutBadCount' "$st" && grep -qF 'FilterAdministratorToken' "$st"; then
             echo "OK"
@@ -182,6 +190,24 @@ jobs:
             echo "OK"
           else
             echo "FAIL: Stage-DockerData CreateProfile / non-fatal invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7j. Assert-AdminGroup (first-boot) hard-fails on extra Administrators ==="
+          ag=scripts/Assert-AdminGroup.ps1
+          if grep -qF 'S-1-5-32-544' "$ag" && grep -qF "S-1-5-*-500" "$ag" && grep -qF 'Unexpected member' "$ag"; then
+            echo "OK"
+          else
+            echo "FAIL: Assert-AdminGroup invariant"; fail=1
+          fi
+
+          echo ""
+          echo "=== 7k. Apply-GoldHardening runs the 3 gold-phase scripts (RDP last) ==="
+          gh=scripts/Apply-GoldHardening.ps1
+          if grep -qF 'Install-NotepadPP.ps1' "$gh" && grep -qF 'Apply-StigHardening.ps1' "$gh" && grep -qF 'Disable-RDP.ps1' "$gh"; then
+            echo "OK"
+          else
+            echo "FAIL: Apply-GoldHardening must orchestrate the gold-phase scripts"; fail=1
           fi
 
           exit $fail
@@ -243,6 +269,24 @@ jobs:
           echo "=== 14. Recovery-key path is consistent across operator docs ==="
           if grep -rqF 'ManualClonezilla\State\BitLocker-RecoveryKey' docs/ README.md CLAUDE.md; then
             echo "FAIL: stale State\\ recovery-key path still present"; fail=1
+          else
+            echo "OK"
+          fi
+
+          echo ""
+          echo "=== 15. RUNBOOK documents the pre-sysprep gold hardening ==="
+          if grep -qF 'Apply-GoldHardening' docs/RUNBOOK.md; then
+            echo "OK"
+          else
+            echo "FAIL: RUNBOOK must document the pre-sysprep Apply-GoldHardening run"; fail=1
+          fi
+
+          echo ""
+          echo "=== 16. No stale C:\\ProgramData\\BitLockers path in current docs/scripts ==="
+          if grep -rqF 'C:\ProgramData\BitLockers' docs/ README.md scripts/; then
+            echo "FAIL: stale C:\\ProgramData\\BitLockers path still present (now RecoveryKeys)"
+            grep -rlF 'C:\ProgramData\BitLockers' docs/ README.md scripts/
+            fail=1
           else
             echo "OK"
           fi

@@ -12,24 +12,21 @@ interaction.
 Admin workstation (golden VM/hardware, built in AUDIT MODE)
   |
   +-- Install Windows 11, apply updates, install required software
-  +-- Stage first-boot automation under C:\ProgramData\ManualClonezilla\:
+  +-- Stage automation under C:\ProgramData\ManualClonezilla\:
   |     Scripts\SetupComplete.cmd          (also copied to C:\Windows\Setup\Scripts\)
   |     Scripts\Common.ps1                 (shared helpers; dot-sourced)
-  |     Scripts\Apply-DellConfig.ps1
-  |     Scripts\Scrub-AuditArtifacts.ps1
-  |     Scripts\New-LocalAccounts.ps1
-  |     Scripts\Set-Level0ACL.ps1
-  |     Scripts\Disable-RDP.ps1
-  |     Scripts\Harden-Administrator.ps1
-  |     Scripts\Apply-StigHardening.ps1
-  |     Scripts\Enable-BitLocker.ps1
-  |     Scripts\Install-NotepadPP.ps1
-  |     Scripts\Finalize-Cleanup.ps1
+  |     First-boot:  Apply-DellConfig, Scrub-AuditArtifacts, New-LocalAccounts,
+  |                  Stage-DockerData, Set-Level0ACL, Harden-Administrator,
+  |                  Assert-AdminGroup, Enable-BitLocker, Finalize-Cleanup
+  |     Gold phase:  Apply-GoldHardening (runs Install-NotepadPP,
+  |                  Apply-StigHardening, Disable-RDP)
   |     Config\dell-config.cctk
   |     Config\bitlocker-pin.txt
   |     Config\accounts.csv
   |     Installers\npp-installer.exe
   +-- Stage answer file at C:\Windows\Panther\unattend.xml
+  +-- Run Apply-GoldHardening.ps1 (Notepad++ + STIG baseline + RDP-off; baked
+  |     into the image -- SID-independent state that survives generalize)
   +-- sysprep /generalize /oobe /shutdown
                                          |
   +-- Boot Clonezilla Live, capture the disk
@@ -76,18 +73,22 @@ When the operator boots from the USB:
    here -- they are provisioned at first boot by `New-LocalAccounts.ps1`,
    below.)
 5. **`C:\Windows\Setup\Scripts\SetupComplete.cmd`** runs once,
-   automatically, after specialize completes. It calls in order:
+   automatically, after specialize completes. It calls, in order, only the
+   per-machine / post-generalize-SID-dependent steps (RDP-off, the STIG
+   baseline, and Notepad++ were already baked into the gold pre-sysprep):
    - `Apply-DellConfig.ps1` -- imports CCTK BIOS settings.
+   - `Scrub-AuditArtifacts.ps1` -- clears autologon + Panther unattend secrets.
    - `New-LocalAccounts.ps1` -- creates Level 0-3 (standard) and
      IT_Admin (admin) from `Config\accounts.csv`.
+   - `Stage-DockerData.ps1` -- seeds the Level 1 Docker data disk (non-fatal).
    - `Set-Level0ACL.ps1` -- Deny ACLs locking Level 0 out of
      `C:\Programs` and `C:\Users\Public\Desktop\Quick Links`.
-   - `Disable-RDP.ps1` -- fail-safe RDP disable.
    - `Harden-Administrator.ps1` -- STIG: rotate/disable/rename the
      built-in Administrator.
+   - `Assert-AdminGroup.ps1` -- hard-fails unless only IT_Admin + the
+     disabled built-in admin are local Administrators.
    - `Enable-BitLocker.ps1` -- TPM+PIN on C:, exports the recovery
-     key to `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<host>-<ts>.txt`.
-   - `Install-NotepadPP.ps1` -- silent Notepad++ install (non-fatal).
+     key to `C:\ProgramData\ManualClonezilla\RecoveryKeys\BitLocker-RecoveryKey-<host>-<ts>.txt`.
    - `Finalize-Cleanup.ps1` -- removes `dell-config.cctk`,
      `bitlocker-pin.txt`, and `accounts.csv` from disk.
 6. **Second reboot** activates any queued BIOS changes from CCTK and
@@ -108,13 +109,16 @@ re-cut with that family's drivers added.
 | `scripts/Apply-DellConfig.ps1` | CCTK BIOS import. Idempotent via SHA256 marker |
 | `scripts/Scrub-AuditArtifacts.ps1` | Clears autologon + Panther unattend secrets |
 | `scripts/New-LocalAccounts.ps1` | Creates Level 0-3 + IT_Admin from accounts.csv |
+| `scripts/Stage-DockerData.ps1` | First-boot: seeds Level 1 Docker data disk via CreateProfile (non-fatal) |
 | `scripts/Set-Level0ACL.ps1` | Deny ACLs locking Level 0 out of restricted folders |
-| `scripts/Disable-RDP.ps1` | Fail-safe RDP disable |
 | `scripts/Harden-Administrator.ps1` | STIG disable/rotate/rename of built-in admin |
-| `scripts/Apply-StigHardening.ps1` | Guest, password/lockout, UAC, firewall, banner, admin-group assertion |
+| `scripts/Assert-AdminGroup.ps1` | First-boot hard-fail: only IT_Admin + disabled built-in admin in Administrators |
 | `scripts/Enable-BitLocker.ps1` | TPM+PIN enable + recovery key export (ACL-locked dir) |
-| `scripts/Install-NotepadPP.ps1` | Silent Notepad++ install (non-fatal) |
 | `scripts/Finalize-Cleanup.ps1` | Removes one-time secrets from disk |
+| `scripts/Apply-GoldHardening.ps1` | **Gold pre-sysprep** runner: Install-NotepadPP -> Apply-StigHardening -> Disable-RDP |
+| `scripts/Apply-StigHardening.ps1` | **Gold pre-sysprep**: Guest, password/lockout, UAC, firewall, banner |
+| `scripts/Disable-RDP.ps1` | **Gold pre-sysprep**: fail-safe RDP disable (last) |
+| `scripts/Install-NotepadPP.ps1` | **Gold pre-sysprep**: silent Notepad++ install (non-fatal) |
 | `configs/unattend.example.xml` | Skeleton answer file for the gold image |
 | `configs/accounts.example.csv` | Template for the staged accounts.csv |
 | `docs/RUNBOOK.md` | End-to-end admin build process (source of truth) |

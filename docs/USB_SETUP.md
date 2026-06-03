@@ -51,7 +51,7 @@ ACL-locked to administrators, so on each deployed machine log in once as
 and copy this file off the machine:
 
 ```
-C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<hostname>-<timestamp>.txt
+C:\ProgramData\ManualClonezilla\RecoveryKeys\BitLocker-RecoveryKey-<hostname>-<timestamp>.txt
 ```
 
 Store it per your team's SOP (encrypted USB key, password vault,

@@ -8,6 +8,38 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Changed (pre/post-sysprep split + layout)
+- **Moved SID-independent hardening into the gold (pre-sysprep).** RDP-off,
+  the STIG baseline, and the Notepad++ install no longer run at first boot --
+  they are applied once in the gold and captured, because they are
+  registry/filesystem image state that survives `sysprep /generalize`. New
+  `scripts/Apply-GoldHardening.ps1` runs them in order (Notepad++ ->
+  Apply-StigHardening -> Disable-RDP, RDP last) as the final step before
+  sysprep. The first-boot chain (`SetupComplete.cmd`) now contains only the
+  per-machine / post-generalize-SID-dependent steps: Apply-DellConfig ->
+  Scrub-AuditArtifacts -> New-LocalAccounts -> Stage-DockerData (non-fatal)
+  -> Set-Level0ACL -> Harden-Administrator -> Assert-AdminGroup ->
+  Enable-BitLocker -> Finalize-Cleanup.
+- `scripts/Assert-AdminGroup.ps1` -- new first-boot hard-fail gate (only
+  IT_Admin + the disabled built-in admin in local Administrators). This is
+  the one piece of the old `Apply-StigHardening` that had to stay at first
+  boot, since it inspects the post-generalize accounts. `Apply-StigHardening`
+  is now the gold-phase baseline (assertion removed).
+- Fixed an inaccurate rationale: Notepad++ was installed at first boot on the
+  belief that "sysprep strips provisioned apps." It is a Win32/NSIS install,
+  which `generalize` does not strip -- so it is captured from the gold.
+- **Recovery keys moved** from `C:\ProgramData\BitLockers\` to
+  `C:\ProgramData\ManualClonezilla\RecoveryKeys\`, consolidating everything
+  under the one ProgramData root. Still ACL-locked to SYSTEM + Administrators
+  and preserved by `Finalize-Cleanup`.
+- `scripts/Stage-DockerData.ps1` -- new non-fatal first-boot step that
+  pre-seeds the Docker Desktop WSL data disk (`docker_data.vhdx`) into the
+  Level 1 profile via the Win32 `CreateProfile` API. `Finalize-Cleanup`
+  reclaims the staged copy once seeded. `*.vhdx` added to `.gitignore`.
+- CI: check 1 now asserts the first-boot set **and** the absence of the
+  gold-phase calls; new checks pin Assert-AdminGroup, Apply-GoldHardening,
+  Stage-DockerData, the RecoveryKeys path, and the RUNBOOK gold-hardening step.
+
 ### Added (testing + CI)
 - `scripts/Common.ps1` -- shared pure helpers (`New-RandomName`,
   `New-RandomPassword`, `New-RecoveryKeyFileName`, `Test-AccountRow`)

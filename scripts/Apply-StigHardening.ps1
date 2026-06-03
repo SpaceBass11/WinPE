@@ -1,7 +1,11 @@
 # Apply-StigHardening.ps1
-# STIG-leaning baseline that the account/BitLocker scripts don't cover.
-# Runs after New-LocalAccounts and Harden-Administrator so the final
-# Administrators-group assertion sees the real post-hardening membership.
+# RUNS IN THE GOLD PRE-SYSPREP (not at first boot). Every control here is
+# SID-independent image state that survives sysprep /generalize, so it is
+# baked into the gold once rather than re-applied on every deploy. The
+# account-dependent Administrators-group assertion that used to live here has
+# moved to Assert-AdminGroup.ps1, which DOES run at first boot (it needs the
+# post-generalize accounts). Invoke this via Apply-GoldHardening.ps1 before
+# sysprep. STIG-leaning baseline that the account/BitLocker scripts don't cover:
 #
 #   1. Built-in Guest (RID 501): disable + rename off "Guest".
 #   2. Password + account-lockout policy via secedit (length/complexity/age/
@@ -11,11 +15,10 @@
 #      (best-effort -- logged, not fatal, in case the firewall module is
 #      stripped from the image).
 #   5. Logon banner + DontDisplayLastUserName.
-#   6. Assertion: only IT_Admin and the (disabled) built-in admin may be in
-#      local Administrators. Hard-fail otherwise -- the whole posture depends
-#      on Level 0-3 being standard users.
 #
 # Edit $bannerCaption/$bannerText and the policy values to match your SOP.
+# NOTE: after the first release, confirm these values survive your specific
+# generalize + OOBE (they should; OOBE can re-touch a few security defaults).
 
 $ErrorActionPreference = 'Stop'
 
@@ -24,7 +27,6 @@ $logDir  = Join-Path $root 'Logs'
 $logFile = Join-Path $logDir 'Apply-StigHardening.log'
 
 $policyKey  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
-$adminUser  = 'IT_Admin'
 $guestNewName = 'xGuestDisabled'
 
 $bannerCaption = 'Authorized Use Only'
@@ -111,27 +113,7 @@ Revision=1
     Set-PolicyDword  -Name 'DontDisplayLastUserName' -Value 1
     Write-Host 'Logon banner and DontDisplayLastUserName applied.'
 
-    # --- 6. Administrators-group assertion -------------------------------
-    $adminsGroup = (Get-LocalGroup -SID 'S-1-5-32-544').Name
-    $allowed = @()
-    $builtinAdmin = Get-LocalUser | Where-Object { $_.SID.Value -like 'S-1-5-*-500' } | Select-Object -First 1
-    if ($builtinAdmin) { $allowed += $builtinAdmin.SID.Value }
-    $itAdmin = Get-LocalUser -Name $adminUser -ErrorAction SilentlyContinue
-    if ($itAdmin) { $allowed += $itAdmin.SID.Value }
-
-    $members = Get-LocalGroupMember -Group $adminsGroup -ErrorAction Stop
-    $violations = @()
-    foreach ($m in $members) {
-        if ($allowed -notcontains $m.SID.Value) {
-            $violations += ("{0} ({1})" -f $m.Name, $m.SID.Value)
-        }
-    }
-    if ($violations.Count -gt 0) {
-        throw ("Unexpected member(s) in '{0}': {1}. Only {2} and the built-in admin (disabled) are permitted." -f $adminsGroup, ($violations -join '; '), $adminUser)
-    }
-    Write-Host "Administrators group membership verified (only $adminUser + disabled built-in)."
-
-    Write-Host 'STIG hardening completed.'
+    Write-Host 'STIG baseline completed.'
 }
 finally {
     Stop-Transcript -ErrorAction SilentlyContinue | Out-Null

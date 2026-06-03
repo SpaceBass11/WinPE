@@ -1,8 +1,10 @@
 # Disable-RDP.ps1
-# Fail-safe disable of Remote Desktop via the Local Group Policy registry
-# values. RDP is expected to be off already (it was only on for Hyper-V
-# enhanced session during build), but this re-asserts the posture on every
-# deploy.
+# RUNS IN THE GOLD PRE-SYSPREP, as the LAST hardening step before sysprep --
+# RDP is intentionally left ON during the build (Hyper-V enhanced session),
+# so this is the final thing you run before generalizing. The policy values
+# and service state it writes are SID-independent registry/image state that
+# survives sysprep /generalize, so they are baked into the gold once rather
+# than re-applied on every deploy. Invoke via Apply-GoldHardening.ps1.
 #
 # Controls applied under the Terminal Services *policy* hive -- the same
 # values gpedit writes for "Allow users to connect remotely by using Remote

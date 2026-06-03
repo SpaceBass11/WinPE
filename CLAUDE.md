@@ -13,14 +13,17 @@ no deployment server, no per-machine variation, no MDM.
 > first-boot chain (unattend + `SetupComplete.cmd` PS1s) intentionally makes
 > the deployed machine **diverge** from the GM: it provisions named accounts
 > (`Level 0`-`Level 3`, `IT_Admin`), applies Level 0 lockdown ACLs, hardens
-> the built-in Administrator (STIG rename/disable), disables RDP, installs
-> Notepad++, and enables BitLocker. That divergence is the deploy-time half
-> of the audit-mode build, **not** a violation of the "identical deploys"
-> idea -- every deployed machine still ends up identically configured. The
-> "no app install / walk away minimalism" entries in the locked table below
-> describe the *narrower* clonezilla-v2 origin; on this line they have been
-> deliberately relaxed by the user. Do not re-flag account creation, app
-> install, or the `C:\ProgramData\BitLockers` key path as scope violations.
+> the built-in Administrator (STIG rename/disable), and enables BitLocker.
+> (RDP-off, the STIG baseline, and the Notepad++ install moved to the GOLD
+> pre-sysprep phase -- see Architecture -- because they are SID-independent
+> image state that survives generalize; the divergence above is only the
+> per-machine / post-generalize-SID-dependent half.) That divergence is
+> **not** a violation of the "identical deploys" idea -- every deployed
+> machine still ends up identically configured. The "no app install / walk
+> away minimalism" entries in the locked table below describe the *narrower*
+> clonezilla-v2 origin; on this line they have been deliberately relaxed by
+> the user. Do not re-flag account creation, app install, or the
+> `C:\ProgramData\ManualClonezilla\RecoveryKeys` key path as scope violations.
 
 **Branches in the repo and what they mean:**
 
@@ -49,7 +52,7 @@ don't propose changing them unprompted.
 | Decision | Position |
 |---|---|
 | Per-machine vs. fleet-wide BitLocker PIN | **Same PIN across the fleet.** Accepted risk. The Yubikey or static-password mechanism that the operator uses to type the PIN at the BitLocker prompt is **out of scope for this repo** -- it's configured on the gold image's BitLocker policy and at PIN-entry time, not by these scripts. The scripts just take a plaintext PIN from `Config\bitlocker-pin.txt` and pass it to `Enable-BitLocker`. |
-| BitLocker recovery key escrow | **Local-only.** Written to `C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<host>-<ts>.txt` on the deployed machine (ACL-locked to SYSTEM + Administrators). No AD, no MDM, no SMB upload. Operator collects via SOP. The user does **not** want AD/MDM/Intune integration. If a future session is asked to add escrow, confirm the user has changed environments before implementing. |
+| BitLocker recovery key escrow | **Local-only.** Written to `C:\ProgramData\ManualClonezilla\RecoveryKeys\BitLocker-RecoveryKey-<host>-<ts>.txt` on the deployed machine (ACL-locked to SYSTEM + Administrators; Finalize-Cleanup never touches it). No AD, no MDM, no SMB upload. Operator collects via SOP. The user does **not** want AD/MDM/Intune integration. If a future session is asked to add escrow, confirm the user has changed environments before implementing. |
 | Computer name | **Random** via Windows default (`ComputerName` not set in unattend). No fixed pattern. |
 | Sysprep rearm limit | **Not a concern.** Modern Windows lifts the limit. Don't add `SkipRearm` workarounds. |
 | AHCI vs. RAID at deploy time | **Handled by operator SOP, not by these scripts.** Clonezilla won't see RAID-mode disks, which is a clean fail. The operator PDF tells them to switch to AHCI in BIOS and retry. Do not try to fix RAID mode programmatically. |
@@ -83,13 +86,13 @@ opposite design point: identical deploys to identical hardware.
 ```
 Admin workstation (one-time per release)
   +-- Build golden Win11 install on reference VM/hardware
-  +-- Stage C:\ProgramData\ManualClonezilla\ before sysprep:
-  |     Scripts\SetupComplete.cmd          (also copied to C:\Windows\Setup\Scripts\)
-  |     Scripts\Apply-DellConfig.ps1
-  |     Scripts\Enable-BitLocker.ps1
-  |     Scripts\Finalize-Cleanup.ps1
-  |     Config\dell-config.cctk
-  |     Config\bitlocker-pin.txt
+  +-- Stage C:\ProgramData\ManualClonezilla\ (scripts, Config, Payload, Installers)
+  +-- GOLD PRE-SYSPREP hardening (SID-independent image state; survives
+  |   generalize, so baked once instead of per-deploy). Run as the last step:
+  |     Scripts\Apply-GoldHardening.ps1  runs, in order:
+  |       Install-NotepadPP.ps1   (Win32 install; survives generalize)
+  |       Apply-StigHardening.ps1 (Guest, secpol, UAC, firewall, banner)
+  |       Disable-RDP.ps1         (TS policy + service disable; LAST -- RDP on during build)
   +-- sysprep /generalize /oobe /shutdown
   +-- Clonezilla Live capture
   +-- Generate self-restoring Clonezilla ISO
@@ -97,45 +100,48 @@ Admin workstation (one-time per release)
 Operator: Rufus -> USB -> boot -> walk away
                             |
 On first boot (after Windows specialize completes):
-  C:\Windows\Setup\Scripts\SetupComplete.cmd runs once and calls in order:
-    1. Apply-DellConfig.ps1      (cctk --import dell-config.cctk)
+  C:\Windows\Setup\Scripts\SetupComplete.cmd runs once and calls in order
+  (only the per-machine / post-generalize-SID-dependent steps live here):
+    1. Apply-DellConfig.ps1      (cctk --import dell-config.cctk; BIOS, per-target)
     2. Scrub-AuditArtifacts.ps1  (clear Winlogon autologon + Panther unattend)
     3. New-LocalAccounts.ps1     (Level 0-3 + IT_Admin from accounts.csv)
     3a. Stage-DockerData.ps1     (CreateProfile Level 1 + seed docker_data.vhdx; NON-FATAL)
     4. Set-Level0ACL.ps1         (Deny ACE for Level 0 on restricted folders)
-    5. Disable-RDP.ps1           (TEMPORARILY LINED OUT for now; RDP stays ON)
-    6. Harden-Administrator.ps1  (STIG rotate/disable/rename built-in admin)
-    7. Apply-StigHardening.ps1   (TEMPORARILY LINED OUT -- not used for now)
-    8. Enable-BitLocker.ps1      (TPM+PIN on C:, export recovery key to C:\ProgramData\BitLockers\)
-    9. Install-NotepadPP.ps1     (silent /S install; NON-FATAL)
-   10. Finalize-Cleanup.ps1      (delete dell-config.cctk, bitlocker-pin.txt, accounts.csv; reclaim staged docker_data.vhdx)
+    5. Harden-Administrator.ps1  (STIG rotate/disable/rename built-in admin)
+    6. Assert-AdminGroup.ps1     (HARD-FAIL: only IT_Admin + disabled built-in admin in Administrators)
+    7. Enable-BitLocker.ps1      (TPM+PIN on C:, export recovery key to C:\ProgramData\ManualClonezilla\RecoveryKeys\)
+    8. Finalize-Cleanup.ps1      (delete dell-config.cctk, bitlocker-pin.txt, accounts.csv; reclaim staged docker_data.vhdx)
 
   Note: the built-in Administrator profile is deleted by sysprep /generalize
   itself (CopyProfile copies it to Default first), so no deploy-side profile
   cleanup script is needed.
 
-  Note: the lined-out steps (5, 7) have their invocations REM-commented in
-  SetupComplete.cmd; the script files remain in scripts/ and are still
-  CI-checked. RDP-off and the STIG baseline are NOT applied while lined out.
+  Note: RDP-off, the STIG baseline, and the Notepad++ install moved to the gold
+  pre-sysprep phase (Apply-GoldHardening.ps1) because they are SID-independent
+  image state that survives generalize -- no reason to re-run them per deploy.
+  Only the account-dependent admin-group assertion stayed at first boot
+  (Assert-AdminGroup.ps1), since it needs the post-generalize accounts.
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `scripts/SetupComplete.cmd` | First-boot orchestrator. Auto-runs from `C:\Windows\Setup\Scripts\` after Windows specialize. Calls the PS1s in order. Any non-zero exit logs and exits -- except the non-fatal Notepad++ install. Order: Apply-DellConfig -> Scrub-AuditArtifacts -> New-LocalAccounts -> Stage-DockerData (non-fatal) -> Set-Level0ACL -> ~~Disable-RDP~~ (lined out) -> Harden-Administrator -> ~~Apply-StigHardening~~ (lined out) -> Enable-BitLocker -> Install-NotepadPP (non-fatal) -> Finalize-Cleanup. The Disable-RDP and Apply-StigHardening calls are currently REM-commented (see chain note above). |
+| `scripts/SetupComplete.cmd` | First-boot orchestrator. Auto-runs from `C:\Windows\Setup\Scripts\` after Windows specialize. Calls the PS1s in order; any non-zero exit logs and aborts. Only the per-machine / post-generalize-SID-dependent steps live here. Order: Apply-DellConfig -> Scrub-AuditArtifacts -> New-LocalAccounts -> Stage-DockerData (non-fatal) -> Set-Level0ACL -> Harden-Administrator -> Assert-AdminGroup -> Enable-BitLocker -> Finalize-Cleanup. RDP-off / STIG baseline / Notepad++ are NOT here -- they run in the gold pre-sysprep (Apply-GoldHardening). CI check 1 asserts both the present set and the absence of the gold-phase calls. |
+| `scripts/Apply-GoldHardening.ps1` | **Gold pre-sysprep runner.** Run once in the gold (audit mode, built-in Administrator) as the LAST step before sysprep. Invokes, in order: `Install-NotepadPP.ps1`, `Apply-StigHardening.ps1`, `Disable-RDP.ps1` (RDP last, since it is on during the build). STIG/RDP are fatal (don't sysprep a gold that failed to harden); Notepad++ is best-effort. These three are SID-independent image state that survives `generalize`, so they are baked once instead of per-deploy. |
 | `scripts/Common.ps1` | Shared pure helpers dot-sourced by other scripts (`New-RandomName`, `New-RandomPassword`, `New-RecoveryKeyFileName`, `Test-AccountRow`). No side effects -- safe to dot-source from a script or a Pester test. Unit-tested by `tests/Common.Tests.ps1`. Must be staged alongside the scripts that dot-source it (Harden-Administrator, New-LocalAccounts, Enable-BitLocker). |
 | `scripts/Apply-DellConfig.ps1` | Imports `Config\dell-config.cctk` via `cctk.exe --import`. Idempotent via SHA256 marker file in `State\`. Hard-fails when cctk.exe or the config file is missing (intentional — silent BIOS misconfig is worse than a loud failure). |
 | `scripts/Scrub-AuditArtifacts.ps1` | Clears audit-mode/sysprep secret leftovers: Winlogon `AutoAdminLogon`/`DefaultPassword`/`DefaultUserName`/`DefaultDomainName`, and processed `Panther\unattend.xml` copies. Runs early so secrets are gone before the rest of the chain. Idempotent. |
 | `scripts/New-LocalAccounts.ps1` | Creates `Level 0`-`Level 3` (Standard, local Users) and `IT_Admin` (Admin, local Administrators) from `Config\accounts.csv` (`Username,Password,Role`). Plaintext passwords, same trust model as the PIN file; wiped by Finalize-Cleanup. Idempotent (re-asserts password/enabled/membership). Groups resolved by well-known SID. |
 | `scripts/Stage-DockerData.ps1` | **NON-FATAL** (always exits 0). Seeds the Docker Desktop WSL *data* disk (`docker_data.vhdx`) into the `Level 1` profile. Reads from `C:\ProgramData\ManualClonezilla\Payload\docker_data.vhdx`; no-op if absent. Because Level 1's profile does not exist at first-boot time (and a bare `mkdir` would orphan into a `Level 1.000` profile), it calls the Win32 **`CreateProfile`** API (userenv.dll) to register a real profile seeded from Default, then drops the VHDX into `AppData\Local\Docker\wsl\disk\`. Idempotent via SHA256 marker in `State\`. **Open validation:** pre-seeds before Docker's first run for Level 1 -- only *overwrite-of-existing* is bench-confirmed; whether Docker adopts a pre-placed disk vs. recreating an empty one must be tested (fallback: a Level-1 first-logon overwrite task). |
 | `scripts/Set-Level0ACL.ps1` | Inherited Deny (Full) ACE for `Level 0` on `C:\Programs` and `C:\Users\Public\Desktop\Quick Links` (can neither see nor modify). Idempotent (clears prior Deny first). Missing folder = warn; missing account = hard fail. |
-| `scripts/Harden-Administrator.ps1` | STIG: disables built-in Administrator (first), rotates its password to random, renames it off "Administrator" to a random `x`-prefixed name. Found by RID 500 (SID), not name. Never logs the new name. `IT_Admin` is the admin going forward. |
-| `scripts/Disable-RDP.ps1` | **Currently LINED OUT of SetupComplete.cmd by choice for now** (RDP stays ON while lined out). Fail-safe RDP off via the Terminal Services **policy** hive (`HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services`) -- the gpedit-equivalent values, written directly (no LGPO.exe to stage): `fDenyTSConnections=1` (read back + hard-fail if not applied), NLA (`UserAuthentication=1`), plus `TermService`/`UmRdpService` Disabled. (RDP was only on for Hyper-V enhanced session during build.) Firewall rule-group disable intentionally removed (redundant once the service is disabled + policy denies). Policy hive takes precedence over the System Properties preference and shows as managed in gpedit. |
-| `scripts/Apply-StigHardening.ps1` | **Currently LINED OUT of SetupComplete.cmd (not used for now).** STIG baseline the other scripts don't cover: disables/renames Guest (RID 501); password + lockout policy via `secedit`; UAC (`EnableLUA`, secure-desktop consent, `FilterAdministratorToken`); firewall profiles on + default inbound block (best-effort); logon banner + `DontDisplayLastUserName`; and a **hard-fail assertion** that only `IT_Admin` + the disabled built-in admin are in local Administrators. |
-| `scripts/Enable-BitLocker.ps1` | Enables TPM+PIN on C: using the PIN from `Config\bitlocker-pin.txt`. Adds RecoveryPassword protector. ACL-locks `C:\ProgramData\BitLockers` to SYSTEM + Administrators, then exports the recovery key to `BitLocker-RecoveryKey-<host>-<ts>.txt` there. Skip-path (already-encrypted) still guarantees a recovery protector + key file. Hard-fails if either protector is missing after enable. |
-| `scripts/Install-NotepadPP.ps1` | Silent (`/S`) install from `Installers\npp-installer.exe`. **Non-fatal** by design (exits 0 even on failure) so it cannot abort the security chain. |
-| `scripts/Finalize-Cleanup.ps1` | Removes `dell-config.cctk`, `bitlocker-pin.txt`, and `accounts.csv` from disk. Also reclaims the staged `Payload\docker_data.vhdx` (multi-GB, not a secret) -- but **only** when the `State\docker-data.staged.sha256` success marker exists, so a failed stage keeps the source for triage. **Does not** remove `State\`, `C:\ProgramData\BitLockers\` (recovery key files live there), or `Logs\`. |
+| `scripts/Harden-Administrator.ps1` | First-boot. STIG: disables built-in Administrator (first), rotates its password to random (per-machine), renames it off "Administrator" to a random `x`-prefixed name. Found by RID 500 (SID), not name. Never logs the new name. `IT_Admin` is the admin going forward. Stays at first boot: random per-machine password, and you can't disable the account you build under. |
+| `scripts/Assert-AdminGroup.ps1` | **First-boot HARD-FAIL gate.** Asserts only `IT_Admin` + the disabled built-in admin (RID 500) are in local Administrators (group by SID `S-1-5-32-544`). Throws otherwise -- the Level 0-3 posture depends on them being standard users. Extracted from the old Apply-StigHardening step 6 because it needs the post-generalize accounts (which only exist at first boot). |
+| `scripts/Disable-RDP.ps1` | **Gold pre-sysprep** (run by Apply-GoldHardening, last). Fail-safe RDP off via the Terminal Services **policy** hive (`HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services`) -- gpedit-equivalent values written directly (no LGPO.exe): `fDenyTSConnections=1` (read back + hard-fail if not applied), NLA (`UserAuthentication=1`), plus `TermService`/`UmRdpService` Disabled. RDP is on during the build (Hyper-V enhanced session), so this is the last gold step. SID-independent registry/service state that survives `generalize`. |
+| `scripts/Apply-StigHardening.ps1` | **Gold pre-sysprep** (run by Apply-GoldHardening). STIG baseline the other scripts don't cover: disables/renames Guest (RID 501); password + lockout policy via `secedit`; UAC (`EnableLUA`, secure-desktop consent, `FilterAdministratorToken`); firewall profiles on + default inbound block (best-effort); logon banner + `DontDisplayLastUserName`. All SID-independent image state that survives `generalize`. The admin-group assertion that used to be step 6 moved to Assert-AdminGroup.ps1 (first boot). |
+| `scripts/Enable-BitLocker.ps1` | First-boot. Enables TPM+PIN on C: using the PIN from `Config\bitlocker-pin.txt`. Adds RecoveryPassword protector. ACL-locks `C:\ProgramData\ManualClonezilla\RecoveryKeys` to SYSTEM + Administrators, then exports the recovery key to `BitLocker-RecoveryKey-<host>-<ts>.txt` there. Skip-path (already-encrypted) still guarantees a recovery protector + key file. Hard-fails if either protector is missing after enable. |
+| `scripts/Install-NotepadPP.ps1` | **Gold pre-sysprep** (run by Apply-GoldHardening). Silent (`/S`) install from `Installers\npp-installer.exe`. **Non-fatal** (exits 0 even on failure). It is a Win32 install (not Appx), so it survives `generalize` and is captured -- no reason to re-run per deploy. |
+| `scripts/Finalize-Cleanup.ps1` | First-boot. Removes `dell-config.cctk`, `bitlocker-pin.txt`, and `accounts.csv` from disk. Also reclaims the staged `Payload\docker_data.vhdx` (multi-GB, not a secret) -- but **only** when the `State\docker-data.staged.sha256` success marker exists, so a failed stage keeps the source for triage. **Does not** remove `State\`, `RecoveryKeys\` (recovery key files live there), or `Logs\`. |
 | `configs/unattend.example.xml` | Skeleton answer file for the golden image. `specialize` CopyProfile=true + OOBE skip + UTC timezone + random ComputerName. Edit for your environment before baking into the gold. |
 | `configs/accounts.example.csv` | Template for the staged `Config\accounts.csv`. Edit with real passwords before baking; never commit the real file. |
 | `configs/bitlocker-pin.example.txt` | Copy/paste template for the staged `Config\bitlocker-pin.txt`. Single line, plaintext PIN (numeric placeholder; use enhanced-PIN charset only if that policy is enabled in the gold). The real `bitlocker-pin.txt` is gitignored and wiped by Finalize-Cleanup. |
@@ -222,9 +228,11 @@ contribution policy, license, or security disclosure:
   PIN file path), the SetupComplete orchestration, the per-script
   behavior invariants (deny ACE, RID-500 disable/rename, fDenyTSConnections,
   group-by-SID, Notepad++ exit 0, Stage-DockerData CreateProfile seed,
+  Assert-AdminGroup hard-fail, Apply-GoldHardening runs the 3 gold scripts,
+  the gold-phase scripts absent from SetupComplete,
   autologon/Panther scrub, Guest/lockout/UAC,
-  CopyProfile, accounts.csv staging, no stale `State\` path), and doc
-  coverage. See `ci.yml` for the exact greps.
+  CopyProfile, accounts.csv staging, no stale `State\` or `BitLockers\` path),
+  and doc coverage. See `ci.yml` for the exact greps.
 - **ps-parse** (ubuntu, `pwsh`) - parses every `scripts/*.ps1` with the
   engine AST parser; fails on syntax errors. No Windows runner needed.
 - **ps-analyze** (windows-latest, Windows PowerShell 5.1) - PSScriptAnalyzer

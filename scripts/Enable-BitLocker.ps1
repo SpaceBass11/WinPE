@@ -7,11 +7,12 @@ $logFile   = Join-Path $logDir 'Enable-BitLocker.log'
 $pinFile   = Join-Path $configDir 'bitlocker-pin.txt'
 
 # Recovery keys are written here for manual off-machine export by the
-# operator. Outside the ManualClonezilla tree so Finalize-Cleanup never
-# touches it. The directory is ACL-locked to SYSTEM + Administrators (see
+# operator. It lives under the ManualClonezilla tree, but Finalize-Cleanup is
+# explicitly told never to touch RecoveryKeys (it only removes the staged
+# secret files). The directory is ACL-locked to SYSTEM + Administrators (see
 # Set-KeyDirAcl) so a standard user cannot read a recovery password -- a
 # recovery password bypasses TPM+PIN entirely.
-$keyDir    = 'C:\ProgramData\BitLockers'
+$keyDir    = 'C:\ProgramData\ManualClonezilla\RecoveryKeys'
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 New-Item -ItemType Directory -Path $keyDir -Force | Out-Null

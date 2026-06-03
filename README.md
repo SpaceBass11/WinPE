@@ -19,19 +19,24 @@ Admin workstation (one-time per release)
   +-- Capture disk with Clonezilla Live
   +-- Generate self-restoring Clonezilla ISO
                                          |
+In the GOLD, before sysprep, Apply-GoldHardening.ps1 runs (captured into the
+image -- SID-independent state that survives generalize):
+  - Install-NotepadPP.ps1    -- silent Win32 install (non-fatal)
+  - Apply-StigHardening.ps1  -- Guest, password/lockout, UAC, firewall, banner
+  - Disable-RDP.ps1          -- fail-safe RDP off (last; RDP is on during build)
+
 Operator: download ISO --> Rufus --> USB --> boot target --> walk away
                                                               |
-On first boot, SetupComplete.cmd runs in order:
+On first boot, SetupComplete.cmd runs in order (per-machine steps only):
   1. Apply-DellConfig.ps1      -- cctk --import dell-config.cctk
   2. Scrub-AuditArtifacts.ps1  -- clear autologon + Panther unattend secrets
   3. New-LocalAccounts.ps1     -- Level 0-3 + IT_Admin from accounts.csv
-  4. Set-Level0ACL.ps1         -- lock Level 0 out of restricted folders
-  5. Disable-RDP.ps1           -- fail-safe RDP off
+  4. Stage-DockerData.ps1      -- seed Level 1 Docker data disk (non-fatal)
+  5. Set-Level0ACL.ps1         -- lock Level 0 out of restricted folders
   6. Harden-Administrator.ps1  -- STIG: disable/rotate/rename built-in admin
-  7. Apply-StigHardening.ps1   -- Guest, password/lockout, UAC, firewall, banner
+  7. Assert-AdminGroup.ps1     -- hard-fail unless only IT_Admin + disabled admin
   8. Enable-BitLocker.ps1      -- TPM+PIN protector + recovery key export
-  9. Install-NotepadPP.ps1     -- silent install (non-fatal)
- 10. Finalize-Cleanup.ps1      -- deletes one-time secrets from disk
+  9. Finalize-Cleanup.ps1      -- deletes one-time secrets from disk
 ```
 
 ---
@@ -68,14 +73,18 @@ Don't use this if:
    built-in Administrator):
    - `Scripts\SetupComplete.cmd` (also copied to `C:\Windows\Setup\Scripts\`)
    - `Scripts\Common.ps1` (shared helpers; dot-sourced by the others)
-   - `Scripts\` -- all nine PS1s (Apply-DellConfig, Scrub-AuditArtifacts,
-     New-LocalAccounts, Set-Level0ACL, Disable-RDP, Harden-Administrator,
-     Apply-StigHardening, Enable-BitLocker, Install-NotepadPP, Finalize-Cleanup)
+   - `Scripts\` -- the first-boot PS1s (Apply-DellConfig, Scrub-AuditArtifacts,
+     New-LocalAccounts, Stage-DockerData, Set-Level0ACL, Harden-Administrator,
+     Assert-AdminGroup, Enable-BitLocker, Finalize-Cleanup) and the gold-phase
+     PS1s (Apply-GoldHardening, Apply-StigHardening, Disable-RDP,
+     Install-NotepadPP)
    - `Config\dell-config.cctk`
    - `Config\bitlocker-pin.txt` (one line, the BitLocker PIN)
    - `Config\accounts.csv` (named accounts; see `configs/accounts.example.csv`)
-   - `Installers\npp-installer.exe` (Notepad++ silent installer)
-3. Sysprep + Clonezilla capture + ISO generation per the runbook.
+   - `Installers\npp-installer.exe` (Notepad++ silent installer; consumed in the gold)
+3. In the gold, run `Apply-GoldHardening.ps1` as the last step before sysprep
+   (Notepad++ + STIG baseline + RDP-off -- captured into the image).
+4. Sysprep + Clonezilla capture + ISO generation per the runbook.
 
 ---
 
@@ -97,18 +106,21 @@ See [docs/USB_SETUP.md](docs/USB_SETUP.md) for the operator's full SOP.
 ```
 .
 ├── scripts/
-│   ├── SetupComplete.cmd        Orchestrator. Auto-runs after first OOBE pass.
+│   ├── SetupComplete.cmd        First-boot orchestrator. Auto-runs after OOBE.
 │   ├── Common.ps1               Shared helper functions (dot-sourced).
 │   ├── Apply-DellConfig.ps1     Imports the Dell CCTK BIOS config package.
 │   ├── Scrub-AuditArtifacts.ps1 Clears autologon + Panther unattend secrets.
 │   ├── New-LocalAccounts.ps1    Creates Level 0-3 + IT_Admin from accounts.csv.
+│   ├── Stage-DockerData.ps1     Seeds Level 1 Docker data disk (non-fatal).
 │   ├── Set-Level0ACL.ps1        Deny ACLs locking Level 0 out of folders.
-│   ├── Disable-RDP.ps1          Fail-safe RDP disable.
 │   ├── Harden-Administrator.ps1 STIG disable/rotate/rename of built-in admin.
-│   ├── Apply-StigHardening.ps1  Guest, password/lockout, UAC, firewall, banner.
+│   ├── Assert-AdminGroup.ps1    Hard-fail unless only IT_Admin + disabled admin.
 │   ├── Enable-BitLocker.ps1     TPM+PIN on C:, exports recovery key locally.
-│   ├── Install-NotepadPP.ps1    Silent Notepad++ install (non-fatal).
-│   └── Finalize-Cleanup.ps1     Removes one-time secrets from disk.
+│   ├── Finalize-Cleanup.ps1     Removes one-time secrets from disk.
+│   ├── Apply-GoldHardening.ps1  GOLD pre-sysprep runner for the three below.
+│   ├── Apply-StigHardening.ps1  (gold) Guest, password/lockout, UAC, firewall.
+│   ├── Disable-RDP.ps1          (gold) Fail-safe RDP disable (last).
+│   └── Install-NotepadPP.ps1    (gold) Silent Notepad++ install (non-fatal).
 ├── configs/
 │   ├── unattend.example.xml     Skeleton unattend.xml for the golden image.
 │   └── accounts.example.csv     Template for the staged accounts.csv.
@@ -150,7 +162,7 @@ endpoint itself does not carry the file post-OOBE.
 ## Recovery key handling
 
 `Enable-BitLocker.ps1` writes the recovery key to
-`C:\ProgramData\BitLockers\BitLocker-RecoveryKey-<hostname>-<timestamp>.txt`
+`C:\ProgramData\ManualClonezilla\RecoveryKeys\BitLocker-RecoveryKey-<hostname>-<timestamp>.txt`
 on the deployed machine. It is **not** uploaded anywhere automatically.
 The folder is ACL-locked to SYSTEM + Administrators, so a standard user
 (`Level 0`-`Level 3`) cannot read it; collect it as `IT_Admin`.

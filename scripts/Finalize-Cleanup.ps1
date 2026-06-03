@@ -33,9 +33,10 @@ try {
     }
 
     # State\ is intentionally preserved (it holds the Dell config SHA256
-    # idempotency marker, not secrets). The BitLocker recovery keys live in
-    # C:\ProgramData\BitLockers\ (ACL-locked, outside this tree) and are also
-    # preserved for the operator. Logs\ is preserved for support triage.
+    # idempotency marker, not secrets). RecoveryKeys\ (ACL-locked BitLocker
+    # recovery key files) is preserved for the operator. Logs\ is preserved
+    # for support triage. This script only ever removes the named staged
+    # inputs above -- never State\, RecoveryKeys\, or Logs\.
     Write-Host 'Cleanup completed.'
 }
 finally {
