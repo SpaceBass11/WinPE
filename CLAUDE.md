@@ -267,13 +267,16 @@ loose ends."
    not been exercised on a real Windows host from this session
    (Claude Code Web has no Windows runner). The user should validate
    before cutting a release ISO.
-2. **`.claude/MASTERIZE.md` and `.claude/masterize-log.md` still
-   reference MDT / the old WinPE scripts** (the prior pivots' review
-   playbooks). The stale slash-command files (`.claude/commands/review.md`,
-   `deep-review.md`, `strip-dead-code.md`) that pointed at `scripts/mdt/`
-   have been **deleted**. MASTERIZE.md / masterize-log.md remain and could
-   still be rewritten for the Clonezilla shape, but no longer break a
-   slash command.
+2. **`.claude/` AI-playbook files.** `.claude/MASTERIZE.md` has been
+   **refreshed for the Clonezilla shape** (Phase 1 now summarizes the actual
+   `ci.yml` masterize checks 1-16; Phase 2 read-pass updated; the "this is
+   the MDT branch" framing removed). `.claude/masterize-log.md` is an
+   append-only historical log -- its older entries reference the earlier
+   WinPE/MDT line and are **intentionally left as history** (don't rewrite a
+   log). `.claude/reviews/2026-05-11-deep-review.md` is a dated WinPE-line
+   review artifact, also kept as history. The stale slash-command files
+   (`.claude/commands/review.md`, `deep-review.md`, `strip-dead-code.md`)
+   that pointed at `scripts/mdt/` were already **deleted**.
 3. **Repo rename consideration.** GitHub URL is still
    `SpaceBass11/WinPE`. Workflow has moved away from WinPE. The user's
    call -- don't rename without explicit instruction (URLs are sticky
