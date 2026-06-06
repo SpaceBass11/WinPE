@@ -5,6 +5,116 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-06 — `first-login.ps1` Default User hive invariant tests
+
+**Investigated:** Open PRs (#54-#64 — eight in flight); routine-log "next
+recommended improvement" backlog; the `tests/test_parse.ps1` test
+inventory against the actual contract surface of each `scripts/*.ps1`.
+
+PR #54 touches Test 9 (`build_boot_wim.ps1` invariants).
+PR #62 extends Test 12 to syntax-check three new MDT scripts.
+PR #63 upgrades Test 10 (`prepare_wim.ps1`) from syntax-only to
+behavioral invariants. Test 13 (`scripts/first-login.ps1`) had no
+in-flight PR and was still syntax-only — the highest-value remaining
+gap of the same drift class PR #52 / #63 are addressing.
+
+**Found:** `scripts/first-login.ps1` mounts the target system's Default
+User registry hive (`C:\Users\Default\NTUSER.DAT`) via `reg.exe load`,
+applies the tweak list, and unloads via `reg.exe unload` inside a
+`try`/`finally` block. The hive-handling contract has four load-bearing
+pieces no syntax check can guard:
+
+- The `try`/`finally` cleanup so an `Apply-Tweak` exception still
+  unloads the hive instead of pinning it across reboots and blocking
+  every subsequent first-login pass.
+- The `$LASTEXITCODE -eq 0` check after `reg.exe load` — without it,
+  a failed load drops through and the `Apply-Tweak` loop writes
+  tweaks against the live `HKLM` root instead of the mounted Default
+  User hive. Silent corruption of machine policy keys.
+- `[gc]::Collect()` + `[gc]::WaitForPendingFinalizers()` before
+  `reg.exe unload`. This is the documented workaround for PowerShell
+  holding registry handles past last property access (the script
+  comment at lines 132-133 calls it out explicitly). Without these,
+  `reg.exe unload` returns non-zero and the hive stays pinned, with a
+  "handles still open" warning that the operator may not notice in
+  the FirstLogonCommands transcript.
+- Symbolic-name consistency: `reg.exe load $mountPath $defaultHive`
+  / `reg.exe unload $mountPath` reference the same variables the rest
+  of the block uses. A rename without full mirror-update would
+  silently no-op.
+
+A refactor dropping any of these would still pass the syntax check
+(Test 13 pre-edit was a single `Test-ScriptSyntax` call). The
+regression surface is the same drift class PR #52 closed for
+`build_boot_wim.ps1` and PR #63 is closing for `prepare_wim.ps1` —
+this PR extends the pattern to the third pipeline script with no
+behavioral coverage.
+
+**Changed:**
+
+- `tests/test_parse.ps1` — Test 13 now does `Test-ScriptSyntax` plus
+  six behavioral assertions following the exact pattern Test 9 uses
+  (capture `$firstLoginOk`, branch into invariant block, use
+  `Get-Content -Raw` + regex matches against `$fl`). Patterns use
+  `[\s\S]{0,N}` windowed matches so reordering or whitespace tweaks
+  inside the `try`/`finally` block don't flake the test, but the
+  symbolic-name guards (`$mountPath` / `$defaultHive`) are strict.
+  Comment block above the test names the four contracts each assertion
+  guards.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top of
+  the existing Changed block.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:** `pwsh` 7.4.6 installed via the CLAUDE.md bootstrap
+recipe.
+
+| Suite | Pre-edit | Post-edit |
+|---|---|---|
+| `tests/test_parse.ps1` | 48 / 0 | **54 / 0** (+6 new invariants) |
+| `tests/test_wim_parser.ps1` | 16 / 0 | 16 / 0 |
+| `tests/test_disk_enumeration.ps1` | 34 / 0 | 34 / 0 |
+
+Drift verification: ran a one-shot script that loaded
+`scripts/first-login.ps1`, applied one perturbation per invariant
+simulating the targeted regression (collapse `try { ... } finally { ...`
+to bare `try {`, swap `$mountPath` / `$defaultHive` symbols, replace
+`if ($LASTEXITCODE -eq 0)` with `if ($true)`, comment out each `[gc]`
+call), and re-evaluated each regex against the perturbed text. Every
+perturbation correctly broke the matching invariant. No always-green
+assertions slipped in.
+
+**Risks:** Minimal. Test-only addition; no production code, masterize
+CI, lychee, or PSSA touched. Worst case is a regex tweak flaking on a
+future reformatting pass of `first-login.ps1` — `[\s\S]{0,N}` bounded
+matches keep that risk small. The Pester suite is unaffected.
+
+**Coordination with open PRs:** No file-level overlap with the eight
+in-flight PRs. PR #54 (Test 9), PR #62 (new Test blocks for MDT
+scripts), and PR #63 (Test 10) all modify different blocks in
+`tests/test_parse.ps1`; Test 13 is open territory. `CHANGELOG.md` and
+`docs/claude-routine-log.md` are shared with every routine PR — this
+change adds a new top-of-block bullet and a new top-of-log entry, so
+the merge against any in-flight PR is a trivial linear append.
+
+**Next recommended improvement:**
+
+- `scripts/build_iso.ps1` is still syntax-only (Test 12). The
+  `-ConfirmSilentDestructiveIso` destructive-intent gate (PR #44)
+  and the source-WinPE cleanup branches are invariant-test candidates.
+  Deferred across several recent PRs to avoid merge-coordination cost
+  while #54/#62/#63 are still in flight.
+- `Initialize-BitLockerSetup`'s generated `bitlocker-setup.ps1` string
+  has no parse-time validation — a character-class regression in PIN
+  escaping (`'` doubling) would emit a syntactically invalid first-boot
+  script. Larger because it needs mocking the full
+  `Resolve-BitLockerKeyPath` / scripts-dir side-effects.
+- Masterize CI could grep the `docs/ARCHITECTURE.md` File Layout table
+  against the actual `tests/`, `scripts/`, `configs/`, and `docs/`
+  inventories so the drift class PR #58 fixed manually can't repeat
+  silently. CI workflow change; separate concern.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

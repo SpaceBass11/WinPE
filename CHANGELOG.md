@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/first-login.ps1` now has behavioral-invariant test
+  coverage.** `tests/test_parse.ps1` Test 13 was syntax-only. Added
+  six assertions for the load-bearing Default User hive contract:
+  `try`/`finally` cleanup around `Apply-Tweak`, `$LASTEXITCODE` check
+  after `reg.exe load`, `[gc]::Collect()` and
+  `[gc]::WaitForPendingFinalizers()` before `reg.exe unload`, and
+  symbolic-name guards that the load/unload commands still reference
+  `$mountPath` / `$defaultHive`. A refactor dropping any of these
+  would either pin the hive forever (blocking re-runs) or apply
+  tweaks to the wrong root. Each assertion drift-verified against a
+  synthetic regression before commit. Test count 48 → 54.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

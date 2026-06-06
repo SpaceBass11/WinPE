@@ -150,9 +150,43 @@ Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
 
-# Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
+# Test 13: first-login.ps1 — syntax + Default User hive load/unload invariants
+# The hive contract is load-bearing: a refactor that drops the try/finally,
+# skips the GC collect before reg.exe unload, or stops checking $LASTEXITCODE
+# after reg.exe load would either pin the hive forever (blocking re-runs and
+# corrupting future deploys) or apply tweaks to the wrong root. None of those
+# regressions would trip a syntax-only check.
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $firstLoginPath -Label "First-login tweaks" | Out-Null
+$firstLoginOk = Test-ScriptSyntax -Path $firstLoginPath -Label "First-login tweaks"
+if ($firstLoginOk) {
+    $fl = Get-Content $firstLoginPath -Raw
+
+    # try/finally cleanup so an Apply-Tweak exception still unloads the hive
+    Write-Result -Test "First-login: try/finally around Default User hive apply" `
+        -Pass ($fl -match 'try\s*\{[\s\S]*Apply-Tweak[\s\S]*\}\s*finally\s*\{[\s\S]*reg\.exe\s+unload')
+
+    # Symbolic-name guards: reg.exe load/unload reference the same vars the
+    # rest of the block uses ($mountPath / $defaultHive). A rename without
+    # full mirror-update would silently no-op.
+    Write-Result -Test 'First-login: reg.exe load uses $mountPath / $defaultHive' `
+        -Pass ($fl -match 'reg\.exe\s+load\s+\$mountPath\s+\$defaultHive')
+    Write-Result -Test 'First-login: reg.exe unload uses $mountPath' `
+        -Pass ($fl -match 'reg\.exe\s+unload\s+\$mountPath')
+
+    # $LASTEXITCODE must be checked after reg.exe load — otherwise a failed
+    # load drops through and applies tweaks against the live HKLM root.
+    Write-Result -Test 'First-login: $LASTEXITCODE checked after reg.exe load' `
+        -Pass ($fl -match 'reg\.exe\s+load[\s\S]{0,300}\$LASTEXITCODE\s+-eq\s+0')
+
+    # [gc]::Collect() + WaitForPendingFinalizers() before reg.exe unload —
+    # the documented workaround for PowerShell holding registry handles past
+    # last property access. Without these, reg.exe unload returns non-zero
+    # and the Default User hive stays pinned.
+    Write-Result -Test "First-login: [gc]::Collect() before reg.exe unload" `
+        -Pass ($fl -match '\[gc\]::Collect\(\)[\s\S]{0,200}reg\.exe\s+unload')
+    Write-Result -Test "First-login: [gc]::WaitForPendingFinalizers() before reg.exe unload" `
+        -Pass ($fl -match '\[gc\]::WaitForPendingFinalizers\(\)[\s\S]{0,200}reg\.exe\s+unload')
+}
 
 # Summary
 Write-Host "`n=== Results ===" -ForegroundColor Cyan
