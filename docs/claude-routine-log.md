@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-06 — `scripts/build_iso.ps1` redacts BitLocker PIN from console echo
+
+**Investigated:** Open PRs (#54–#65) and the merged-PR backlog to
+avoid duplicating in-flight work. PR #56 covers `Show-ImageSelection`
+factoring, #63 covers `prepare_wim.ps1` invariants, #65 covers
+`first-login.ps1` invariants, #64 covers a BitLocker-PIN length
+ceiling test, and #54 covers `startnet.cmd` `::` comment skipping —
+none of them touch `scripts/build_iso.ps1`. The routine log's
+recurring backlog items (`Show-ImageSelection` cleanup, `Get-SystemDisks`
+fixture test) are either in flight or already merged (PR #50 added
+the disk-enumeration test). So I went looking for an untouched
+safety-shaped improvement.
+
+**Found:** `scripts/build_iso.ps1:306` (`Write-Host "  $argsLine"`)
+echoes the entire generated `deploy.args` line to stdout, including
+any `-BitLockerPin "<value>"` the admin passed in. PR #42 set a clear
+precedent for the opposite direction at runtime — the WinPE
+`startnet.cmd` was changed to never echo `deploy.args` contents, and
+masterize check 25 enforces it. The build-time path was never given
+the same treatment. An admin building an ISO over a shared terminal
+session, recording a screencast, or piping `build_iso.ps1` output
+into a CI/build-log capture would expose the PIN even though the only
+intended carrier is the on-disk `deploy.args`. Since the admin
+already knows the PIN (they passed it as a parameter), the echo
+provides no information they don't have — it only creates the leak
+surface.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a regex `-replace` that substitutes
+  `-BitLockerPin "<value>"` with `-BitLockerPin "<redacted>"` before
+  the `Write-Host` echo. The file written to staging
+  (`Set-Content -Path $deployArgsPath -Value $argsLine`) is unchanged,
+  so the deploy script consumes the real PIN unchanged. The
+  substitution is a no-op when no PIN is present (interactive mode,
+  silent mode without `-BitLockerPin`).
+- `.github/workflows/ci.yml` — added masterize check 27 to enforce
+  the redaction stays in place: it greps for the substitution
+  expression, the `<redacted>` marker, and asserts no surviving
+  `Write-Host "...$argsLine..."` direct echo. Same pattern as check 25
+  for the WinPE `startnet.cmd` side.
+- `CHANGELOG.md` — `## Unreleased / ### Security` entry naming the
+  fix and the new CI check.
+
+**Verification:**
+- `pwsh` installed once-per-session per CLAUDE.md (PSGallery is
+  blocked but the GitHub-Releases tarball is allowed). Tested the
+  exact regex against three inputs:
+  - Silent line with PIN → `<redacted>` substituted.
+  - Silent line without PIN → unchanged (no-op).
+  - Interactive line (`-ImagePath` only) → unchanged.
+- Baseline + post-edit `tests/test_parse.ps1`: 48/0 in both runs.
+- Simulated regression: removed the substitution and renamed the
+  marker, then re-ran a local copy of check 27 against the mutated
+  file. Both halves of the check fired (`PIN redaction substitution
+  missing`, `redaction marker missing`). Re-ran the check against
+  the real file: `OK`. So the CI guard fails-loud on the exact class
+  of regression it is meant to catch.
+- `Test-ScriptSyntax` on `scripts/build_iso.ps1` still passes after
+  the edit (`PSParser::Tokenize` clean under PowerShell 7.4.6).
+
+**Risks / follow-ups:**
+- Minimal. No production logic changed in `build_iso.ps1` — the file
+  on disk is still authoritative; only the stdout copy is masked.
+  The substitution preserves quote handling so the line shape is
+  unchanged.
+- The `unified_winpe_deploy.ps1` deploy script itself logs
+  `$Script:Config.BitLockerPin` redacted-by-length (already audited
+  in PR #34), and `startnet.cmd` is covered by check 25 — so the
+  three places where a PIN could leak via console (boot, deploy,
+  build) now all redact.
+- Outstanding routine-backlog candidates from prior entries:
+  - **`Show-ImageList` / `Show-ImageSelection` factoring** is the
+    subject of open PR #56; once that merges this can be retired
+    from the backlog.
+  - **`scripts/build_iso.ps1` behavioral-invariant tests in
+    `test_parse.ps1`** (Test 12 is still syntax-only). The build_iso
+    safety surface is small — destructive-intent gate, `oscdimg` path
+    resolution, `WipeDisks` format validation — but worth a follow-up
+    pass mirroring Test 9 (`build_boot_wim`) once PRs #63/#65 land
+    the same pattern for prep / first-login.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

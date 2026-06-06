@@ -387,6 +387,26 @@ jobs:
             echo "OK"
           fi
 
+          echo "=== 27. build_iso.ps1 redacts BitLockerPin from console echo ==="
+          # Same principle as check 25 (startnet.cmd redaction, PR #42):
+          # the build_iso.ps1 console echo of the generated deploy.args
+          # line must redact -BitLockerPin so an admin building an ISO
+          # in a shared terminal, screencast, or CI-captured build log
+          # does not leak the embedded PIN. The file on disk still has
+          # the real PIN (deploy needs it) - it is only the stdout echo
+          # that gets the substitution.
+          iso=scripts/build_iso.ps1
+          ok=1
+          # Must apply a redaction substitution on the args line before echoing
+          grep -qE '\$argsDisplay\s*=\s*\$argsLine\s*-replace' $iso || { echo "  PIN redaction substitution missing"; ok=0; }
+          grep -qF '<redacted>' $iso || { echo "  redaction marker missing"; ok=0; }
+          # Must not Write-Host the unredacted $argsLine directly
+          if grep -qE 'Write-Host\s+"[^"]*\$argsLine' $iso; then
+            echo "  Write-Host echoes raw \$argsLine (would leak PIN)"
+            ok=0
+          fi
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: build_iso.ps1 PIN redaction drifted"; fail=1; fi
+
           echo "=== 26. BitLocker PIN prompt exists and is silent-gated ==="
           # The TUI PIN prompt (-EnableBitLocker without -BitLockerPin in
           # non-silent mode) must be guarded by '-not $Silent' so silent /

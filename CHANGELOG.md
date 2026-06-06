@@ -8,6 +8,20 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Security
+- **`scripts/build_iso.ps1` redacts `-BitLockerPin` from its console
+  echo.** Previously the script wrote the generated `deploy.args` line
+  verbatim to stdout via `Write-Host`, including the embedded
+  BitLocker PIN. An admin building an ISO in a shared terminal,
+  screencast, or CI-captured build log would expose the PIN there
+  even though the on-disk `deploy.args` was the only thing intended
+  to carry it. The Write-Host now echoes a copy with
+  `-BitLockerPin "<redacted>"` substituted in; the file written to
+  staging still has the real PIN so the deploy script consumes it
+  unchanged. Same principle as masterize check 25 (PR #42) applied
+  the WinPE `startnet.cmd` boot-time redaction. Added masterize
+  check 27 to enforce the substitution stays in the script.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
