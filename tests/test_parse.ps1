@@ -138,9 +138,36 @@ if ($builderOk) {
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
 }
 
-# Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)
+# Test 10: prepare_wim.ps1 — syntax + key behavioral invariants
+# The -SourceIso vs -SourceWim parameter sets and the mount-cleanup contract
+# are load-bearing: a refactor that silently breaks the set wiring would
+# either reject valid invocations or let one branch run with the other's
+# state; a refactor that drops the try/finally Discard would leave the WIM
+# mounted after a failure and block re-runs.
 Write-Host "`n--- scripts/prepare_wim.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
+$prepOk = Test-ScriptSyntax -Path $prepPath -Label "WIM prep"
+if ($prepOk) {
+    $pc = Get-Content $prepPath -Raw
+
+    # CmdletBinding declares FromIso as the default parameter set
+    Write-Result -Test "WIM prep: DefaultParameterSetName='FromIso'" -Pass ($pc -match "DefaultParameterSetName\s*=\s*'FromIso'")
+
+    # SourceIso is mandatory in the FromIso set (Mandatory + 'FromIso' + SourceIso on the same line)
+    Write-Result -Test "WIM prep: -SourceIso mandatory in FromIso set" -Pass ($pc -match "(?m)^.*Mandatory[^`r`n]*ParameterSetName\s*=\s*'FromIso'[^`r`n]*\`$SourceIso")
+
+    # SourceWim is mandatory in the FromWim set
+    Write-Result -Test "WIM prep: -SourceWim mandatory in FromWim set" -Pass ($pc -match "(?m)^.*Mandatory[^`r`n]*ParameterSetName\s*=\s*'FromWim'[^`r`n]*\`$SourceWim")
+
+    # SourceWim extension is validated against .wim/.esd before any mount work
+    Write-Result -Test "WIM prep: -SourceWim extension validated (.wim/.esd)" -Pass ($pc -match "GetExtension\(\s*\`$SourceWim\s*\)\s*-notin\s*'\.wim'\s*,\s*'\.esd'")
+
+    # Stale-mount discard runs before Mount-WindowsImage — re-entrancy safety
+    Write-Result -Test "WIM prep: stale mount detected via Get-WindowsImage -Mounted" -Pass ($pc -match 'Get-WindowsImage\s+-Mounted')
+
+    # Mount cleanup contract: a Discard branch must exist so a mid-script
+    # failure tears down the mount instead of leaving it pinned.
+    Write-Result -Test "WIM prep: mount-cleanup includes Dismount-WindowsImage -Discard" -Pass ($pc -match 'Dismount-WindowsImage\s+-Path\s+\$mountDir\s+-Discard')
+}
 
 # Test 11: refresh_usb.ps1 (syntax only - workflow wrapper)
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan

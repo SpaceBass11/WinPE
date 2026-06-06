@@ -5,6 +5,95 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-06 — `tests/test_parse.ps1` behavioral invariants for `prepare_wim.ps1`
+
+**Investigated:** open PRs (#54–#58, #62; six in flight, none touching
+`tests/test_parse.ps1` Test 10 or the `prepare_wim.ps1` parameter-set
+logic) and the routine log's recurring "no fixture test for
+`prepare_wim.ps1`'s parameter-set validation" follow-up, flagged in the
+2026-05-16 prepare_wim destination-name fix entry and again in earlier
+entries. PR #52 (merged) introduced the pattern for
+`scripts/build_boot_wim.ps1` invariants (Test 9 in `test_parse.ps1`),
+giving a clean template to mirror without touching production code.
+
+**Found:** `prepare_wim.ps1` ships a load-bearing `FromIso` / `FromWim`
+`[CmdletBinding(DefaultParameterSetName=...)]` setup plus a mount
+cleanup contract (`try { Mount-WindowsImage ... } finally {
+Dismount-WindowsImage -Discard }` on the failure branch, plus a
+stale-mount discard at the top of the script). All of that was
+syntax-only-covered; a refactor that:
+
+- renamed a parameter set (`FromIso` → `Iso`),
+- dropped the `-SourceWim` `.wim`/`.esd` extension check,
+- removed the stale-mount detection, or
+- collapsed the `try`/`finally` so a mid-script failure leaves the WIM
+  pinned to `$mountDir` and blocks all subsequent re-runs,
+
+would all pass `test_parse.ps1`. Test 10 was the last syntax-only entry
+in the test file (after PR #52 lifted `build_boot_wim.ps1` to invariant
+coverage).
+
+**Changed:**
+
+- `tests/test_parse.ps1` — Test 10 replaced its syntax-only check with
+  the same Test-ScriptSyntax + invariants pattern Test 9 introduced.
+  Six new positive assertions:
+  1. `DefaultParameterSetName='FromIso'` present in `CmdletBinding`.
+  2. `-SourceIso` line has both `Mandatory` and
+     `ParameterSetName='FromIso'`.
+  3. `-SourceWim` line has both `Mandatory` and
+     `ParameterSetName='FromWim'`.
+  4. `[IO.Path]::GetExtension($SourceWim) -notin '.wim','.esd'`
+     extension guard present.
+  5. `Get-WindowsImage -Mounted` re-entrancy check present.
+  6. `Dismount-WindowsImage -Path $mountDir -Discard` cleanup branch
+     present.
+
+  Regexes use `[^\r\n]*` window-on-line patterns rather than over-strict
+  full-attribute shapes, so reordering tokens inside the `[Parameter(...)]`
+  block doesn't flake the test.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the coverage extension and the negative-verification
+  approach.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed in the session per the CLAUDE.md bootstrap
+  recipe (GitHub Releases tarball into `/opt/pwsh/`).
+- Baseline (pre-edit): `tests/test_parse.ps1` → 48 / 0,
+  `tests/test_wim_parser.ps1` → 16 / 0,
+  `tests/test_disk_enumeration.ps1` → 34 / 0.
+- Post-edit: `tests/test_parse.ps1` → 54 / 0 (+6 new invariant checks),
+  `tests/test_wim_parser.ps1` → 16 / 0 (unchanged),
+  `tests/test_disk_enumeration.ps1` → 34 / 0 (unchanged).
+- Drift verification: ran a one-shot script that loaded
+  `prepare_wim.ps1`, applied one perturbation per invariant simulating
+  the targeted regression (rename `FromIso` → `AAA`, strip the
+  extension check, etc.), and re-evaluated each regex. Every
+  perturbation correctly broke the matching invariant — no
+  always-green assertions slipped in.
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only change; no production code touched. The new
+  regexes match patterns that already exist verbatim in the deploy
+  pipeline and were drift-verified against synthetic regressions.
+  Pester suite is unaffected (different runner, different surface).
+- The remaining shipped scripts now have invariant coverage levels:
+  `unified_winpe_deploy.ps1` (deepest — masterize CI 1A/1B + Pester),
+  `build_boot_wim.ps1` (Test 9, PR #52), `prepare_wim.ps1` (Test 10,
+  this entry). The four remaining (`refresh_usb.ps1`, `build_iso.ps1`,
+  `first-login.ps1`) are still syntax-only — `refresh_usb.ps1` is a
+  thin wrapper so the test surface there is small;
+  `build_iso.ps1`'s destructive-intent gate
+  (`-ConfirmSilentDestructiveIso`) is the next-most-valuable invariant
+  candidate, since silently dropping that switch would re-introduce
+  the silent-wiper risk PR #44 was opened to prevent.
+- Outstanding from prior routine entries that I did not take this pass:
+  no actionable items not already covered by an open PR.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
