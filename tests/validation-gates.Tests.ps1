@@ -354,6 +354,26 @@ Describe "Start-Deployment validation gates" {
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
     }
 
+    It "Rejects -EnableBitLocker -BitLockerPin twenty-one-char value above length ceiling" {
+        # Enhanced PIN policy caps at 20 chars (Windows-side rule). A 21-char
+        # PIN passes the floor but Windows rejects it at first boot, after the
+        # disk is wiped and the image applied - exactly the kind of failure
+        # the pre-flight ceiling exists to catch. Mirror the 5-char floor
+        # test so a refactor that drops or weakens '-gt 20' gets surfaced.
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $true
+            $BitLockerPin    = 'abcdefghijklmnopqrstu'   # 21 chars, ceiling is 20
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
+    }
+
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
         $result = & $script:DeployModule {
             $WimFile        = 'I:\images\Win.wim'

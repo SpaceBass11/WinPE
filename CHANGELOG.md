@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Pester suite now guards the BitLocker PIN length ceiling.**
+  `tests/validation-gates.Tests.ps1` already covered the floor (5-char
+  PIN rejected with `6-20 characters` message); the ceiling (21+ chars)
+  had no test. A refactor that dropped or weakened the `-gt 20` clause
+  would have let invalid PINs pass pre-flight and only fail at first
+  boot — after the disk had been wiped and the image applied. Added a
+  21-char-PIN `It` block that mirrors the existing 5-char case. No
+  production code touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

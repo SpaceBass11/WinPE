@@ -5,6 +5,109 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-06 — Pester ceiling test for BitLocker PIN length
+
+**Investigated:** open PRs (#54, #55, #56, #57, #58, #62, #63 — none
+overlap with `tests/validation-gates.Tests.ps1`), the routine log's
+backlog, the masterize CI checks, and `tests/validation-gates.Tests.ps1`
+itself. Cross-referenced the test suite's existing PIN-length
+assertion at line 342 against the deploy script's actual bound check
+at `unified_winpe_deploy.ps1:1691-1695`
+(`-lt 6 -or ... -gt 20`).
+
+**Found:** the Pester suite covers the BitLocker PIN length **floor**
+(`'abcde'` → 5 chars → rejected with `6-20 characters` message) but
+not the **ceiling**. A refactor that dropped or weakened the `-gt 20`
+clause — for example, raising the upper bound to a non-existent "no
+limit" or collapsing the `-or` into a one-sided `-lt 6` — would let
+21+ char PINs pass pre-flight. Windows itself caps Enhanced PIN at 20
+chars, so the operator only sees the failure at first boot, after the
+target disk is already wiped and the image applied. Exactly the kind
+of regression the validation gate exists to catch ahead of time.
+
+The ceiling has been validated against the script in the past via the
+docs (`docs/BITLOCKER.md`, `.SYNOPSIS` block at line 62 of the deploy
+script), but never via a runtime assertion. PR #49 stripped the PIN
+content policy and explicitly left the length window as the only
+remaining check — making the ceiling assertion the entirety of the
+upper-bound guard.
+
+**Changed:**
+
+- `tests/validation-gates.Tests.ps1` — new `It "Rejects -EnableBitLocker
+  -BitLockerPin twenty-one-char value above length ceiling"` block,
+  inserted directly after the existing 5-char floor test. Same Pester
+  shape (`& $script:DeployModule { ... }`, `Should -BeFalse`, log
+  message match for `6-20 characters`). 21-char fixture is
+  `'abcdefghijklmnopqrstu'`.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top of
+  the existing Changed block, naming the gap and the test addition.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed in the session per the CLAUDE.md bootstrap
+  recipe.
+- Pre-edit baselines: `tests/test_parse.ps1` 48/0,
+  `tests/test_wim_parser.ps1` 16/0,
+  `tests/test_disk_enumeration.ps1` 34/0. The Pester file parsed
+  cleanly via `Language.Parser::ParseFile`.
+- Post-edit: same three suites pass with identical counts (48/0,
+  16/0, 34/0). Pester file still parses (`PARSE OK`). New `It`
+  block's structure matches the immediately-preceding 5-char `It`
+  block byte-for-byte except for the PIN value, the test name, and
+  the explanatory comment.
+- Cross-checked the 21-char fixture really is 21 chars
+  (`'abcdefghijklmnopqrstu'.Length` → 21), and the deploy script's
+  actual check (`-lt 6 -or ... -gt 20`) still lives at the expected
+  spot. Simulated the bound check directly against five PIN lengths
+  (5, 6, 9, 20, 21) — only 5 and 21 reject, confirming the test
+  fixture exercises exactly the upper boundary the assertion guards.
+- Pester suite itself runs only in CI per CLAUDE.md — the Linux
+  container's network policy blocks PSGallery, so `Install-Module
+  Pester` fails. The added `It` block mirrors a passing one
+  structurally, so CI's Windows runner picks up the actual
+  green/red signal.
+
+**Risks:** Minimal. Test-only addition; no production code,
+masterize CI, lychee, or PSSA touched. No new dependencies. No new
+mocks. The change is additive within `Describe "Start-Deployment
+validation gates"` (line 184) and respects its `BeforeEach` /
+`AfterEach` lifecycle which the surrounding tests already use.
+
+**Coordination with open PRs:** No file overlap with the seven
+in-flight PRs. None of them touch
+`tests/validation-gates.Tests.ps1`. Shared files are `CHANGELOG.md`
+(linear append at top of Unreleased/Changed) and
+`docs/claude-routine-log.md` (linear append at top), so any merge
+ordering is trivial.
+
+**Next recommended improvement:**
+
+- Boundary tests at exactly 6 chars (lower-edge accept) and exactly
+  20 chars (upper-edge accept) would close the remaining `Length`
+  coverage. Lower priority than this one — boundary-accept tests
+  need the "passes validation phase" mock chain (mirroring the
+  `goodpin42` 9-char test at line 406), so larger edit; the
+  reject-paths covered here are the higher-value half.
+- `scripts/build_iso.ps1` is still syntax-only in `tests/test_parse.ps1`
+  Test 12. The `-ConfirmSilentDestructiveIso` destructive-intent gate
+  (PR #44) and the `Convert-PathToIso`/cleanup branches are
+  invariant-test candidates. Deferred while PR #63 (Test 10 invariants
+  for `prepare_wim.ps1`) is in flight — adding both at once raises
+  merge-coordination cost more than the value justifies.
+- `Initialize-BitLockerSetup`'s generated `bitlocker-setup.ps1`
+  string has no parse-time validation. A character-class regression
+  in PIN escaping (`'` doubling) would emit a syntactically invalid
+  first-boot script that Windows Setup runs to no effect. A test
+  that calls `Initialize-BitLockerSetup` against a mocked
+  `Set-Content` and reparses the captured string via
+  `Language.Parser` would close the gap. Larger because it needs
+  mocking the full `Resolve-BitLockerKeyPath` / scripts-dir
+  side-effects, so deferred.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
