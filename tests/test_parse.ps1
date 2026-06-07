@@ -146,9 +146,32 @@ Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 
-# Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
+# Test 12: build_iso.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
+$isoOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($isoOk) {
+    $ic = Get-Content $buildIsoPath -Raw
+
+    # Destructive-intent gate must remain — non-Interactive without explicit
+    # -ConfirmSilentDestructiveIso must throw before any file copy.
+    Write-Result -Test "ISO builder: destructive-intent gate present" -Pass (
+        $ic -match '-not\s+\$Interactive\s+-and\s+-not\s+\$ConfirmSilentDestructiveIso' -and
+        $ic -match 'throw'
+    )
+
+    # Cross-check: -TargetDisk and -DataDiskNumber must not collide.
+    # Mirrors the runtime check in unified_winpe_deploy.ps1 so a misconfigured
+    # ISO is rejected at build time instead of after USB flash.
+    Write-Result -Test "ISO builder: rejects -DataDiskNumber == -TargetDisk" -Pass (
+        $ic -match '\$DataDiskNumber\s+-ge\s+0\s+-and\s+\$DataDiskNumber\s+-eq\s+\$TargetDisk'
+    )
+
+    # WipeDisks format validation must still be there — silent deploys rely
+    # on it parsing as a comma-separated list of integers.
+    Write-Result -Test "ISO builder: -WipeDisks format validated" -Pass (
+        $ic -match '\$WipeDisks\s+-notmatch'
+    )
+}
 
 # Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan

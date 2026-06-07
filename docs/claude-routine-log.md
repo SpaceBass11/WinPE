@@ -5,6 +5,96 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-07 — `scripts/build_iso.ps1` fail-fast on `-DataDiskNumber == -TargetDisk`
+
+**Investigated:** open PRs #54-#66 to avoid duplicating in-flight
+work. #66 covers BitLocker-PIN redaction in `build_iso.ps1` console
+echo; #56 covers the `Show-ImageSelection` refactor; #63/#65 cover
+`prepare_wim.ps1` / `first-login.ps1` invariants; #57/#58 are docs
+sync; #54 fixes startnet `::` comment skipping; #62 is the MDT
+feature. The 2026-06-06 routine entry flagged "build_iso behavioral-
+invariant tests in `test_parse.ps1` (Test 12 is still syntax-only)"
+as the next item once #63/#65 land — that pattern was free to apply
+now without waiting.
+
+**Found:** `scripts/build_iso.ps1` had no cross-validation between
+`-TargetDisk` and `-DataDiskNumber`. A user who passed the same
+number for both (a very natural mistake on a single-disk laptop
+with default `-TargetDisk 0`) would get a successful build, a
+flashed USB, and a deploy abort at
+`unified_winpe_deploy.ps1:1796-1798` ("is the same as the target
+disk - aborting") only after WinPE booted on the target. The
+round-trip cost is high: ~10-15 min ISO build, USB flash, hardware
+boot, and the rest of the disk setup that ran before the abort.
+
+The runtime check is correct and already there; the fix is to fail
+the same condition during build instead of waiting for deploy.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a 3-line `throw` block in the
+  input-validation section (right after the existing `BitLockerPin`
+  warning, before output-dir resolution and `oscdimg` lookup) that
+  fires when `$DataDiskNumber -ge 0 -and $DataDiskNumber -eq
+  $TargetDisk`. Error message names the colliding disk number and
+  points at the two fixes (change `-DataDiskNumber` or omit it).
+  No-op when `$DataDiskNumber` is left at its `-1` default. The
+  `-Interactive` path doesn't write `$DataDiskNumber` or
+  `$TargetDisk` to `deploy.args`, but the check still fires there —
+  catching admin confusion about what `-Interactive` ignores is a
+  feature, not a bug.
+- `tests/test_parse.ps1` — promoted Test 12 from "syntax only" to
+  syntax + behavioral invariants, mirroring Test 9 (`build_boot_wim`).
+  Three new assertions: destructive-intent gate still present, the
+  new `DataDiskNumber == TargetDisk` cross-check still present, and
+  the existing `WipeDisks` format validator still present. Fails
+  loudly if any of the three regex patterns get reshaped.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the cross-check and the test promotion. Kept short.
+
+**Verification:**
+- `pwsh` installed once-per-session per CLAUDE.md (PSGallery is
+  blocked but the GitHub-Releases tarball is allowed). PSv7.4.6.
+- Baseline `tests/test_parse.ps1`: 48 passed / 0 failed.
+- Post-edit `tests/test_parse.ps1`: 51 passed / 0 failed (+3 new
+  behavioral assertions on `build_iso.ps1`).
+- Sanity: `tests/test_wim_parser.ps1` 16/0 and
+  `tests/test_disk_enumeration.ps1` 34/0 both unchanged.
+- Mutation test: replaced the new `if ($DataDiskNumber -ge 0 -and
+  $DataDiskNumber -eq $TargetDisk)` predicate with a never-true
+  literal and re-ran `test_parse.ps1`. The new assertion fired
+  `[FAIL]`, confirming the guard catches regression. Restored.
+- Functional test: ran the actual `build_iso.ps1` against fake
+  WIM + MediaDir fixtures under three scenarios:
+  1. `-TargetDisk 0 -DataDiskNumber 0` → throws with the new
+     "both point at disk 0" message before any file copy. PASS.
+  2. `-TargetDisk 0 -DataDiskNumber 1` → cross-check does not
+     trip; later fails for unrelated reasons (no oscdimg under
+     Linux), as expected. PASS.
+  3. `-TargetDisk 0` (no `-DataDiskNumber`) → cross-check does
+     not trip with the `-1` default. PASS.
+
+**Risks / follow-ups:**
+- Minimal. The check is additive input validation that throws
+  before any disk-touching code path. No production behavior change
+  on the happy path or on previously-rejected inputs.
+- The `-Interactive` path silently ignores `$DataDiskNumber` and
+  `$TargetDisk` already (only `-ImagePath` goes into the args).
+  This change now causes the cross-check to fire in that path too,
+  which surfaces admin confusion earlier instead of silently
+  ignoring the param. Considered acceptable; if surprising, the
+  next pass can scope the check to the silent block.
+- Outstanding routine-backlog candidates from prior entries:
+  - Two parallel `BitLockerPin` length checks at build time would
+    mirror this same fail-fast pattern. Skipped intentionally —
+    `build_iso.ps1` `.PARAMETER BitLockerPin` doc explicitly says
+    "no length policy is enforced here; the deploy script enforces
+    only Windows' 6-20 char window at runtime." Changing that is a
+    design call, not maintenance.
+  - `Show-ImageList` / `Show-ImageSelection` factoring is open PR
+    #56; retire from the backlog when that merges.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

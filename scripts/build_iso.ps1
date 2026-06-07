@@ -208,6 +208,15 @@ if ($BitLockerPin) {
     }
 }
 
+# Cross-check: -TargetDisk and -DataDiskNumber must not point at the same
+# physical disk. The deploy script enforces this at runtime
+# (unified_winpe_deploy.ps1, "is the same as the target disk"), but only
+# after the ISO is built and the USB is flashed. Fail fast here so the
+# operator never burns a broken ISO.
+if ($DataDiskNumber -ge 0 -and $DataDiskNumber -eq $TargetDisk) {
+    throw "-TargetDisk and -DataDiskNumber both point at disk $TargetDisk. The deploy script will refuse to wipe one disk twice. Pick a different -DataDiskNumber or omit it."
+}
+
 # Resolve output directory
 $outputDir = Split-Path -Parent $OutputIso
 if ($outputDir -and -not (Test-Path $outputDir)) {

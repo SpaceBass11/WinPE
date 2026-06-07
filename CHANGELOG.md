@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` fails fast when `-TargetDisk` and
+  `-DataDiskNumber` collide.** Previously the script would happily
+  embed a `deploy.args` line pointing both at the same disk; the
+  deploy script then aborted at runtime ("is the same as the target
+  disk") after the operator had already built the ISO, flashed the
+  USB, and booted target hardware. The cross-check now throws in
+  the input-validation block before any file copy. Added a
+  behavioral-invariant assertion to `tests/test_parse.ps1` (Test 12)
+  so the check, the destructive-intent gate, and the `-WipeDisks`
+  format validator can't silently disappear in a future refactor.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
