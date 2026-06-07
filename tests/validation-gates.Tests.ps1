@@ -354,6 +354,76 @@ Describe "Start-Deployment validation gates" {
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
     }
 
+    It "Rejects -Silent without -WimFile (no fallback to interactive image selection)" {
+        # Without -WimFile, the deploy script would scan drives and show the
+        # image-selection TUI - which deadlocks an unattended run. The gate
+        # must fail-fast before any drive scan or destructive op.
+        $result = & $script:DeployModule {
+            $WimFile    = $null
+            $TargetDisk =  0
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'requires -WimFile' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+    }
+
+    It "Rejects -Silent without -TargetDisk (no fallback to interactive disk selection)" {
+        # TargetDisk = -1 is the sentinel for "ask interactively"; in silent
+        # mode that would deadlock at Select-TargetDisk's Read-Host.
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk = -1
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'requires -TargetDisk' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+    }
+
+    It "Rejects -Silent without -Force (final ERASE confirmation cannot run silently)" {
+        # Without -Force, Select-TargetDisk's typed 'ERASE'/'DESTROY SYSTEM'
+        # confirmation would deadlock. -DataDiskNumber off so this exercises
+        # the plain silent-mode -Force gate, not the DataDiskNumber+Force gate.
+        $result = & $script:DeployModule {
+            $WimFile        = 'I:\images\Win.wim'
+            $TargetDisk     =  0
+            $Force          = $false   # the gate
+            $Silent         = $true
+            $DataDiskNumber = -1
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'requires -Force' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+    }
+
+    It "Rejects -Silent -WipeDisks with malformed value (must be comma-separated digits)" {
+        # The -WipeDisks regex protects against a typo like '1.2' or 'abc'
+        # silently being passed through and the script then queuing the
+        # wrong disks (or none) for extra-wipe. The format check fires in
+        # the silent-mode block; interactive mode re-prompts on bad input.
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $Force      = $true
+            $Silent     = $true
+            $WipeDisks  = 'abc'
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+    }
+
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
         $result = & $script:DeployModule {
             $WimFile        = 'I:\images\Win.wim'

@@ -5,6 +5,91 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-07 — Pester coverage of `-Silent` foundational gates
+
+**Investigated:** Open PRs (#54-#68; 12 in flight; none touch
+`tests/validation-gates.Tests.ps1`) and the routine log's outstanding
+backlog. PR #56 takes the Show-ImageList refactor; PR #50 already
+landed the `Get-SystemDisks` fixture test; PR #64 adds the BitLocker
+PIN length **ceiling** assertion. That left the BitLocker PIN **floor**
+test (line 342 of the Pester suite) sitting next to a gap nobody had
+covered: the three foundational `-Silent` preconditions inside
+`Start-Deployment` (lines 1700-1717 of `unified_winpe_deploy.ps1`)
+— "Silent mode requires `-WimFile`", "requires `-TargetDisk`",
+"requires `-Force`" — plus the `-Silent -WipeDisks` regex format
+check (line 1714) had no direct Pester assertion. The existing test
+"Rejects -Silent -DataDiskNumber without -Force" only exercises the
+`-Force` gate when `-DataDiskNumber` is also set (it actually fires
+the earlier silent-Force gate at line 1710, but a refactor that
+moved or rewrote the gates could pass it while breaking the others).
+
+**Found:** Three gates and one regex with no direct test:
+- Line 1702-1705: `-Silent` requires `-WimFile`
+- Line 1706-1709: `-Silent` requires `-TargetDisk` (TargetDisk ≥ 0)
+- Line 1710-1713: `-Silent` requires `-Force`
+- Line 1714-1717: `-WipeDisks` must match `^\s*\d+(\s*,\s*\d+)*\s*$`
+
+Each guards an interactive-prompt path that would deadlock an
+unattended deploy if the script ever fell through to it. The current
+masterize CI doesn't grep for these strings either, so a refactor
+could drop one and CI would stay green.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — four new `It` blocks inside the
+  existing `Describe "Start-Deployment validation gates"`, placed
+  right after the BitLocker floor test and before the
+  `-Silent -DataDiskNumber` test so all silent-mode tests cluster
+  together. Each asserts `result | Should -BeFalse`, that the matching
+  log message was captured, and that `Invoke-Diskpart` ran 0 times.
+  Pattern follows the existing tests exactly (uses the
+  `BeforeEach`-provided mocks and CLI-param defaults, sets only the
+  vars the test needs). It count: 18 → 22.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`
+  describing the coverage extension. Test-only, no version bump.
+
+**Verification:**
+- `pwsh` installed once per session per CLAUDE.md note (v7.4.6 tarball
+  to `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0 (unchanged
+  pre/post edits — confirms no syntax drift in the touched file via
+  the recursive `Test-ScriptSyntax` block).
+- Tokenize check on `tests/validation-gates.Tests.ps1` post-edit:
+  0 parse errors, braces 115/115 balanced, 22 `It` blocks (was 18).
+- Confirmed each of the four `-match` patterns
+  (`'requires -WimFile'`, `'requires -TargetDisk'`, `'requires -Force'`,
+  `'comma-separated'`) appears verbatim in the corresponding
+  `Write-Log` call in `unified_winpe_deploy.ps1` lines 1703, 1707, 1711,
+  1715. So the tests go from missing-to-green, not missing-to-red.
+- Verified the validation-order assumption: silent-mode gates (1700)
+  run BEFORE Find-ImageFiles (1750), Test-WinPEEnvironment (1778),
+  and the DataDiskNumber-equal-to-TargetDisk check (1797). So the
+  new tests fail-fast inside the silent-mode block without needing
+  any additional disk-setup mocks.
+- Pester suite itself runs **in CI only** — the Claude Code on the Web
+  container's network policy blocks `Install-Module Pester` from
+  PSGallery. Same constraint flagged in PR bodies #23-#68 and CLAUDE.md.
+  CI's `pester` job on `windows-latest` runs the real
+  `Invoke-Pester` on push.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change. No production code touched. No new
+  network dependencies. Pattern matches the existing nine `It` blocks
+  inside the same `Describe`.
+- The `'requires -Force'` regex would also match the silent-mode
+  `-DataDiskNumber` gate at line 1722. That's intentional — either
+  gate firing on the bare-Force test is a valid fail-fast. The
+  `-DataDiskNumber` test on line 357 uses the same regex and
+  documents the same behavior.
+- Outstanding routine-backlog candidates not taken this pass:
+  - **Pester ceiling assertion for `-BitLockerPin` (PR #64 in flight).**
+    Not duplicated here.
+  - **`Show-ImageList` / `Show-ImageSelection` factoring (PR #56 in
+    flight).** Not duplicated here.
+  - The four `-Silent` gates are now covered, so the silent-mode
+    invariant cluster is closed.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

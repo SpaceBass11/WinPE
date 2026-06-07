@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Silent-mode validation gates now have Pester coverage.** Four new
+  cases in `tests/validation-gates.Tests.ps1` cover the foundational
+  `-Silent` preconditions in `Start-Deployment` — missing `-WimFile`,
+  missing `-TargetDisk` (sentinel `-1`), missing `-Force`, and a
+  malformed `-WipeDisks` value — each asserting `Invoke-Diskpart`
+  was never called. Previously only the `-Silent -DataDiskNumber`
+  variant of the `-Force` gate was directly tested; a refactor that
+  dropped any of the other three guards would have silently regressed
+  unattended-deploy safety (interactive prompts deadlocking inside a
+  silent run). Test-only, no production code touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
