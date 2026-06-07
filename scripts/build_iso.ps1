@@ -203,6 +203,26 @@ if ($UnattendFile) {
 }
 
 if ($BitLockerPin) {
+    # Reject PIN characters that the deploy.args transport cannot represent
+    # losslessly. Windows' Enhanced PIN policy allows any printable ASCII
+    # (including " and !), so an admin typing a PIN at the WinPE Read-Host
+    # prompt could legitimately set one — but our build->boot->PowerShell
+    # path is narrower:
+    #   "  terminates the surrounding `"$BitLockerPin`" wrapper, so the
+    #      PIN binds truncated at the first quote (or fails to bind at all).
+    #   !  is consumed by cmd's setlocal enabledelayedexpansion in
+    #      startnet.cmd when !DEPLOYARGS! is expanded — PowerShell never
+    #      sees the !.
+    # In both cases the staged bitlocker-setup.ps1 would set a TPM+PIN
+    # that doesn't match what the admin typed here, locking the user out
+    # on first boot. Recovery key still works, but it's a confusing,
+    # expensive footgun. Fail fast at build time instead.
+    if ($BitLockerPin -match '"') {
+        throw "-BitLockerPin must not contain a double-quote character. The deploy.args transport wraps the PIN in `"...`" and cannot escape an embedded quote; the staged TPM+PIN would not match what you typed. Pick a PIN without a double-quote."
+    }
+    if ($BitLockerPin -match '!') {
+        throw "-BitLockerPin must not contain '!'. startnet.cmd uses cmd-shell delayed expansion (setlocal enabledelayedexpansion), which consumes '!' chars in the PIN before PowerShell sees them; the staged TPM+PIN would not match what you typed. Pick a PIN without '!'."
+    }
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
     }

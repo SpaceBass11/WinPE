@@ -5,6 +5,130 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-07 — `scripts/build_iso.ps1` rejects BitLocker PINs with `"` or `!`
+
+**Investigated:** open PRs #54-#69 to avoid duplicating in-flight
+work. #66 covers BitLocker-PIN redaction in `build_iso.ps1` console
+echo; #67 covers a `-DataDiskNumber == -TargetDisk` cross-check plus
+promoting Test 12 from syntax-only to behavioral; #54 / #68 cover
+the `startnet.cmd` `deploy.args` parsing path. None touched the
+input-side character-set validation for `-BitLockerPin`. PR #54's
+own follow-up note flagged exactly this gap:
+
+> "Pre-existing latent issue not addressed in this pass: `!` chars
+> in args under `setlocal enabledelayedexpansion` get eaten on the
+> `set "DEPLOYARGS=..."` line. … Needs real WinPE verification, so
+> it's larger than this pass."
+
+The runtime side (touching startnet.cmd) is indeed boot-critical
+and needs hardware testing, but **input-side rejection in
+`build_iso.ps1`** is purely additive validation that doesn't touch
+the boot path — it just refuses inputs that will be corrupted in
+transport.
+
+**Found:** `scripts/build_iso.ps1:205-209` (the existing
+`if ($BitLockerPin)` block) only checked the UnattendFile coupling
+and emitted a warning. The PIN was then embedded into
+`deploy.args` verbatim at line 299
+(`"-EnableBitLocker -BitLockerPin `"$BitLockerPin`""`). The
+deploy.args transport (cmd `for /f` -> `!DEPLOYARGS!` delayed
+expansion -> PowerShell `-File` parameter binder) cannot represent
+two characters that are otherwise valid under Windows' Enhanced PIN
+policy:
+
+- `"` terminates the surrounding double-quote wrapper. PowerShell
+  sees `-BitLockerPin "Ab"` then unmatched `cd"` — the PIN binds
+  truncated or fails parameter binding entirely.
+- `!` is consumed by `setlocal enabledelayedexpansion` in
+  startnet.cmd at the `!DEPLOYARGS!` expansion site — PowerShell
+  never sees the `!` chars.
+
+In both cases the staged `bitlocker-setup.ps1` calls
+`Enable-BitLocker -Pin <mangled>` on first boot, and the user is
+locked out (recoverable via the escrowed recovery key, but a
+confusing and expensive footgun for what looks like a typed PIN
+mismatch). The interactive Read-Host path in
+`unified_winpe_deploy.ps1:1684` does NOT have this issue — it
+reads directly from stdin without the cmd-shell hop. So this is
+specifically a build-path constraint.
+
+PR #66's redaction regex `(-BitLockerPin\s+")[^"]*(")` would also
+partially leak a `"`-containing PIN: `[^"]*` matches up to the
+first embedded quote, leaving the trailing characters un-redacted
+in the echo. Rejecting at input time closes that adjacent issue
+without complicating the redaction.
+
+**Changed:**
+- `scripts/build_iso.ps1` — extended the existing `if
+  ($BitLockerPin)` block with two `throw` guards (one for `"`, one
+  for `!`). Each error message names the failure mode (deploy.args
+  wrapper / cmd delayed expansion) and the symptom (staged
+  TPM+PIN won't match what the admin typed). No-op when neither
+  character is present, so all valid PINs (any combination of
+  letters, digits, `$`, `&`, `%`, `'`, `-`, etc.) flow through
+  unchanged.
+- `docs/DEPLOY_ARGS.md` — extended the "PIN with unescaped special
+  characters" failure-mode bullet to call out the two
+  un-representable characters, name the reasons (`"` terminates
+  the double-quote, `!` consumed by delayed expansion), and note
+  that `build_iso.ps1` rejects them at build time while hand-edits
+  must omit them by convention.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry naming the
+  failure modes and the build-time rejection point.
+
+**Verification:**
+- `pwsh` installed once-per-session per CLAUDE.md (PSGallery is
+  blocked, but the GitHub-Releases tarball is allowed). PSv7.4.6.
+- Baseline `tests/test_parse.ps1`: **48 / 0**. Post-edit:
+  **48 / 0** (validation is behavioral, not yet test-asserted —
+  see Risks). Sanity: `test_wim_parser.ps1` **16/0** and
+  `test_disk_enumeration.ps1` **34/0** unchanged.
+- Functional test of the new validation against a fake
+  WIM+MediaDir fixture under six PIN scenarios:
+  1. `"`-containing PIN (`My"Pin42`) → throws our new error
+     before any oscdimg / file copy. PASS.
+  2. `!`-containing PIN (`Hello!World`) → throws our new error.
+     PASS.
+  3. Clean PIN (`GoodPin42`) → validation passes (later fails for
+     unrelated reasons under Linux: missing `C:\WinPE_ISOBuild`).
+     PASS.
+  4. No PIN → validation no-op (BitLockerPin block skipped
+     entirely). PASS.
+  5. `Has$Money42`, `Has&Amp42`, `Has%Percent42`, `HasApostrophe42`
+     → all pass our validation (rejected later on the same
+     unrelated `C:` lookup). PASS — confirms we don't over-reject.
+
+**Risks / follow-ups:**
+- Minimal. The change is additive input validation that throws
+  before any file copy / oscdimg invocation. No production code
+  path is altered for previously-valid inputs. The boot-critical
+  startnet.cmd is untouched.
+- The startnet.cmd-side fix (write the deploy.args read inside a
+  `setlocal disabledelayedexpansion` / `endlocal` pair so the
+  cmd-shell `!` consumption is suppressed) is still outstanding and
+  flagged by PR #54's follow-up. That would let the runtime side
+  accept `!`-containing PINs typed at the WinPE Read-Host prompt
+  too — but it touches boot-critical code and per CLAUDE.md item
+  24 needs real WinPE hardware testing. Not in scope here.
+- I deliberately did NOT add a `Write-Result` assertion to Test 12
+  in `tests/test_parse.ps1`. PR #67 is already promoting Test 12
+  from syntax-only to behavioral and adds three new assertions —
+  adding a fourth one in this branch would conflict on the same
+  block. Once PR #67 merges, a follow-up routine pass can add the
+  grep guard for these two `throw` lines.
+- Outstanding routine-backlog candidates still deferred:
+  - `Show-ImageList` / `Show-ImageSelection` factoring (open
+    PR #56) — retire when that merges.
+  - `scripts/build_iso.ps1` Test 12 behavioral assertion for these
+    two new throws (defer until PR #67 lands to avoid conflict).
+
+**Next recommended improvement:** once PR #67 merges, add a
+two-line `Write-Result` in Test 12 grep-asserting the new
+`-BitLockerPin -match '"'` and `-match '!'` throws are still
+present. That closes the regression-guard loop on this change.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

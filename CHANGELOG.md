@@ -8,6 +8,22 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/build_iso.ps1` rejects BitLocker PINs containing `"` or
+  `!` at build time.** Both characters are valid under Windows'
+  Enhanced PIN policy, but neither survives the `deploy.args`
+  transport: `"` terminates the surrounding `"…"` wrapper so the
+  PIN binds truncated on the PowerShell side, and `!` is consumed by
+  cmd's delayed expansion in `startnet.cmd` (`!DEPLOYARGS!`) before
+  PowerShell sees it. In both cases the staged `bitlocker-setup.ps1`
+  would set a TPM+PIN that doesn't match what the admin typed, and
+  the user would be locked out on first boot (recoverable via the
+  escrowed recovery key, but a confusing, expensive footgun). The
+  builder now throws in the input-validation block before any file
+  copy, with the matching constraint documented in
+  `docs/DEPLOY_ARGS.md`'s "PIN with unescaped special characters"
+  failure mode.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

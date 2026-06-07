@@ -103,7 +103,12 @@ files for `-TargetDisk 0` (production single-disk) vs `-TargetDisk
   rather than a destructive surprise.
 - **PIN with unescaped special characters.** Wrap any PIN with `&`,
   `|`, `<`, `>`, or `%` in double quotes. The example file already
-  does this defensively.
+  does this defensively. Two characters are **not** representable in
+  the transport at all and cannot be rescued by quoting: `"` (would
+  terminate the surrounding double-quote) and `!` (consumed by
+  cmd's delayed expansion in `startnet.cmd`). `build_iso.ps1`
+  rejects PINs containing either one at build time; if you hand-edit
+  `deploy.args` directly, omit them yourself.
 - **File missing or empty.** `startnet.cmd` falls back to launching
   the script without args (interactive TUI). Not a failure — that's
   the documented default.
