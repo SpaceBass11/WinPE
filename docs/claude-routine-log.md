@@ -5,6 +5,100 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-07 — Masterize CI check #24 accepts either `set /p` or `for /f` deploy.args reader
+
+**Investigated:** open PRs (#54–#67), the in-progress changes each one
+touches, and `.github/workflows/ci.yml` against the actual file shapes
+each PR produces.
+
+**Found:** Open PR #54 (`fix(startnet): skip :: comments and blank
+lines in deploy.args`) replaces the `set /p DEPLOYARGS=<...` line in
+`scripts/build_boot_wim.ps1`'s embedded `startnet.cmd` with a
+`for /f "usebackq eol=: tokens=* delims=" %%a in (...) do (...)` block
+so a `deploy.args` that still carries the example file's `::` comment
+header doesn't get fed to PowerShell as a positional arg. The change
+is sound (Test 9 in `tests/test_parse.ps1` gets two new drift guards
+covering exactly that pattern), but the masterize job's check #24
+hardcodes:
+
+```bash
+grep -qF 'set /p DEPLOYARGS' $builder || { echo "  ... no longer reads deploy.args via set /p"; ok=0; }
+```
+
+So PR #54's masterize CI is red ("deploy.args wiring drifted") on a
+PR whose entire purpose is to *improve* that wiring, not break it.
+Verified via `gh actions get_job_logs` on run 26674190225 — the
+failure is exactly check #24 and nothing else. The check is binding
+to an implementation detail (which CMD construct does the read)
+rather than the semantic invariant the check claims to enforce
+(`deploy.args` is actually read, not just referenced in a comment).
+
+**Changed:**
+
+- `.github/workflows/ci.yml` — check #24's second grep now uses
+  `grep -qE 'set /p DEPLOYARGS|for /f.*deploy\.args'` so either the
+  original single-line read or the comment-skipping form satisfies
+  the invariant. Comment block above the check expanded to name both
+  forms and explain why the predicate was loosened. Error message
+  updated to name both patterns so a future regression diagnoses
+  itself.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the relaxation. CI-only change; no production behavior touched, no
+  script version bump.
+
+**Verification:**
+
+- Direct grep of the patched predicate against three states:
+  1. **Current main** (`scripts/build_boot_wim.ps1` with the
+     `set /p DEPLOYARGS=<...` line): regex matches. CI stays green
+     today.
+  2. **Simulated post-#54** (set/p block replaced with the for/f
+     block PR #54 generates): regex matches. CI will go green when
+     #54 merges.
+  3. **Regression case** (both forms stripped via `sed`-style
+     replacement): regex fails — invariant still has teeth and would
+     catch a real "the file is no longer read" drift.
+- YAML parse: `python3 -c 'import yaml; yaml.safe_load(open(...))'`
+  loads the workflow clean; masterize step's Phase 1B run block is
+  unchanged in shape (only inside-string content updated).
+- `actionlint` not available in the container; CI's `actionlint` job
+  will run on push and is the source of truth for workflow syntax.
+
+**Risks / follow-ups:**
+
+- Minimal. The change is a CI-only regex widening; no production
+  code, no PowerShell, no deploy paths, no Pester surface touched.
+  Worst case is the workflow YAML having a typo — caught immediately
+  by the `actionlint` job and by the masterize job itself.
+- The new alternation is OR — once PR #54 merges and `set /p
+  DEPLOYARGS` is gone, the `for /f` branch is the only one that
+  matches. The check still rejects "neither pattern present"
+  (verified in Test 3 above) and still rejects a file that mentions
+  `deploy.args` only in comments without reading it.
+- Coordination with open PRs: no file-level overlap. PR #54 touches
+  `scripts/build_boot_wim.ps1`, `tests/test_parse.ps1`,
+  `docs/DEPLOY_ARGS.md`, `CHANGELOG.md`, and
+  `docs/claude-routine-log.md`. This change touches
+  `.github/workflows/ci.yml`, `CHANGELOG.md`, and
+  `docs/claude-routine-log.md`. The two shared files take simple
+  top-of-file appends; merge order doesn't matter.
+
+**Next recommended improvement:**
+
+- After #54 merges, consider whether check #24's predicate can be
+  dropped entirely in favor of the two new `test_parse.ps1` drift
+  guards added by #54 (Test 9 already asserts presence of `for /f
+  "usebackq eol=: tokens=* delims="` and absence of `set /p
+  DEPLOYARGS=<`). Today's looser regex keeps the CI invariant; the
+  Test 9 guards are strictly tighter. Deferred — needs the merge
+  ordering to settle before deciding what's redundant.
+- The remaining outstanding routine-backlog items (Initialize-
+  BitLockerSetup generated-script parse-time validation; masterize
+  CI greps for `docs/ARCHITECTURE.md` File Layout table sync) noted
+  in earlier entries are unaffected by this change.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

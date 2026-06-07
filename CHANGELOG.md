@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Masterize CI check #24 (`build_boot_wim.ps1` startnet.cmd reads
+  deploy.args from IMAGES) now accepts either `set /p DEPLOYARGS` or
+  `for /f ... deploy.args` as the reader.** The old predicate was
+  bound to the original `set /p` line, so any PR that legitimately
+  rewrote the read (e.g. switching to `for /f` to skip `::` comments)
+  failed CI on the very change it was opened to make. The regex was
+  loosened to an OR of the two forms; the "neither pattern present"
+  regression case still fails, so the invariant keeps its teeth.
+  CI-only change; no production code touched, no script version bump.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
