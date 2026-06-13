@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`-EnableBitLocker` docstring no longer claims a non-existent
+  `<servicetag-or-timestamp>\` subdirectory.** The header comment for
+  `unified_winpe_deploy.ps1`'s `-EnableBitLocker` parameter described
+  recovery-key escrow as landing under
+  `BitLockerKeys\<servicetag-or-timestamp>\` per machine, but the code
+  has always passed `<letter>:\BitLockerKeys` straight to
+  `Add-BitLockerKeyProtector -RecoveryKeyPath`, which writes a single
+  `.BEK` file named by GUID directly in that directory — no per-machine
+  subdirectory. `docs/BITLOCKER.md` already described the real
+  behavior; this aligns the inline parameter help with the docs and
+  with the code. No behavior change.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

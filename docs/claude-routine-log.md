@@ -5,6 +5,65 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `-EnableBitLocker` docstring escrow-path drift
+
+**Investigated:** open PRs (#54-#86 all open, lots of in-flight work on
+build_iso safety, Pester gates, docs resyncs, deploy.args parsing) to
+find a topic that wasn't already being touched. Spot-checked the deploy
+script's header docstring against the actual BitLocker code paths and
+`docs/BITLOCKER.md`.
+
+**Found:** the `.PARAMETER EnableBitLocker` block in
+`unified_winpe_deploy.ps1` (~line 53-59) claimed recovery keys land in
+`BitLockerKeys\<servicetag-or-timestamp>\` subdirectories per machine.
+The actual code at `Resolve-BitLockerKeyPath` returns
+`<DEPLOY_IMAGE_DRIVE>\BitLockerKeys` (no subdir), and the staged
+first-boot script passes that path straight to
+`Add-BitLockerKeyProtector -RecoveryKeyPath`, which writes a `.BEK` file
+named by GUID directly in that directory. No service-tag or timestamp
+subdirectory was ever created. `docs/BITLOCKER.md` already described
+the real behavior accurately (look up IMAGES by label → write to
+`<letter>:\BitLockerKeys`), so this was inline-help drift, not a
+behavior bug. Operators reading `Get-Help unified_winpe_deploy.ps1
+-Parameter EnableBitLocker` would have looked for per-machine
+subdirectories that don't exist.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `.PARAMETER EnableBitLocker` rewritten to
+  state the real escrow path (`<letter>:\BitLockerKeys` resolved by
+  volume label at first boot) and note that BitLocker names the `.BEK`
+  file by GUID. Points at `docs/BITLOCKER.md` for the full precedence
+  list and the `-BitLockerKeyPath` override (already accurate). No
+  code change, no behavior change, no version bump.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing the
+  inline-help correction.
+
+**Verification:**
+- `pwsh` 7.4.6 installed via the CLAUDE.md one-liner.
+- Baseline: `tests/test_parse.ps1` → 48/0, `tests/test_wim_parser.ps1`
+  → 16/0, `tests/test_disk_enumeration.ps1` → 34/0 (same before and
+  after the edit — the change is in a docstring comment block, so the
+  parser, function-list, and version-consistency checks are all
+  unaffected).
+- Confirmed no other doc references the false subdirectory pattern via
+  `grep -rn 'servicetag-or-timestamp\|service.tag.*timestamp'` over the
+  whole repo (single match was the line being changed; BITLOCKER.md and
+  SCRIPT_REFERENCE.md never made this claim).
+
+**Risks / follow-ups:**
+- Minimal. Header docstring only — `Get-Help` output and IDE intellisense
+  surface change. No PSSA, masterize CI, parse, WIM-parser, or
+  disk-enumeration assertions touch this block.
+- Outstanding routine-backlog candidates I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code — already addressed by open PR #56.
+  - Per-machine recovery-key subdirectory could be implemented as a
+    *feature*, not a fix (would need a service-tag fallback, a
+    timestamp fallback, and a doc update to BITLOCKER.md). Out of
+    scope for this routine pass.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
