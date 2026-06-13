@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-DataDiskNumber` / extra-wipe overlap rejection now has Pester
+  coverage.** New `It` block in `tests/validation-gates.Tests.ps1`
+  exercises the runtime gate inside `Start-Deployment` that aborts
+  when the operator passes the same disk number as both
+  `-DataDiskNumber` and a member of the additional-wipe list (i.e.
+  what `Select-AdditionalWipeDisks` returns). The diskpart script
+  would otherwise clean the disk twice and end with a data partition
+  where the extra wipe wanted a bare `clean`. The test mocks
+  `Select-AdditionalWipeDisks` to return the same disk number that
+  `-DataDiskNumber` selects, asserts the deploy aborts before
+  `Invoke-Diskpart` or `Apply-WindowsImage` run, and matches the
+  exact log message. Test-only, no production code touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

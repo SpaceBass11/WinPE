@@ -5,6 +5,90 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — Pester coverage of `-DataDiskNumber` / extra-wipe overlap rejection
+
+**Investigated:** Scanned 24 open PRs (#54-#80) to pick a non-duplicative
+improvement. PR #73 already covers the **build-time** twin in
+`scripts/build_iso.ps1` (refuse to emit `deploy.args` if
+`-WipeDisks` overlaps `-TargetDisk` or `-DataDiskNumber`), and
+PR #69 covers the foundational `-Silent` gates in the same Pester
+suite. PR #75 covers `Test-FinalWipeConfirmation`. The **runtime**
+gate at `Start-Deployment` line 1829-1833 of `unified_winpe_deploy.ps1`
+that rejects the same disk appearing in both `-DataDiskNumber` and
+the additional-wipe list (whatever `Select-AdditionalWipeDisks`
+returns) had no Pester test of its own. `grep` across `tests/` for
+`additional-wipe` or the log literal turned up zero matches.
+
+**Found:** A safety check with no regression test. If a refactor
+dropped the overlap rejection, the diskpart script would `clean`
+the data disk in the extra-wipe preamble at line 977-982 and then
+`clean` + format it as `D:` in `$dataDiskCommands` at 985-997. The
+disk would still end up formatted, so the failure is subtle (not
+loud), and CI's masterize check 22 only validates the `WIPE DATA`
+typed prompt, not the overlap gate. Matches the safety pattern
+PR #73 closed at build time.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — new `It` block "Rejects
+  overlap between -DataDiskNumber and the -WipeDisks list (would
+  clean the data disk twice)" inserted after the four
+  `-DataDiskNumber` validation cases and before the BitLocker
+  tests so the DataDiskNumber cluster stays contiguous. Mocks
+  `Select-AdditionalWipeDisks` to return the same disk number
+  selected by `-DataDiskNumber`. Asserts result `$false`, log
+  message matches `'both -DataDiskNumber and in the additional-wipe
+  list'`, and both `Invoke-Diskpart` + `Apply-WindowsImage` ran 0
+  times.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note (v7.4.6
+  tarball into `/opt/pwsh/`); GitHub-Releases is allowed by the
+  network policy.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0 (unchanged
+  pre/post edits — the recursive `Test-ScriptSyntax` block confirms
+  no syntax drift in the unrelated scripts).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0 unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged.
+- Tokenize check on `tests/validation-gates.Tests.ps1` post-edit:
+  0 parse errors, braces 108/108 balanced, 19 `It` blocks (was 18).
+- Confirmed the test's `-match` literal
+  (`'both -DataDiskNumber and in the additional-wipe list'`) appears
+  verbatim in `unified_winpe_deploy.ps1` line 1831. So the test
+  goes from missing-to-green, not missing-to-red.
+- Verified validation order: the new test fires AFTER
+  `Select-AdditionalWipeDisks` returns (mocked to a one-element
+  list), which is AFTER the DataDiskNumber existence/system/USB
+  validation and AFTER the `WIPE DATA` prompt (skipped by
+  `-Force`). No additional mock setup required beyond the
+  `BeforeEach` defaults + the single `Select-AdditionalWipeDisks`
+  override.
+- Pester suite itself runs in CI only — the Claude Code on the Web
+  container's network policy blocks `Install-Module Pester` from
+  PSGallery (confirmed: `Install-Package: No match was found for
+  the specified search criteria and module name 'Pester'`). Same
+  constraint flagged in PR bodies #23-#75 and CLAUDE.md. CI's
+  `pester` job on `windows-latest` runs the real `Invoke-Pester`
+  on push.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change. No production code touched. No new
+  network dependencies. Pattern matches the existing nine `It`
+  blocks inside the same `Describe`.
+- Outstanding routine-backlog candidates not taken this pass:
+  - **`-BitLockerPin` provided without `-EnableBitLocker`** (line
+    1696-1698) only logs a warning; no Pester assertion that the
+    warning fires. Smaller value than the overlap gate — losing
+    the warning is a usability nit, not a safety regression.
+  - **`Invoke-CctkConfig` config-precedence test** (service tag →
+    model → default → none). Highest mock burden of the remaining
+    gaps because of `Get-WmiObject Win32_BIOS` + `Win32_ComputerSystem`
+    plus path lookups; the four-arm precedence is the kind of
+    branchy logic that benefits most from a regression test.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

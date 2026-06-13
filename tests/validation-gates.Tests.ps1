@@ -324,6 +324,34 @@ Describe "Start-Deployment validation gates" {
         ($logs | Where-Object { $_.Message -match 'not a valid non-USB internal disk' }) | Should -Not -BeNullOrEmpty
     }
 
+    It "Rejects overlap between -DataDiskNumber and the -WipeDisks list (would clean the data disk twice)" {
+        # PR #73 added a build-time fail-fast for this combo inside
+        # scripts/build_iso.ps1. The runtime gate at the top of this
+        # function (unified_winpe_deploy.ps1 line 1829) is the deploy
+        # script's own defence in depth: if a deploy.args slips through
+        # with the same disk in both lists, the diskpart script would
+        # clean it twice and leave a data partition where the extra
+        # wipe wanted a bare 'clean'. A regression that drops the
+        # overlap check would silently produce a half-formatted data
+        # disk on first boot.
+        Mock -ModuleName DeployUnderTest -CommandName Select-AdditionalWipeDisks -MockWith {
+            ,@([PSCustomObject]@{ Number=1; Size=500; Model='Data NVMe'; InterfaceType='SCSI'; HasPartitions=$true; PartitionInfo='Part1:500GB'; IsSystemDisk=$false })
+        }
+        $result = & $script:DeployModule {
+            $WimFile        = 'I:\images\Win.wim'
+            $TargetDisk     =  0
+            $DataDiskNumber =  1   # also returned by Select-AdditionalWipeDisks mock
+            $Force          = $true
+            $Silent         = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'both -DataDiskNumber and in the additional-wipe list' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
     It "Rejects -EnableBitLocker without -BitLockerPin" {
         $result = & $script:DeployModule {
             $WimFile         = 'I:\images\Win.wim'
