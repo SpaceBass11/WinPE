@@ -44,7 +44,8 @@
     is enforced here; the deploy script enforces only Windows' 6-20
     char window at runtime. Security note: the PIN is stored in
     plaintext in the ISO/on the USB - the USB is the trust boundary.
-    Use a unique PIN per USB.
+    Use a unique PIN per USB. Rejected if combined with -Interactive
+    (which defers BitLocker setup to the operator).
 
 .PARAMETER DataDiskNumber
     Disk number of a secondary data drive to wipe and format as D:.
@@ -63,6 +64,12 @@
     where you want the TUI. When not set, a fully silent destructive
     deploy.args is generated and -ConfirmSilentDestructiveIso must be
     passed to acknowledge that.
+
+    -Interactive is mutually exclusive with -TargetDisk, -DataDiskNumber,
+    -WipeDisks, and -BitLockerPin (all of which only feed the silent
+    deploy.args). Passing both raises a build-time error so an admin
+    doesn't ship a TUI ISO under the impression their parameters were
+    baked in.
 
 .PARAMETER ConfirmSilentDestructiveIso
     Required acknowledgement when neither -Interactive is set. The
@@ -170,6 +177,24 @@ confirmation. To proceed, re-run with one of:
   -Interactive                         (TUI prompts on deploy)
   -ConfirmSilentDestructiveIso         (silent + destructive, intended)
 "@
+}
+
+# --- Interactive-mode conflict gate ---
+# -Interactive only emits `-ImagePath "{DRIVE}\images"` to deploy.args so the
+# operator selects edition / target disk / confirmations at deploy time.
+# -TargetDisk, -DataDiskNumber, -WipeDisks, and -BitLockerPin are silently
+# dropped in that mode — a footgun for an admin who expected, say, a BitLocker
+# PIN baked into the ISO. Fail fast so the user disambiguates rather than
+# producing a non-BitLocker interactive ISO and only finding out at deploy time.
+if ($Interactive) {
+    $ignored = @()
+    if ($PSBoundParameters.ContainsKey('TargetDisk'))     { $ignored += '-TargetDisk' }
+    if ($PSBoundParameters.ContainsKey('DataDiskNumber')) { $ignored += '-DataDiskNumber' }
+    if ($PSBoundParameters.ContainsKey('WipeDisks'))      { $ignored += '-WipeDisks' }
+    if ($PSBoundParameters.ContainsKey('BitLockerPin'))   { $ignored += '-BitLockerPin' }
+    if ($ignored.Count -gt 0) {
+        throw "-Interactive ignores deploy-time parameters: $($ignored -join ', '). The interactive ISO defers these to the operator at deploy time, so any value passed here is silently dropped. Drop these parameters (or drop -Interactive) to disambiguate."
+    }
 }
 
 # --- Input validation ---

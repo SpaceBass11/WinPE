@@ -5,6 +5,77 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `build_iso.ps1` `-Interactive` conflict gate
+
+**Investigated:** open Claude routine PRs (#54-#84, ~28 open). The
+backlog is saturated — CCTK fixture tests, Get-SystemDisks drift
+guard, BitLocker PIN length / charset / first-boot script tests,
+`-DataDiskNumber` vs `-WipeDisks` vs `-TargetDisk` overlap rejection,
+unattend.xml build-time validation, refresh_usb path-checks,
+startnet.cmd deploy.args parsing, Show-ImageList refactor, etc. all
+have open PRs. Searched for untouched surface area in
+`scripts/build_iso.ps1`.
+
+**Found:** `-Interactive` is mutually exclusive with `-TargetDisk`,
+`-DataDiskNumber`, `-WipeDisks`, and `-BitLockerPin` — interactive
+mode only emits `-ImagePath "{DRIVE}\images"` into `deploy.args`
+(line 275 of `build_iso.ps1`), the silent-mode branch (lines 277-301)
+is the only one that consumes those four parameters. An admin running
+`build_iso.ps1 -Interactive -BitLockerPin '<pin>'` silently lost the
+PIN — the script produced a TUI ISO with no BitLocker and gave no
+warning. Same with `-Interactive -TargetDisk 1` etc. The parameter
+help on `-TargetDisk` / `-DataDiskNumber` / `-WipeDisks` does say
+"only used when -Interactive is not set", but `-BitLockerPin`'s help
+didn't mention it at all, and no validation gate caught the conflict.
+None of the open PRs touch this (PR #66 redacts the PIN from the
+build-time console echo, PR #70 rejects bad-charset PINs in silent
+mode, PR #67/#73/#81 cover the silent-mode parameter-overlap cases).
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a new "Interactive-mode conflict
+  gate" immediately after the existing destructive-intent gate. Uses
+  `$PSBoundParameters.ContainsKey(...)` so defaults (e.g. `-TargetDisk
+  = 0`) don't trip it; only explicit user-passed parameters do. Throws
+  with all conflicting parameters named so the user disambiguates in
+  one round-trip. Updated `.PARAMETER Interactive` and `.PARAMETER
+  BitLockerPin` to describe the new exclusion.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry at the top
+  describing the gate.
+
+**Verification:**
+- Installed `pwsh` 7.4.6 per CLAUDE.md note (GitHub Releases tarball
+  to `/opt/pwsh/`).
+- Baseline (pre-edit): `tests/test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0.
+- Post-edit: `tests/test_parse.ps1` 48/0 — `build_iso.ps1` still parses
+  clean.
+- Functional test of the gate logic in isolation (a stand-in
+  `Test-Gate` function with the same parameter shape and the same
+  `$PSBoundParameters.ContainsKey(...)` checks): six cases, all the
+  expected branch taken — `-Interactive` alone passes, `-Interactive
+  -BitLockerPin` throws naming `-BitLockerPin`, `-Interactive
+  -TargetDisk 1` throws naming `-TargetDisk`, silent-mode-with-all-params
+  unaffected, `-Interactive -DataDiskNumber 1 -WipeDisks '2'` throws
+  naming both, no-args-at-all passes.
+- The Pester suite (`tests/validation-gates.Tests.ps1`) doesn't yet
+  cover `build_iso.ps1` gates and PSGallery is blocked here, so the
+  full Pester run remains a CI responsibility.
+
+**Risks / follow-ups:**
+- Minimal. Pure additive validation gate — silent-mode behavior is
+  unchanged, only blocks a previously-silent footgun. No destructive
+  code paths touched.
+- A future Pester block under `tests/validation-gates.Tests.ps1`
+  could lock the gate in (six cases mirror the isolated test above);
+  deferred this pass to avoid stacking on PR #69/#75/#81/#84 all of
+  which are adding new Pester blocks already.
+- Outstanding routine candidates from prior entries that I did not
+  take this pass: `Show-ImageList` / `Show-ImageSelection` factoring
+  is in PR #56; no longer in the backlog. The last untouched parser-
+  style helper is `Test-FinalWipeConfirmation` (covered by PR #75).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

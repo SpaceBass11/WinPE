@@ -8,6 +8,20 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/build_iso.ps1` now rejects `-Interactive` combined with
+  `-TargetDisk`, `-DataDiskNumber`, `-WipeDisks`, or `-BitLockerPin`.**
+  Interactive mode only writes `-ImagePath "{DRIVE}\images"` into
+  `deploy.args` and defers everything else to the operator at deploy
+  time — so any of those four parameters were silently dropped if
+  combined with `-Interactive`. An admin who ran
+  `build_iso.ps1 -Interactive -BitLockerPin '...'` got a TUI ISO with
+  no BitLocker, and only found out at first boot. A build-time gate
+  now lists the offending parameters in the error and asks the user
+  to drop either the conflict or the `-Interactive` flag.
+  `.PARAMETER Interactive` and `.PARAMETER BitLockerPin` updated to
+  describe the new exclusion. No change to silent-mode behavior.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
