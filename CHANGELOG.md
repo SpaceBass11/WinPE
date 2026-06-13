@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`.gitignore` safety net extended to cover the DCC 4.0+ DCH API
+  DLLs.** PR #51 migrated CCTK support from the pre-4.0 HAPI kernel
+  driver to the userspace DCH API stack (`dchapi64.dll`,
+  `dchbas64.dll`, `BIOSIntf.dll`), which `build_boot_wim.ps1` now
+  requires alongside `cctk.exe`. The `.gitignore` already blocked
+  `cctk.exe` and the legacy `hapint*.inf/.sys` driver as a safety net
+  against committing non-redistributable Dell binaries, but the three
+  new DCH DLLs that ship with DCC 4.0+ were not in that list. Added
+  them so accidentally dropping a Dell DCC extraction inside the repo
+  doesn't smuggle Dell-licensed DLLs into a commit. `docs/CCTK.md`
+  IMPORTANT block updated in lockstep so the doc and the actual
+  `.gitignore` agree on what's covered.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -5,6 +5,86 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `.gitignore` safety net for DCC 4.0+ DCH API DLLs
+
+**Investigated:** open PRs (#54, #62-#81 — 21 in flight covering tests,
+build_iso safety, BitLocker, docs resyncs, CI, MDT factory). Walked the
+toolkit for changes triggered by PR #51 (HAPI → DCH migration, merged
+2026-05-27) that didn't propagate to every adjacent file. Compared
+`.gitignore`'s third-party safety net against the DCH DLL set
+hard-required by `scripts/build_boot_wim.ps1` (lines 165-169 — the
+build *throws* if these are absent from `-CctkSource`).
+
+**Found:** PR #51 introduced a builder-side hard requirement on three
+non-redistributable Dell DCH API DLLs (`dchapi64.dll`, `dchbas64.dll`,
+`BIOSIntf.dll`) that ship alongside `cctk.exe` in any DCC 4.0+
+extraction. The `.gitignore` safety net protecting the repo from
+accidental Dell-binary commits was updated for `cctk.exe` and the
+legacy HAPI driver (`hapint*.inf/.sys`) but never extended to the new
+DCH DLLs. A maintainer who points `-CctkSource` at, say, `vendor/dcc/`
+inside the repo (`/vendor/` is already ignored — good) and then later
+restructures or copies a subset of those files into a non-ignored path
+could ship the DLLs in a commit. No PR has caught this yet because
+the masterize checks don't grep `.gitignore` for individual entries,
+and the only doc that names what's ignored is `docs/CCTK.md` lines
+9-11 — which lists `cctk.exe` and `hapint*.inf/.sys` but not the new
+DLLs. So both the rule and the doc were drifting from the actual
+build-time contract.
+
+`grep -rn 'dchapi64\|dchbas64\|BIOSIntf' .gitignore` returns zero —
+confirming the gap. None of the 21 open PRs touch `.gitignore` or
+the DCH DLL set, so there's no duplication risk.
+
+**Changed:**
+- `.gitignore` — three new entries (`dchapi64.dll`, `dchbas64.dll`,
+  `BIOSIntf.dll`) placed alphabetically right after the `cctk.exe`
+  block, with a comment block above them explaining why and a comment
+  marking the trailing `hapint*` entries as legacy. Unanchored
+  patterns so the rule fires whether the DLLs land at repo root or
+  in a created subdirectory.
+- `docs/CCTK.md` — the IMPORTANT block at lines 3-11 listing what
+  `.gitignore` covers now names the three DCH DLLs alongside
+  `cctk.exe` and `hapint*.inf/.sys`. Doc-and-rule pair stays in sync.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the safety-net extension and the doc lockstep update.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per the CLAUDE.md bootstrap recipe.
+- All three local test suites unchanged:
+  - `tests/test_parse.ps1` → 48 / 0 (pre and post)
+  - `tests/test_wim_parser.ps1` → 16 / 0 (pre and post)
+  - `tests/test_disk_enumeration.ps1` → 34 / 0 (pre and post)
+- `git check-ignore -v <path>` against the three DCH DLL names at
+  both repo root and inside a nested directory: all six lookups
+  return the matching `.gitignore` line. The pre-existing `cctk.exe`
+  and `hapint*.sys` rules still match.
+- `git status -s` after the changes shows only `.gitignore`,
+  `docs/CCTK.md`, `CHANGELOG.md`, and this log — no spurious files.
+
+**Risks / follow-ups:**
+- Minimal. `.gitignore` additions don't change runtime behavior;
+  they only prevent accidental tracking of new files matching the
+  patterns. Any file already in the index is unaffected (none of
+  the three DLL names appear in `git ls-files`).
+- Per-file unanchored patterns (no leading `/`) means the rule
+  fires from any directory depth. That's the intended safety-net
+  posture — anyone dropping a DCC tree into the repo at *any* path
+  gets the DLLs filtered. The `/vendor/` and `/cctk-source/` rules
+  above are still the primary, recommended path.
+- Outstanding routine-backlog candidates I did not take this pass:
+  - **CCTK config-file selection precedence** (`servicetag > model
+    > default`) remains untested by Pester. Noted in PR #76's
+    follow-ups; would need `Get-WmiObject` mocks for both
+    `Win32_BIOS` and `Win32_ComputerSystem`. Worth a separate
+    routine pass once the BitLocker-test cluster (#71, #75, #81)
+    settles.
+  - **`Find-ImageFiles` `-ImagePath` accepts a file path silently**
+    (deploy script ~line 332 — same `-PathType` gap PR #77 just
+    fixed in `refresh_usb.ps1`, but inside the destructive deploy
+    script and wanting a Pester regression). Flagged by PR #77.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
