@@ -18,9 +18,11 @@
     find the right number. -1 (default) means "ask interactively".
 .PARAMETER WipeDisks
     Comma-separated additional disk numbers to clean (no repartitioning)
-    alongside the primary target. Example: "1,2". Validated against the
-    pattern '^\s*\d+(\s*,\s*\d+)*\s*$' in silent mode. Requires -Force when
-    combined with -Silent.
+    alongside the primary target. Example: "1,2". Honored only in
+    -Silent mode - in interactive mode the operator is reprompted by
+    Select-AdditionalWipeDisks and -WipeDisks is ignored (a warning is
+    logged). Validated against the pattern '^\s*\d+(\s*,\s*\d+)*\s*$'
+    in silent mode. Requires -Force when combined with -Silent.
 .PARAMETER MinImageSizeMB
     Minimum image file size in MB during auto-discovery. Files smaller than
     this are skipped to avoid picking up boot/system artifacts that happen
@@ -1695,6 +1697,14 @@ function Start-Deployment {
     }
     if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
         Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
+    }
+
+    # -WipeDisks is consumed only by Select-AdditionalWipeDisks's silent branch.
+    # In interactive mode the operator is reprompted, so a passed -WipeDisks is
+    # silently dropped - warn loudly so the admin doesn't assume a typo'd disk
+    # number was pre-selected for an extra wipe.
+    if ($WipeDisks -and -not $Silent) {
+        Write-Log "-WipeDisks provided without -Silent - value ignored (interactive mode reprompts via the additional-wipe menu)" -Level Warning
     }
 
     # Silent mode is intended for unattended runs and must not trigger prompts

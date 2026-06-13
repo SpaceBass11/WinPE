@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-WipeDisks` now warns when set without `-Silent`.**
+  `Start-Deployment` adds a `Write-Log -Level Warning` that fires when
+  `-WipeDisks` is provided but `-Silent` isn't, because
+  `Select-AdditionalWipeDisks` only consumes `$WipeDisks` in its silent
+  branch — in interactive mode the operator is reprompted by the
+  additional-wipe menu and the passed value is dropped. Same
+  parameter-ignored-pattern as the existing `-BitLockerPin` /
+  `-BitLockerKeyPath` warnings. The `.PARAMETER WipeDisks` docstring
+  is updated to say the value is honored only in `-Silent` mode. No
+  destructive code path touched; behavior is additive logging only.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

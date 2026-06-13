@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `-WipeDisks` silently-ignored-without-`-Silent` warning
+
+**Investigated:** the 30+ open routine PRs (#54-#88) to avoid
+duplicating in-flight work, then walked `Start-Deployment`'s parameter
+validation block for parameters that get dropped without a flag.
+
+**Found:** `Select-AdditionalWipeDisks` only consumes `$WipeDisks` in
+its silent branch (line 1392: `if ($Silent) { ... }`). In interactive
+mode the function reprompts the operator with the same menu it would
+have run with `-WipeDisks` unset. A caller doing
+`unified_winpe_deploy.ps1 -WipeDisks "1,2" -TargetDisk 0 -Force`
+(no `-Silent`) gets no feedback that their `-WipeDisks` value was
+dropped — and if they hit Enter at the additional-wipe prompt
+thinking it's a confirmation of the pre-selection, no extra wipe
+happens at all.
+
+Same parameter-ignored class as the existing `-BitLockerPin` warning
+at line 1696-1698 ("PIN ignored") and the warning PR #88 added for
+`-BitLockerKeyPath`. The deploy-script equivalent for `-WipeDisks`
+was missing. Not covered by any open PR — #73 and #85 address
+`build_iso.ps1` for the build-time side; the runtime warning is
+its own gap.
+
+The `.PARAMETER WipeDisks` docstring said "Validated... in silent
+mode. Requires -Force when combined with -Silent" but never said the
+value is dropped without `-Silent`. Documentation drift on top of the
+missing warning.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Start-Deployment` gets a four-line
+  `if ($WipeDisks -and -not $Silent)` block immediately after the
+  `-BitLockerPin` warning (so the cluster of
+  parameter-ignored-without-flag warnings lives together). Logs at
+  `-Level Warning`, matches the existing wording shape. Updated the
+  `.PARAMETER WipeDisks` docstring to spell out "Honored only in
+  -Silent mode — in interactive mode the operator is reprompted by
+  Select-AdditionalWipeDisks and -WipeDisks is ignored (a warning is
+  logged)."
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at top.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per CLAUDE.md bootstrap.
+- Baseline + post-edit:
+  - `tests/test_parse.ps1` → 48 / 0 (unchanged).
+  - `tests/test_wim_parser.ps1` → 16 / 0 (unchanged).
+  - `tests/test_disk_enumeration.ps1` → 34 / 0 (unchanged).
+- `PSParser::Tokenize` on `unified_winpe_deploy.ps1` → 0 errors.
+  Brace balance 398/398 (was 396/396; +2/+2 from the new `if` block).
+  Region balance 10/10 unchanged.
+- Inline behavioral matrix of the four input combinations of
+  `(WipeDisks, Silent)` → warning fires for and only for
+  `(set, false)`. Three other rows (`(set, true)`, `(empty, false)`,
+  `(empty, true)`) produce no log line. Mirrors the truth table the
+  warning is meant to encode.
+- Pester suite (`tests/validation-gates.Tests.ps1`) runs in CI only —
+  PSGallery blocked by the cloud environment network policy. The new
+  warning is purely additive operator-facing logging on a path the
+  existing Pester gates already exercise; no Pester row added this
+  pass to keep the change focused (matches the same pattern the
+  long-existing `-BitLockerPin without -EnableBitLocker` warning
+  used until PR #88 backfilled coverage for it).
+
+**Risks / follow-ups:**
+- Minimal. Pure additive operator-facing warning; no destructive
+  code path touched (no diskpart, DISM, BCDBoot, BitLocker
+  logic changes). No parameter binding changed; no behavior change
+  for any deploy whose flags were already consistent. The
+  warning fires before the silent-mode validation block, so a
+  user combining `-WipeDisks` with garbage silent-mode flags
+  sees both the new warning AND the existing silent-mode error
+  in the same run.
+- A future pass could backfill a Pester row mirroring PR #88's
+  pattern (assert `Should -BeTrue` plus log-line match) to lock
+  the warning in.
+- The `Show-ImageList` / `Show-ImageSelection` render duplication
+  is in flight as PR #56 — left untouched.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
