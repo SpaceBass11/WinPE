@@ -22,7 +22,10 @@
     unified_winpe_deploy.ps1 enforces this at runtime).
 
 .PARAMETER OutputIso
-    Full path for the output ISO file. Created or overwritten.
+    Full path for the output ISO file. Created or overwritten. Must end in
+    `.iso` so the file is recognized by Rufus and other ISO-aware tools - a
+    typo'd path with no extension would otherwise produce an unrecognized
+    file that still parses as a valid ISO but confuses end-user tooling.
 
 .PARAMETER MediaDir
     Path to the WinPE media directory built by build_boot_wim.ps1.
@@ -181,6 +184,13 @@ if ([IO.Path]::GetExtension($WimFile) -notin '.wim','.esd') {
     throw "WimFile must have a .wim or .esd extension (got: $WimFile)"
 }
 $WimFile = (Resolve-Path $WimFile).Path
+
+# OutputIso must end in .iso. Rufus and similar tools key off the extension;
+# a typo'd path with no extension (e.g. "D:\release\Win11_Deploy") would
+# silently produce an unidentified file that still parses as a valid ISO.
+if ([IO.Path]::GetExtension($OutputIso) -ne '.iso') {
+    throw "OutputIso must have a .iso extension (got: $OutputIso)"
+}
 
 if (-not (Test-Path $MediaDir -PathType Container)) {
     throw "MediaDir not found: $MediaDir`nRun build_boot_wim.ps1 first (default output: C:\WinPE_Build\media)."

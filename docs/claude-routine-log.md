@@ -5,6 +5,65 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `build_iso.ps1` `-OutputIso` `.iso` extension gate
+
+**Investigated:** open PRs #57-#89 (~30 open). Filtered the list for
+anything touching `scripts/build_iso.ps1`: #66 (PIN console redaction),
+#67 (-DataDiskNumber == -TargetDisk), #70 (PIN charset), #73 (-WipeDisks
+overlap), #80 (UnattendFile XML well-formedness), #85 (-Interactive
+conflict gate). None validate the `-OutputIso` extension.
+
+**Found:** `build_iso.ps1` validates `-WimFile`'s extension as
+`.wim` or `.esd` (line 180) and refuses anything else. But the
+sibling `-OutputIso` parameter has no extension check. A typo'd
+path like `D:\release\Win11_Deploy` (no extension) or
+`D:\release\Win11_Deploy.iao` (transposed letters) passes through to
+oscdimg, which produces a file at that exact path. The output is a
+valid ISO at the byte level — but Rufus, Ventoy, and other ISO-aware
+tools key off the `.iso` extension, so the operator only finds out
+when their flash tool refuses to open the file or shows it greyed out.
+Cheap miss to catch at build time.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a `.iso` extension check on
+  `-OutputIso` immediately after the existing `-WimFile` extension
+  check, mirroring the pattern verbatim (`[IO.Path]::GetExtension($x)
+  -ne '.iso'` -> `throw`). PowerShell's `-ne` is case-insensitive
+  so `.ISO` is accepted. `.PARAMETER OutputIso` doc-comment updated
+  to describe the requirement and the rationale.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet added at
+  the top describing the gate.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per CLAUDE.md note.
+- Baseline: `tests/test_parse.ps1` 48/0 before edits.
+- Post-edit: `tests/test_parse.ps1` 48/0 (build_iso.ps1 still parses
+  clean).
+- Functional test of the gate in isolation: 7 cases against a
+  stand-in `Test-OutputIsoExt` with the same predicate body
+  (`[IO.Path]::GetExtension($x) -ne '.iso'`). Pass: `.iso`, `.ISO`,
+  bare `release.iso`. Throw: no-extension, `.zip`, trailing-slash
+  path, empty string. All 7 matched expected outcome.
+- Direct `PSParser::Tokenize` on `build_iso.ps1` after the edit: 0
+  errors.
+
+**Risks / follow-ups:**
+- Minimal. Pure additive validation gate, no destructive code path
+  touched. Backward compat: anyone passing a non-`.iso` `-OutputIso`
+  was producing an unrecognized file already — the gate just turns
+  the silent failure into a loud one at build time.
+- A future Pester block under `tests/validation-gates.Tests.ps1`
+  could lock the gate in alongside the other build_iso gates (PRs
+  #67/#73/#81/#85 also add `build_iso.ps1` gates without Pester
+  coverage). Deferred to avoid stacking on those PRs.
+- Outstanding routine candidates flagged in prior entries that
+  remain open: `Show-ImageList` / `Show-ImageSelection` factoring
+  is in PR #56 per the previous entry; the remaining untouched
+  parser-style helper coverage is `Test-FinalWipeConfirmation`
+  (in PR #75).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

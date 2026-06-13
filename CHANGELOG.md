@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` now rejects `-OutputIso` paths without
+  a `.iso` extension.** Mirrors the existing `.wim`/`.esd` check on
+  `-WimFile`. A typo'd path like `D:\release\Win11_Deploy` (no
+  extension) previously produced an unidentified file that still
+  parsed as a valid ISO but was not recognized by Rufus and similar
+  ISO-aware tools — the operator only noticed when the flash tool
+  refused to open the output. A build-time gate now fails fast.
+  `.PARAMETER OutputIso` updated to describe the requirement.
+  Case-insensitive (`.ISO` accepted).
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
