@@ -5,6 +5,81 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `-BitLockerKeyPath` silently-ignored-without-switch warning
+
+**Investigated:** open PRs (#54-#87, 20 open from prior routine runs
+covering build_iso safety, Pester gates, doc resyncs, deploy.args
+parsing, BitLocker docstring/escrow). Cross-checked the
+`Start-Deployment` parameter-wiring block for any silently-ignored
+parameter that doesn't already have a guard or warning.
+
+**Found:** `unified_winpe_deploy.ps1` `Start-Deployment` warns at line
+1696-1698 when `-BitLockerPin` is provided without `-EnableBitLocker`
+("PIN ignored"). The parallel case for `-BitLockerKeyPath` (operator
+sets it without flipping `-EnableBitLocker` on) had no warning — the
+path was silently dropped because `Resolve-BitLockerKeyPath` is only
+ever called from `Initialize-BitLockerSetup`, which returns early when
+`Script:Config.EnableBitLocker` is `$false`. An operator who typed
+`-BitLockerKeyPath '\\fileserver\BitLockerKeys'` and forgot
+`-EnableBitLocker` would get a green "deployment succeeded" log and
+no recovery-key escrow configured anywhere. None of the 20 open PRs
+touch this gate: #87 only rewrites the `-EnableBitLocker` docstring,
+#71 parse-checks the generated first-boot script, #64/#69/#75/#81
+add Pester rows for unrelated PIN/length/silent-mode gates.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — added a parallel `Write-Log ... -Level
+  Warning` block immediately after the existing `-BitLockerPin`
+  ignored warning. Same wording shape, same level (warning, not
+  error — the deploy still proceeds, exactly as it does today when
+  `-BitLockerPin` is ignored).
+- `tests/validation-gates.Tests.ps1` — appended two new Pester `It`
+  rows to the `Start-Deployment validation gates` `Describe` block:
+  one for the new `-BitLockerKeyPath` warning, one for the
+  pre-existing `-BitLockerPin` ignored-without-switch warning (which
+  had no test coverage either). Both assert `Should -BeTrue` on the
+  deploy result (warning, not error) and `Should -Not -BeNullOrEmpty`
+  on the captured log line matching the warning text. Mocks are
+  inherited from the existing `BeforeEach` block — no new mock setup.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the new warning and the test coverage extension.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per the CLAUDE.md one-liner.
+- `tests/test_parse.ps1` → 48/0 (unchanged; the function-list and
+  version-consistency checks are unaffected by the additive warning).
+- `tests/test_wim_parser.ps1` → 16/0 unchanged.
+- `tests/test_disk_enumeration.ps1` → 34/0 unchanged.
+- `PSParser::Tokenize` on the modified deploy script and the
+  modified Pester test file both clean.
+- Brace balance on `unified_winpe_deploy.ps1`: 398/398 (was 396/396;
+  +2/+2 from the new `if` block).
+- Pester cannot run locally (PSGallery blocked by the network
+  policy, same constraint flagged in CLAUDE.md and every prior
+  routine entry); the new rows reuse the existing `BeforeEach`
+  scaffolding and mock pattern exactly, so the failure surface is
+  the same as the surrounding rows. CI's `pester` job on
+  `windows-latest` is the source of truth.
+
+**Risks / follow-ups:**
+- Minimal. Pure additive warning; no destructive code path touched;
+  no parameter binding changed; no behavior change for any deploy
+  that was already configured correctly.
+- The warning is a `-Level Warning` (not `Error`), matching the
+  existing `-BitLockerPin` precedent. A future pass could make both
+  warnings hard-fail if the policy view is "ignored parameter = user
+  intent unclear, refuse to proceed" — out of scope for this routine
+  pass since #87 just rewrote the docstring without changing the
+  enforcement level.
+- Outstanding routine-backlog items not taken this pass:
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line listing-render
+    factoring — addressed by open PR #56 per the #87 entry.
+  - Per-machine recovery-key subdirectory under `BitLockerKeys\` as a
+    *feature* (service-tag + timestamp fallback) — flagged in #87 as
+    out of scope, still applies.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

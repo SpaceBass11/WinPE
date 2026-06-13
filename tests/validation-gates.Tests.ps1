@@ -416,4 +416,40 @@ Describe "Start-Deployment validation gates" {
         $val = & $script:DeployModule { $Script:Config.BitLockerPin }
         $val | Should -Be 'goodpin42'
     }
+
+    It "Warns (does not fail) when -BitLockerPin is set without -EnableBitLocker" {
+        # Parameter is silently dropped when EnableBitLocker is off. Warn the
+        # operator so a typo (forgot the switch) doesn't trigger a silent
+        # no-BitLocker deploy that looks like it worked.
+        $result = & $script:DeployModule {
+            $WimFile      = 'I:\images\Win.wim'
+            $TargetDisk   =  0
+            $Force        = $true
+            $Silent       = $true
+            $BitLockerPin = 'goodpin42'   # no -EnableBitLocker
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerPin.*without -EnableBitLocker.*ignored' -and $_.Level -eq 'Warning' }) |
+            Should -Not -BeNullOrEmpty
+    }
+
+    It "Warns (does not fail) when -BitLockerKeyPath is set without -EnableBitLocker" {
+        # Same shape as the -BitLockerPin warning above. -BitLockerKeyPath only
+        # has any effect inside the EnableBitLocker code path; setting it
+        # without the switch is almost certainly an operator mistake.
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $BitLockerKeyPath = '\\fileserver\BitLockerKeys'   # no -EnableBitLocker
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerKeyPath.*without -EnableBitLocker.*ignored' -and $_.Level -eq 'Warning' }) |
+            Should -Not -BeNullOrEmpty
+    }
 }

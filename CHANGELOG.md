@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-BitLockerKeyPath` now warns when set without `-EnableBitLocker`.**
+  Parallels the existing `-BitLockerPin` ignored-without-switch warning
+  in `Start-Deployment`. Previously the path was silently dropped —
+  operators who passed `-BitLockerKeyPath '\\fileserver\BitLockerKeys'`
+  but forgot `-EnableBitLocker` got a successful deploy with no
+  recovery-key escrow configured anywhere. New Pester rows in
+  `tests/validation-gates.Tests.ps1` cover both the new
+  `-BitLockerKeyPath` warning and the pre-existing `-BitLockerPin`
+  warning (which had no test coverage either). No behavior change for
+  correctly-configured deploys.
+
+### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

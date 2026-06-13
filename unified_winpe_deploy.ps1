@@ -1696,6 +1696,9 @@ function Start-Deployment {
     if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
         Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
     }
+    if (-not $Script:Config.EnableBitLocker -and $BitLockerKeyPath) {
+        Write-Log "-BitLockerKeyPath provided without -EnableBitLocker - path ignored" -Level Warning
+    }
 
     # Silent mode is intended for unattended runs and must not trigger prompts
     if ($Silent -and -not $ListOnly) {
