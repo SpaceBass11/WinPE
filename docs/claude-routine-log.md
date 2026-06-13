@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — Drift guards for `Get-SystemDisks` system-disk detection
+
+**Investigated:** the 26 open PRs against the repo to find a clean
+improvement that wasn't in flight. PR #50 (merged) added
+`tests/test_disk_enumeration.ps1` covering the disk filter predicate
+and partition-rendering path, plus eight drift guards on the disk
+filter literals. None of the open PRs (#54–#82) touch the test file's
+code. Reviewing what the drift guards actually cover vs. what
+`Get-SystemDisks` actually does, the entire system-disk-detection
+block (lines 644–663 of `unified_winpe_deploy.ps1`) is unguarded:
+the WinPE skip, the `ASSOCIATORS OF Win32_LogicalDiskToPartition`
+query, the `$ld.DeviceID -eq $env:SystemDrive` predicate, the
+`$disk.IsSystemDisk = $true` mutation, and the disk-0 fallback in the
+catch. All five are safety-critical — `IsSystemDisk` is what
+`Select-TargetDisk` reads at lines 736 / 752 / 793 to gate the typed
+`DESTROY SYSTEM` prompt. A refactor that silently changed any of
+these shapes would let the running OS disk be offered as a regular
+target with only the ordinary `ERASE` confirmation. Masterize CI
+checks 8 ("-Force has explicit anti-bypass guard") and 19
+("DELETE ALL DATA / DESTROY SYSTEM strings present") pin the
+*reaction* to a flagged system disk but not the *detection* itself.
+
+**Changed:**
+- `tests/test_disk_enumeration.ps1` — appended five drift-guard
+  assertions inside the existing `--- Drift guard ---` block, each
+  matching one of the safety-critical shapes via regex against the
+  raw script text. Comment block above the additions explains why
+  the system-disk detection is the predicate that backs the typed
+  `DESTROY SYSTEM` prompt downstream.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the extension, listing each of the five new guards and noting
+  that each was negative-tested against an obviously-broken
+  alternative.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per CLAUDE.md's bootstrap recipe
+  (GitHub Releases tarball; network policy allows it).
+- Baseline (before edits):
+  - `tests/test_parse.ps1` → 48 / 0
+  - `tests/test_wim_parser.ps1` → 16 / 0
+  - `tests/test_disk_enumeration.ps1` → 34 / 0
+- After edits:
+  - `tests/test_parse.ps1` → 48 / 0 (unchanged)
+  - `tests/test_wim_parser.ps1` → 16 / 0 (unchanged)
+  - `tests/test_disk_enumeration.ps1` → **39 / 0** (+5 from the
+    new drift guards, all green)
+- Negative test: each of the five new regex patterns was run against
+  a hand-crafted broken counterpart (e.g. `SystemDrive -eq 'Y:'`,
+  `ASSOCIATORS OF {Win32_Volume}`, `SystemDisk = 1`,
+  `diskNumber -eq 1`). All five returned `False` — confirming the
+  guards would actually fire on a regression, not just always pass.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change; no production code touched, no new
+  dependencies, no destructive code path. Follows the exact pattern
+  set by PR #50's existing eight drift guards (same `Write-Result -Test
+  ... -Pass ($scriptText -match '...')` shape).
+- Outstanding routine-backlog candidates still deferred:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code — already covered by open PR #56.
+  - Build-time validation of `-VolumeLabel` in `scripts/build_iso.ps1`:
+    the parameter is settable but startnet.cmd's IMAGES-label scan is
+    hard-coded; a non-default value silently breaks the deploy.args
+    flow. The doc warns about this but there's no runtime guard. Not
+    urgent — the default is correct and nobody should override it.
+
+**Next recommended improvement:** look at the safety properties of
+`New-DiskpartScript`'s drive-letter-free pass — specifically whether
+the `mountvol /d` calls have a fixture test that exercises the
+`-ProtectedSourceDrive` parameter against the various USB drive
+letter assignments WinPE produces in practice. The Pester suite at
+`tests/validation-gates.Tests.ps1` already covers one case ("refuses
+to mountvol /d the WIM source drive when -DataDiskNumber would
+unmount it"); broader coverage of the letter-free loop's mutation
+predicates would close the last untested safety predicate in the
+diskpart-script generator.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

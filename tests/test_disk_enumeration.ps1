@@ -263,6 +263,33 @@ if (-not (Test-Path $scriptPath)) {
     Write-Result -Test "CD exclusion still present on Model" `
         -Pass ($scriptText -match 'Model -notlike "\*cd\*"') `
         -Detail 'expected Model -notlike "*cd*"'
+
+    # ----------------------------------------------------------------------
+    # System-disk detection — backs the DESTROY SYSTEM prompt in
+    # Select-TargetDisk. A silent regression in any of these shapes lets
+    # the script offer the running OS disk as a regular target, with only
+    # the ordinary ERASE prompt instead of the typed DESTROY SYSTEM.
+    # ----------------------------------------------------------------------
+
+    Write-Result -Test "WinPE guard on system-disk detection (X: skip) still present" `
+        -Pass ($scriptText -match "env:SystemDrive -ne 'X:'") `
+        -Detail "expected `$env:SystemDrive -ne 'X:' before ASSOCIATORS-OF query"
+
+    Write-Result -Test "ASSOCIATORS OF Win32_LogicalDiskToPartition query still present" `
+        -Pass ($scriptText -match 'ASSOCIATORS OF \{Win32_DiskPartition\.DeviceID=.*Win32_LogicalDiskToPartition') `
+        -Detail 'expected ASSOCIATORS OF {Win32_DiskPartition...} WHERE AssocClass=Win32_LogicalDiskToPartition'
+
+    Write-Result -Test '$ld.DeviceID -eq $env:SystemDrive comparison still present' `
+        -Pass ($scriptText -match '\$\(\$ld\.DeviceID\).*-eq\s+\$env:SystemDrive') `
+        -Detail 'expected "$($ld.DeviceID)" -eq $env:SystemDrive (the safety predicate that flags the OS disk)'
+
+    Write-Result -Test 'IsSystemDisk = $true assignment still present' `
+        -Pass ($scriptText -match '\$disk\.IsSystemDisk\s*=\s*\$true') `
+        -Detail 'expected $disk.IsSystemDisk = $true mutation in the ASSOCIATORS loop'
+
+    Write-Result -Test 'Disk-0 fallback in ASSOCIATORS catch block still present' `
+        -Pass ($scriptText -match '\$diskNumber\s*-eq\s*0[^\n]*\n[^\n]*IsSystemDisk\s*=\s*\$true') `
+        -Detail 'expected $diskNumber -eq 0 -> $disk.IsSystemDisk = $true conservative fallback'
 }
 
 # --- Summary ---

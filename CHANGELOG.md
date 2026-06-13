@@ -9,6 +9,20 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`tests/test_disk_enumeration.ps1` drift guard extended to cover
+  `Get-SystemDisks`'s system-disk-detection block.** Five new
+  assertions pin the safety-critical shapes that back the
+  `DESTROY SYSTEM` prompt: the `$env:SystemDrive -ne 'X:'` WinPE
+  guard, the `ASSOCIATORS OF {Win32_DiskPartition...}
+  WHERE AssocClass=Win32_LogicalDiskToPartition` query, the
+  `$ld.DeviceID -eq $env:SystemDrive` equality predicate, the
+  `$disk.IsSystemDisk = $true` mutation, and the disk-0 fallback in
+  the catch block. A refactor that silently changed any of these
+  could let the running OS disk be offered as a regular target with
+  only the typed `ERASE` prompt instead of `DESTROY SYSTEM`. Each
+  guard was negative-tested against an obviously-broken alternative
+  to confirm it actually fires on regression. Test-only change; no
+  production code touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
