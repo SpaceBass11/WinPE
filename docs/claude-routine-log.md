@@ -5,6 +5,116 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — parse-time coverage for `Initialize-BitLockerSetup`'s generated first-boot script
+
+**Investigated:** the 14 open PRs (#54-#70), the routine log's
+backlog, and the "Next recommended improvement" section of PR #64.
+The backlog and PR #64 both call out the same gap: the staged
+`bitlocker-setup.ps1` that `Initialize-BitLockerSetup` writes into
+`C:\Windows\Setup\Scripts\` at deploy time has no parse-time
+validation. SetupComplete.cmd runs it at first boot but does not
+propagate its exit code, so a malformed `.ps1` silently fails (the
+disk boots, BitLocker is never enabled, the operator only notices
+later when `manage-bde -status` shows nothing). Confirmed no open PR
+touches `Initialize-BitLockerSetup` or its generated output (PR #64
+adds a PIN-length-ceiling Pester `It` block but doesn't reparse the
+emitted script; PR #66 redacts the PIN from console echo in
+`build_iso.ps1`; PR #65 covers the unrelated `first-login.ps1`
+Default-User hive flow).
+
+**Found:** the gap PR #64 deferred as "larger" is actually
+small once the prototype shape is found. The function:
+- Reads `$Script:Config.EnableBitLocker / .BitLockerPin /
+  .DataDiskNumber` and `$BitLockerKeyPath` / `$env:DEPLOY_IMAGE_DRIVE`.
+- Calls `Resolve-BitLockerKeyPath`, `Write-Log`, `Test-Path`,
+  `New-Item`, and finally `Set-Content` (twice — `.ps1` then `.cmd`).
+- Composes a multi-section here-string with three concatenation
+  points (recovery-dir block, optional DataDisk block, self-delete
+  block) plus a PIN value whose embedded `'` must be doubled to
+  survive embedding in a single-quoted PS literal.
+
+Each junction is a regression surface that a syntax-only `test_parse.ps1`
+on the deploy script can never catch — by definition, the broken
+content only exists in the generated string, not the source file.
+
+**Changed:**
+
+- `tests/test_bitlocker_setup.ps1` — new standalone fixture test
+  (PSv5.1-compatible, runs locally + CI, same shape as
+  `test_wim_parser.ps1` / `test_disk_enumeration.ps1`). Loads the
+  deploy script as a dynamic module (same body-stripping seam
+  `validation-gates.Tests.ps1` already uses), overrides
+  `Set-Content` / `Write-Log` / `Test-Path` / `New-Item` via
+  module-scope `function script:Name { ... }` definitions, captures
+  the generated `.ps1`/`.cmd` strings into a module-scope hashtable
+  (function definitions don't close over outer-scope locals, so the
+  hashtable must live on `$Script:`), and feeds each captured `.ps1`
+  through `[Language.Parser]::ParseInput` to assert error count = 0.
+  26 assertions across five config permutations: IMAGES-label / no
+  DataDisk, IMAGES-label / with DataDisk, Literal (`-BitLockerKeyPath`
+  override) / no DataDisk, apostrophe-PIN escape, and the two
+  early-exit branches (`EnableBitLocker $false`, missing PIN). A
+  drift guard at the bottom asserts that the four safety-critical
+  literals (`-replace "'", "''"`, `FileSystemLabel 'IMAGES'`, the
+  staged script names) still live in the deploy script — if either
+  side moves without the other, the guard fails.
+- `.github/workflows/ci.yml` — wired the new test into the `syntax`
+  job as a follow-on step alongside `test_wim_parser.ps1` and
+  `test_disk_enumeration.ps1`.
+- `CLAUDE.md` — added the new test row to the Running Checks table
+  and the local-test bash block.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` entry describing
+  the coverage extension and the regression class it catches.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed in the session per the CLAUDE.md bootstrap.
+- Baselines: `test_parse.ps1` 48/0, `test_wim_parser.ps1` 16/0,
+  `test_disk_enumeration.ps1` 34/0. After this change, identical
+  counts plus the new file 26/0.
+- Mutation-tested the assertions by editing the deploy script in
+  two distinct ways and re-running the new test:
+  1. Dropped the `-replace "'", "''"` PIN escape doubling — the
+     "Single quote in PIN is doubled in the emitted literal"
+     assertion plus the drift guard flagged it (2 fails).
+  2. Removed the opening `{` from the IMAGES-label
+     `recoveryDirBlock` here-string — the parse-error assertion
+     across all four IMAGES-label permutations flagged it (4
+     fails with `Missing statement block after if ( condition )`).
+  Restored the script and the test returned 26/0 cleanly. Confirmed
+  the test does catch real regressions, not just structural drift.
+- The Pester suite (`validation-gates.Tests.ps1`) still runs in CI
+  only — this new file is standalone (no `Install-Module Pester`
+  needed) so it executes in the existing `syntax` job's pwsh shell
+  without any new container dependency.
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only addition; no production code, no destructive
+  paths, no new modules / network dependencies / CI runner images.
+  The mock approach uses `function script:Name { ... }` overrides
+  scoped to the dynamic module, so it cannot leak into other tests
+  in the same `pwsh` process.
+- One subtlety worth recording for future agents: `& $module {}`
+  scriptblock-local variable assignments do NOT persist across
+  separate `& $module {}` invocations. The setup of fixture state
+  (`$Script:Config.* = ...`, `$BitLockerKeyPath = ...`) must live
+  in the SAME scriptblock as the `Initialize-BitLockerSetup` call.
+  Using `$Script:BitLockerKeyPath = ...` would persist but is
+  inconsistent with how the existing `Resolve-BitLockerKeyPath`
+  Pester tests at `tests/validation-gates.Tests.ps1:109` pass the
+  fixture value; the single-scriptblock pattern matches them.
+- Outstanding routine-backlog candidates not taken this pass (all
+  still untouched as of the 14 open PRs):
+  - `Show-ImageList` / `Show-ImageSelection` refactor — PR #56 is
+    already in flight on this, leave alone until it merges.
+  - `scripts/build_iso.ps1` is syntax-only in `tests/test_parse.ps1`.
+    Invariant tests for the `-ConfirmSilentDestructiveIso` gate
+    (added by PR #44) and the cleanup branches would parallel
+    PR #63's prepare_wim test approach. Same deferral PR #64 noted.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

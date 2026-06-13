@@ -9,6 +9,21 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Initialize-BitLockerSetup` now has parse-time test coverage of
+  its generated first-boot script.** New
+  `tests/test_bitlocker_setup.ps1` loads the deploy script as a
+  dynamic module, intercepts the `Set-Content` calls in
+  `Initialize-BitLockerSetup`, and feeds the captured
+  `bitlocker-setup.ps1` through `Language.Parser::ParseInput` across
+  four config permutations (IMAGES-label vs Literal escrow, with and
+  without `-DataDiskNumber`, plus an apostrophe-in-PIN regression).
+  A refactor that breaks the PIN `'`→`''` doubling, drops a brace in
+  the `recoveryDirBlock` here-string, or otherwise emits a malformed
+  first-boot script now fails CI instead of silently shipping a
+  syntactically-invalid `bitlocker-setup.ps1` that Windows Setup
+  would discard at first boot — leaving the deploy looking
+  successful but with BitLocker never enabled. Wired into the CI
+  `syntax` job. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
