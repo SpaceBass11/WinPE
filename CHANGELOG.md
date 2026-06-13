@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` now well-formedness-checks `-UnattendFile`
+  at build time.** Mirrors the runtime guard in
+  `unified_winpe_deploy.ps1` (`Start-Deployment` `[xml](Get-Content
+  ...)` cast on `$UnattendFile`). Catches malformed answer files when
+  the ISO is being built, instead of when an end user boots the
+  shipped ISO and the deploy script aborts pre-flight. Same `[xml]`
+  cast pattern documented in `docs/UNATTEND.md` section 6; error
+  message names the file, the parser's diagnostic, and the docs
+  reference.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

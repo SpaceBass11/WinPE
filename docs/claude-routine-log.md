@@ -5,6 +5,86 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — build-time well-formedness check for `-UnattendFile` in `build_iso.ps1`
+
+**Investigated:** the 23 open Claude routine PRs (#54-#79) to find an
+area not already being modified. Specifically reviewed the unattend
+flow (#76, #78, #79 already in flight on different aspects: stale
+docs/example XML, walkthrough resync, runtime staging error handling),
+the build_iso.ps1 flow (#73 in flight on `-WipeDisks` overlap with
+`-TargetDisk`/`-DataDiskNumber`), and the deploy script's
+`Start-Deployment` `$UnattendFile` validation block (lines 1732-1747 in
+v4.7.1).
+
+**Found:** `unified_winpe_deploy.ps1` already does `[xml](Get-Content
+$UnattendFile -Raw)` to fail fast on malformed answer files before any
+destructive work — added in the 2026-05-17 routine entry. But
+`scripts/build_iso.ps1` only checks the file exists; a malformed XML
+gets staged into the ISO and only fails at deploy time on the
+end-user's hardware. Build-time validation means the admin who packages
+the ISO sees the parser diagnostic on their workstation, vs. shipping a
+broken ISO whose only symptom is "OOBE prompted on every laptop" or
+(post-2026-05-17) "deploy script aborts before applying the image."
+
+**Changed:**
+
+- `scripts/build_iso.ps1` — added a `try { [xml](Get-Content ...) }
+  catch { throw ... }` block immediately after the existing
+  `Test-Path -PathType Leaf` / `Resolve-Path` validation. Error message
+  names the file, the parser's `Exception.Message`, and points at
+  `docs/UNATTEND.md` section 6 (the same `[xml](Get-Content ...)`
+  sanity check the docs already document for the manual workflow).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the new build-time guard.
+
+**Verification:**
+
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`; GitHub Releases
+  is permitted by the container network policy).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0 failed
+  both before and after the edit (no regression in `build_iso.ps1`
+  syntax or required-functions list).
+- Behavioral check: extracted just the new `if ($UnattendFile)` block
+  into `/tmp/test_unattend_validation.ps1` and ran it three times:
+  - well-formed `<unattend xmlns="...">...</unattend>` → exits 0
+  - malformed (missing `</unattend>` closing tag) → throws with the
+    full parser diagnostic on the file and a docs reference; exits 1
+  - non-existent path → throws the existing "UnattendFile not found"
+    error; exits 1
+- The `[xml]` cast is a PSv5.1-safe core .NET cast and is the same
+  pattern already shipping in `unified_winpe_deploy.ps1` — no new
+  dependencies, no behavior change to existing well-formed files.
+
+**Risks / follow-ups:**
+
+- Minimal. The change is build-time-only and additive — it fails an
+  ISO build that would have produced a broken ISO. No destructive code
+  paths (diskpart, DISM apply, BCDBoot) touched. Worst case is a true
+  positive: an admin runs build_iso.ps1 with a malformed unattend.xml
+  and now sees the error on their workstation instead of at deploy
+  time. That's the entire point.
+- The matching runtime guard in `unified_winpe_deploy.ps1` remains in
+  place as defence in depth (someone could hand-edit a `deploy.args`
+  to point at a malformed XML staged outside the ISO build).
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30 lines
+    of listing-render code that could be factored out — flagged across
+    multiple prior entries; deferred because the menu rendering is
+    load-bearing TUI UX and at least one open PR (#56) is already
+    chasing this. Don't duplicate.
+  - **A fixture/Pester test for the existing runtime
+    `[xml](Get-Content ...)` guard in `Start-Deployment`** — would
+    pair nicely with this build-time check. The validation-gates
+    Pester suite already mocks the surrounding admin/`Initialize-`
+    layer, so adding one row asserting a malformed unattend path
+    returns `$false` from `Start-Deployment` is small. Skipped this
+    pass because the open #69 / #75 Pester PRs are already in flight
+    on adjacent gates and may have conventions worth aligning with.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
