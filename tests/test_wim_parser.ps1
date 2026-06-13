@@ -175,6 +175,80 @@ if (-not (Test-Path $scriptPath)) {
     }
 }
 
+# --- Write-DismOutput helper: tail-and-truncate semantics ---
+#
+# Get-WimImageInfo now feeds captured DISM stderr/stdout to Write-DismOutput on
+# its two failure paths (non-zero exit, exit-0-but-empty-parse). The whole point
+# is that the operator sees DISM's own error message instead of just an exit
+# code. Lock the behavior so a future refactor doesn't silently truncate too
+# aggressively or drop the elision marker.
+Write-Host "`n--- Write-DismOutput helper ---" -ForegroundColor Cyan
+
+# Load the deploy script as a module (same seam as validation-gates.Tests.ps1)
+# so we can call Write-DismOutput directly. The auto-execute block must be
+# stripped or it would run Start-Deployment at module-load time.
+$rawDeploy = Get-Content -Path $scriptPath -Raw
+$exitMarker = '# Execute main process'
+$cut = $rawDeploy.IndexOf($exitMarker)
+if ($cut -lt 0) {
+    Write-Result -Test "Auto-execute marker present (test seam)" -Pass $false -Detail "Cannot find '$exitMarker'"
+} else {
+    Write-Result -Test "Auto-execute marker present (test seam)" -Pass $true
+    $bodyOnly = $rawDeploy.Substring(0, $cut) -replace '(?m)^#Requires\s+-RunAsAdministrator\s*$', ''
+    $deployModule = New-Module -Name 'DismOutTest' -ScriptBlock ([scriptblock]::Create($bodyOnly)) |
+        Import-Module -PassThru -WarningAction SilentlyContinue
+
+    try {
+        # Replace Write-Log inside the module with a capture stub so the test
+        # asserts against structured records instead of console text.
+        $Global:CapturedDismLogs = New-Object System.Collections.Generic.List[object]
+        & $deployModule {
+            function script:Write-Log {
+                param([Parameter(Mandatory)][string]$Message, [string]$Level = 'Info')
+                $Global:CapturedDismLogs.Add([pscustomobject]@{ Level = $Level; Message = $Message })
+            }
+        }
+
+        # Case 1: empty input - "no output" singleton, no "DISM output:" header
+        $Global:CapturedDismLogs.Clear()
+        & $deployModule { Write-DismOutput -Output @() -Level Warning } | Out-Null
+        Write-Result -Test "Empty output yields exactly 1 log line" -Pass ($Global:CapturedDismLogs.Count -eq 1) -Detail "Got $($Global:CapturedDismLogs.Count)"
+        Write-Result -Test "Empty output reports 'no output'" -Pass ($Global:CapturedDismLogs[0].Message -match 'no output')
+
+        # Case 2: short input fits under MaxLines - all lines preserved verbatim,
+        # no elision marker
+        $Global:CapturedDismLogs.Clear()
+        & $deployModule {
+            Write-DismOutput -Output @('Error: 0x80070003','File not found') -Level Warning
+        } | Out-Null
+        $hasHeader = ($Global:CapturedDismLogs | Where-Object { $_.Message -eq 'DISM output:' }).Count -eq 1
+        $hasError = ($Global:CapturedDismLogs | Where-Object { $_.Message -match '0x80070003' }).Count -eq 1
+        $hasElide = ($Global:CapturedDismLogs | Where-Object { $_.Message -match 'elided' }).Count -gt 0
+        Write-Result -Test "Short output emits 'DISM output:' header" -Pass $hasHeader
+        Write-Result -Test "Short output preserves the error line" -Pass $hasError
+        Write-Result -Test "Short output does NOT emit elision marker" -Pass (-not $hasElide)
+
+        # Case 3: long input exceeds MaxLines - elision marker present, head is
+        # dropped (only the tail survives, which is where DISM puts its error)
+        $Global:CapturedDismLogs.Clear()
+        & $deployModule {
+            $many = 1..20 | ForEach-Object { "Line $_" }
+            Write-DismOutput -Output $many -Level Warning -MaxLines 5
+        } | Out-Null
+        $hasElide = ($Global:CapturedDismLogs | Where-Object { $_.Message -match '15 earlier line\(s\) elided, showing last 5' }).Count -eq 1
+        $hasFirstLine = ($Global:CapturedDismLogs | Where-Object { $_.Message -match '  Line 1$' }).Count -gt 0
+        $hasLastLine = ($Global:CapturedDismLogs | Where-Object { $_.Message -match '  Line 20$' }).Count -eq 1
+        Write-Result -Test "Long output emits elision marker with correct counts" -Pass $hasElide
+        Write-Result -Test "Long output drops the head (Line 1 absent)" -Pass (-not $hasFirstLine)
+        Write-Result -Test "Long output keeps the tail (Line 20 present)" -Pass $hasLastLine
+    } finally {
+        if ($deployModule) {
+            Remove-Module -ModuleInfo $deployModule -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Variable -Name CapturedDismLogs -Scope Global -ErrorAction SilentlyContinue
+    }
+}
+
 # --- Summary ---
 Write-Host "`n=== Results ===" -ForegroundColor Cyan
 Write-Host "Passed: $passed" -ForegroundColor Green

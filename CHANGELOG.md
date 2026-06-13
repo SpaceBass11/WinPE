@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Get-WimImageInfo` surfaces DISM's own error output on failure.**
+  When `dism.exe /Get-WimInfo /English` exits non-zero, or exits zero
+  but returns no parseable indexes, the captured stdout/stderr is now
+  printed to the deploy log (tailed to the last 15 lines) so the
+  operator sees DISM's actual message — "Error: 0x80070003", "Access
+  is denied", "An error occurred while reading the WIM image", etc. —
+  instead of just a generic exit-code warning. Centralized in a new
+  `Write-DismOutput` helper. Test coverage added in
+  `tests/test_wim_parser.ps1` (empty / short / truncated cases). No
+  destructive code path touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

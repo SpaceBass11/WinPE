@@ -826,9 +826,13 @@ function Get-WimImageInfo {
     Write-Log "Reading image indexes from $(Split-Path -Leaf $WimPath)..." -Level Info
 
     try {
+        # 2>&1 captures stderr alongside stdout so DISM's own error text
+        # (e.g. "Error: 0x80070003 - The system cannot find the path
+        # specified") reaches the operator on failure paths below.
         $output = & dism.exe /Get-WimInfo /WimFile:"$WimPath" /English 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Log "DISM /Get-WimInfo failed (exit code $LASTEXITCODE) - WIM file may be corrupted or inaccessible" -Level Warning
+            Write-DismOutput -Output $output -Level Warning
             return @()
         }
         $indexes = @()
@@ -848,10 +852,44 @@ function Get-WimImageInfo {
         }
         if ($currentIndex) { $indexes += $currentIndex }
 
+        # Exit 0 but the parser found nothing - DISM either returned an empty
+        # listing or a format the regex doesn't recognize. Surface the raw
+        # output so the operator can see which case it is.
+        if ($indexes.Count -eq 0) {
+            Write-Log "DISM /Get-WimInfo returned no parseable indexes (WIM may be empty or in an unrecognized format)" -Level Warning
+            Write-DismOutput -Output $output -Level Warning
+        }
+
         return $indexes
     } catch {
         Write-Log "Could not read WIM info: $($_.Exception.Message)" -Level Warning
         return @()
+    }
+}
+
+function Write-DismOutput {
+    param(
+        [Parameter(Mandatory)] $Output,
+        [ValidateSet('Info','Warning','Error')]
+        [string]$Level = 'Warning',
+        [int]$MaxLines = 15
+    )
+
+    # Normalize: 2>&1 merges stdout strings and stderr ErrorRecords. Coerce
+    # to one string per item, drop blanks, and tail to keep the log compact.
+    $lines = @($Output | ForEach-Object { "$_".TrimEnd() } | Where-Object { $_ })
+    if ($lines.Count -eq 0) {
+        Write-Log "  DISM produced no output" -Level $Level
+        return
+    }
+
+    Write-Log "DISM output:" -Level $Level
+    $tail = if ($lines.Count -gt $MaxLines) { $lines[($lines.Count - $MaxLines)..($lines.Count - 1)] } else { $lines }
+    if ($lines.Count -gt $MaxLines) {
+        Write-Log "  ... ($($lines.Count - $MaxLines) earlier line(s) elided, showing last $MaxLines)" -Level $Level
+    }
+    foreach ($line in $tail) {
+        Write-Log "  $line" -Level $Level
     }
 }
 

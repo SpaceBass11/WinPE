@@ -5,6 +5,105 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `Get-WimImageInfo` surfaces DISM's own error text on failure
+
+**Investigated:** open PRs (#54–#73; nothing here duplicates them — they
+cover startnet.cmd parsing, build_iso safety, BitLocker doc/test sync,
+Show-ImageSelection refactor, MDT factory, and a dozen test-only
+additions). Walked the deploy script looking for an additive,
+low-blast-radius diagnostic gap, ruled out the obvious candidates
+(`Test-SystemMemory` already handles WMI failure; `Apply-WindowsImage`
+already has a per-exit-code table; `Set-BootConfiguration` got the same
+treatment in the May 17 routine entry; `Invoke-CctkConfig` already
+lists its three common causes).
+
+**Found:** `Get-WimImageInfo` (the function that drives the edition-
+selection menu) discards DISM's own stderr/stdout. The redirect
+`2>&1` captures it into `$output`, but the only consumer on the
+failure path was the regex parser — on exit non-zero the function
+just logs `DISM /Get-WimInfo failed (exit code N) - WIM file may be
+corrupted or inaccessible` and returns empty, throwing away the
+actual reason (e.g. `Error: 0x80070003 - The system cannot find
+the path specified`, `Access is denied`, `An error occurred while
+reading the WIM image`). The operator's only recourse was to drop
+to a shell and re-run DISM by hand.
+
+A symmetric blind spot: exit-0-but-empty-parse. DISM completes
+"successfully" but emits a format the regex doesn't recognize
+(unsupported WIM version, locale slip, future DISM rewrite). The
+caller's `Select-ImageIndex` prints the generic "Could not
+enumerate WIM indexes from DISM" but, again, the raw DISM output
+that would tell the operator *why* is swallowed.
+
+**Changed:**
+
+- `unified_winpe_deploy.ps1` — `Get-WimImageInfo`:
+  - On `$LASTEXITCODE -ne 0`: call new helper `Write-DismOutput`
+    to dump captured DISM output to the deploy log/console.
+  - After parse loop, on `$indexes.Count -eq 0`: log a
+    distinct "no parseable indexes" warning and dump captured
+    output (different failure shape, different message — exit
+    0 means DISM said it worked, the parser just couldn't find
+    `Index :` lines).
+- `unified_winpe_deploy.ps1` — new `Write-DismOutput` helper:
+  normalizes the `2>&1` mix of strings and ErrorRecords to plain
+  strings, drops blanks, and tails to the last `MaxLines` (default
+  15) with an explicit elision marker (`... (N earlier line(s)
+  elided, showing last M)`) so a long DISM transcript doesn't push
+  the operator's earlier log context off the WinPE console.
+- `tests/test_wim_parser.ps1` — added a "Write-DismOutput helper"
+  section. Loads the deploy script as a dynamic module (same seam
+  pattern as `validation-gates.Tests.ps1`), replaces `Write-Log`
+  with a capture stub, and asserts three shapes:
+  empty input → singleton "no output", short input → no elision
+  marker but verbatim line, long input → elision marker present
+  with correct counts, head dropped, tail preserved (DISM puts
+  the error at the end).
+- `CHANGELOG.md` — entry under `## Unreleased / ### Changed`
+  describing the diagnostic addition and the new helper. No
+  version bump (additive logging only; no behavior change in
+  destructive code paths).
+
+**Verification:**
+- `pwsh` 7.4.6 installed per the CLAUDE.md note (one-shot tarball
+  from the GitHub release).
+- Baseline (pre-edit): `test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0 — 98 total green.
+- Post-edit: `test_parse.ps1` 48/0 (unchanged), `test_wim_parser.ps1`
+  25/0 (+9 new assertions covering the helper), `test_disk_enumeration.ps1`
+  34/0 (unchanged) — 107 total green.
+- Standalone smoke test exercised the helper directly through the
+  module seam with empty, 2-line, and 20-line-with-`MaxLines=5`
+  inputs; truncation math matched expectations
+  (`... (15 earlier line(s) elided, showing last 5)` with lines
+  16–20 preserved, lines 1–15 dropped).
+- Pester (`validation-gates.Tests.ps1`) runs CI-only — the network
+  policy in this container blocks PSGallery and Pester v5 isn't
+  preinstalled. The new helper is invoked only on already-failed
+  paths (`Get-WimImageInfo` exit non-zero or empty parse), so it
+  doesn't intersect the silent-mode validation gates that suite
+  covers. CI will run the Pester suite on push.
+
+**Risks / follow-ups:**
+- Minimal. Pure additive logging on already-failed code paths.
+  No diskpart, DISM-apply, BCDBoot, or BitLocker-staging change.
+  Worst case is a log line wrapping awkwardly on a narrow WinPE
+  console (`Write-Log` already handles that via Write-Host).
+- The helper is reusable for other DISM invocations that today
+  discard captured output (`Apply-WindowsImage` already uses
+  `-NoNewWindow` so DISM streams to the console, but a future
+  refactor that switches to captured output could lean on this
+  helper instead of re-implementing the truncation).
+- Outstanding routine-backlog items I did not take this pass:
+  - **Show-ImageList / Show-ImageSelection** code factoring is
+    in flight as PR #56 — leave alone.
+  - **prepare_wim.ps1 parameter-set + mount-cleanup invariants
+    test** is in flight as PR #63 — leave alone.
+  - **first-login.ps1 hive load/unload contract test** is in
+    flight as PR #65 — leave alone.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
