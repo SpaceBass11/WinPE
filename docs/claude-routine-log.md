@@ -5,6 +5,102 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `configs/unattend.example.xml` Default User comment drift
+
+**Investigated:** open + recently merged PRs (open: #54-#75, merged
+since last entry: #46-#52). Many small improvements already in flight
+(test gaps, build_iso safety, docs resyncs, BitLocker, refactor,
+masterize CI). Routine-log "next recommended improvement" backlog
+called for `Get-SystemDisks` fixture test (now PR #50, merged) and the
+`Show-ImageList` / `Show-ImageSelection` listing-code factor (now PR
+#56, open). Both addressed; needed a clean, small, unaddressed item.
+
+Walked the toolkit looking for documentation drift that has no in-flight
+PR. Compared `scripts/first-login.ps1`'s `.DESCRIPTION` block (which
+lists "TWO targets in one pass: 1. ... HKCU live hive 2. ... Default
+User hive (C:\Users\Default\NTUSER.DAT)" since the file shipped in
+PR #21) against the XML comment in `configs/unattend.example.xml`
+that sits directly above the `FirstLogonCommands` block telling
+operators about what the script does.
+
+**Found:** The XML comment, copied verbatim from the PR #21 initial
+commit (`ada844f` on 2026-05-12), said:
+
+> Runs as whoever AutoLogon logs in — applies HKCU tweaks to
+> that account's profile. To make non-admin accounts (TechL0/1/2)
+> inherit the same tweaks, the script would need to also edit
+> the Default User hive (C:\Users\Default\NTUSER.DAT); ask if
+> you want that added.
+
+The script has done exactly that since the same commit (`first-login.ps1`
+lines 117-148: loads `C:\Users\Default\NTUSER.DAT` via `reg.exe load`,
+walks the same `$tweaks` list, unloads cleanly inside a `try`/`finally`
+with the documented `[gc]::Collect()` workaround). So the XML comment
+told operators a falsehood for ~four weeks: that TechL0/L1/L2 wouldn't
+inherit the debloat tweaks. An operator following the comment's
+guidance would either (a) ask the maintainer to add behavior that
+already exists, or (b) layer their own per-user FirstLogonCommands
+runners on top, redundantly.
+
+No other doc claims the broken behavior — `grep -rn "Default User\|NTUSER" docs/ README.md CLAUDE.md` returns zero hits, and the script's own `.DESCRIPTION` is correct. The drift is isolated to this one XML comment.
+
+PR #65 ("test(first-login): guard Default User hive load/unload
+contract") is the only open PR touching first-login behavior, and it
+adds test coverage rather than touching the example XML. No file-level
+overlap.
+
+**Changed:**
+- `configs/unattend.example.xml` — replaced the stale paragraph with
+  one that accurately describes both passes (current AutoLogon HKCU
+  + Default User hive) and references the script's `.DESCRIPTION` as
+  the canonical source. XML comment only — no element, attribute,
+  or namespace change. Same 10-line layout as before.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry at the top
+  describing the documentation correction (no version bump; doc-only).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md bootstrap
+  recipe (GitHub-Releases tarball into `/opt/pwsh/`).
+- XML well-formedness via Python `xml.etree.ElementTree.parse()` →
+  parses clean (mirrors the human sanity-check recipe in
+  `docs/UNATTEND.md` §6).
+- `[xml](Get-Content configs/unattend.example.xml -Raw)` under
+  `pwsh 7.4.6` → root tag `unattend`. This is the **exact** check the
+  deploy script's `-UnattendFile` pre-flight gate runs against any
+  passed answer file (`unified_winpe_deploy.ps1` line 1738).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0 unchanged.
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged.
+- Pester suite skipped — CI-only per CLAUDE.md, and the change touches
+  no PowerShell, no module body, no test fixtures, so no Pester
+  invariant is at risk.
+
+**Risks / follow-ups:**
+- Minimal. Comment-only change in an `.xml` file. No script logic
+  touched. No deployment behavior change. The XML still parses via
+  both Python's strict parser and PowerShell's `[xml]` cast, so the
+  file's role as a deploy-time `-UnattendFile` source is preserved.
+- Coordination: `configs/unattend.example.xml` is not touched by any
+  of the 20 open PRs (#54-#75). `CHANGELOG.md` is shared with every
+  routine PR; this entry adds a new top-of-section `### Fixed` block
+  above the existing `### Changed`, so the merge against any in-flight
+  PR is a trivial linear append.
+- Outstanding routine-backlog candidates noted in prior entries that
+  I did not take this pass:
+  - `Initialize-BitLockerSetup`'s generated `bitlocker-setup.ps1`
+    string has no parse-time validation — PR #71 addresses exactly
+    this, so deferred.
+  - CCTK config-file selection precedence (`servicetag > model >
+    default`) is untested by Pester. Worth a fixture test that
+    parallels the `Get-WimImageInfo` / `Get-SystemDisks` patterns,
+    but mocking `Get-WmiObject` for both `Win32_BIOS` and
+    `Win32_ComputerSystem` raises the burden over a simple-line
+    docs fix like this one. Punted, valid for a later pass.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

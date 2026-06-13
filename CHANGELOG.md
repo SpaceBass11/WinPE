@@ -8,6 +8,21 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/unattend.example.xml` Default User comment was stale
+  since PR #21.** The XML comment above the `FirstLogonCommands`
+  block told operators that `first-login.ps1` only applies tweaks
+  to the AutoLogon account's HKCU and "would need to also edit the
+  Default User hive... ask if you want that added." The script has
+  edited `C:\Users\Default\NTUSER.DAT` in the same pass since it
+  shipped, so the comment was misleading new operators into thinking
+  TechL0/TechL1/TechL2 (and any future user) wouldn't inherit the
+  debloat tweaks unless something extra was wired up. Rewrote the
+  comment to accurately describe the current contract and point at
+  the script's `.DESCRIPTION` block. Comment-only change; no XML
+  schema impact, the file still passes `[xml]` validation (and the
+  deploy script's `-UnattendFile` pre-flight gate).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
