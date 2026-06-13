@@ -287,6 +287,20 @@ if ($Interactive) {
         if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
             throw "-WipeDisks must be comma-separated disk numbers (e.g. '1,2'). Got: '$WipeDisks'"
         }
+        # Cross-check: -WipeDisks targets EXTRA disks only. The deploy
+        # script rejects at runtime any number that is also -TargetDisk
+        # (Select-AdditionalWipeDisks: "not valid non-target disks") or
+        # -DataDiskNumber ("is both -DataDiskNumber and in the additional-
+        # wipe list"). Fail fast here so the operator never burns a
+        # broken ISO. Same rationale as the -DataDiskNumber == -TargetDisk
+        # check above.
+        $wipeNums = @($WipeDisks -split ',' | ForEach-Object { [int]($_.Trim()) })
+        if ($TargetDisk -in $wipeNums) {
+            throw "-WipeDisks must not include -TargetDisk ($TargetDisk). The deploy script wipes and partitions the target disk separately; listing it here duplicates the operation and aborts the deploy. Drop $TargetDisk from -WipeDisks."
+        }
+        if ($DataDiskNumber -ge 0 -and $DataDiskNumber -in $wipeNums) {
+            throw "-WipeDisks must not include -DataDiskNumber ($DataDiskNumber). The deploy script aborts when a disk is both -DataDiskNumber and in the additional-wipe list. Drop $DataDiskNumber from -WipeDisks."
+        }
         $argsLine += " -WipeDisks `"$WipeDisks`""
     }
 

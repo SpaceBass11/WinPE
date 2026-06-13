@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`build_iso.ps1` fails fast when `-WipeDisks` overlaps `-TargetDisk`
+  or `-DataDiskNumber`.** The deploy script already rejects these
+  combinations at runtime
+  (`Select-AdditionalWipeDisks` aborts with "not valid non-target
+  disks", and `Start-Deployment` aborts with "is both -DataDiskNumber
+  and in the additional-wipe list"), but only after the ISO has been
+  built and the USB flashed. Same fail-fast rationale as the
+  `-DataDiskNumber == -TargetDisk` check added earlier — catches the
+  bad combo at build time instead of letting the operator burn a broken
+  ISO. Interactive mode is unaffected; `-WipeDisks` is only emitted to
+  `deploy.args` in silent mode.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

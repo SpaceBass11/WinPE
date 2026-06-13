@@ -5,6 +5,71 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `build_iso.ps1` rejects `-WipeDisks` overlap with `-TargetDisk` / `-DataDiskNumber`
+
+**Investigated:** scanned open PRs (#54-#72) to find a meaningful
+improvement not already in flight. PR #67 added fail-fast in
+`build_iso.ps1` for `-DataDiskNumber == -TargetDisk`. PR #70 rejects
+`"` and `!` in `-BitLockerPin`. PR #66 redacts the PIN from console.
+PR #69 extends the Pester silent-mode gate coverage. Across that work
+the build-time pre-flight in `scripts/build_iso.ps1` now mirrors the
+deploy script's runtime gates for most disk-overlap classes — but
+**one runtime gate has no build-time twin**: `Select-AdditionalWipeDisks`
+(`unified_winpe_deploy.ps1` line 1395) rejects any `-WipeDisks` number
+that is also `-TargetDisk`, and `Start-Deployment` (line 1829) rejects
+any `-WipeDisks` number that is also `-DataDiskNumber`. Both fire only
+after the ISO is built, USB flashed, target booted — the same failure
+class PR #67 set out to fix.
+
+**Found:** the existing `if ($WipeDisks)` block in `build_iso.ps1`
+(lines 285-291) validates only the regex format, not overlap. So
+`build_iso.ps1 ... -TargetDisk 0 -WipeDisks "0,1"` cheerfully writes
+that combo into `deploy.args`, the ISO is built, the operator
+flashes it, boots the target, and the deploy aborts at
+`Select-AdditionalWipeDisks` before any wipe — a recoverable failure
+but at the most expensive recovery point.
+
+**Changed:**
+- `scripts/build_iso.ps1` — extended the existing `if ($WipeDisks)`
+  block to parse the comma-separated list to `[int]` and throw if any
+  number equals `$TargetDisk` or (when set) `$DataDiskNumber`. Error
+  message names the offending disk number and explains which runtime
+  rule it would hit. Block stays inside the silent `else` branch
+  because interactive mode never emits `-WipeDisks` to `deploy.args`.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0 pass
+  (same count as baseline; the change is internal to an existing
+  block, so no new "exists/parses" rows were added).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0 unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged.
+- Inline-tested the new validation logic against 6 cases (overlap with
+  TargetDisk, overlap with DataDiskNumber, no overlap, malformed format
+  still rejected, TargetDisk=2 with WipeDisks="1,2", whitespace in
+  list). All six PASS.
+- Pre-existing build_iso runtime path can't be exercised here (no
+  oscdimg / no ADK on Linux); the new throws fire well before the
+  oscdimg lookup, so the change exits cleanly on the new path.
+
+**Risks / follow-ups:**
+- Minimal. Build-time `throw` only; no runtime behavior in
+  `unified_winpe_deploy.ps1` touched. Interactive mode unaffected
+  (`-WipeDisks` is only emitted to `deploy.args` in silent mode).
+- Outstanding routine-backlog candidates not taken this pass:
+  - **Build-time validation that interactive mode silently drops
+    `-WipeDisks`**: `build_iso.ps1` `if ($Interactive)` path only
+    emits `-ImagePath` so a `-WipeDisks` argument to the builder is
+    quietly ignored. A `Write-Warn` or `throw` would surface this,
+    but it's a usability nit, not a correctness gap.
+  - **`Show-ImageList` / `Show-ImageSelection`** factoring is in
+    flight as PR #56 — defer until that lands.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
