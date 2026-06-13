@@ -8,6 +8,26 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`docs/UNATTEND.md` walkthrough resynced with the actual template
+  account names.** Sections 2-4 used `DERP_Admin` (an
+  organization-specific name leftover from the PR #21 initial commit)
+  in the password-encoding, `<LocalAccount>`, and `<AutoLogon>` code
+  blocks, while the same doc's section 3 intro and the canonical
+  `configs/unattend.example.xml` template both use the generic
+  `LocalAdmin`. Operators reading top-to-bottom saw two different
+  names presented as "the example admin account." Replaced all four
+  `DERP_Admin` / `DERP Admin` occurrences with `LocalAdmin` /
+  `Local Admin` so the walkthrough's example XML matches the template
+  it walks through. Also tidied the password-encoding example
+  comments to label rows by their actual template account names
+  (`TechL0`/`TechL1`/`TechL2`/`LocalAdmin`) instead of generic
+  level numbers, so an operator pasting the base64 output knows
+  which `<LocalAccount>` slot it belongs in. Same cleanup applied
+  to the `scripts/first-login.ps1` `.DESCRIPTION` example
+  (`e.g. DERP_Admin` → `e.g. LocalAdmin`). Doc-only change; no
+  XML / script behavior touched.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

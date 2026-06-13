@@ -5,6 +5,140 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `docs/UNATTEND.md` walkthrough account-name drift (DERP_Admin → LocalAdmin)
+
+**Investigated:** open PRs (#54-#77; 21 in flight covering test gaps,
+build_iso safety, BitLocker docs, deploy.args parsing, doc resyncs)
+to avoid duplicating in-flight work. The routine log's prior "next
+recommended improvement" backlog (`Get-SystemDisks` fixture test,
+`Show-ImageList`/`Show-ImageSelection` factoring) is fully covered
+by PRs #50 (merged) and #56 (open). PR #76 is fixing a *different*
+stale claim in `configs/unattend.example.xml` (the Default User hive
+comment) — touches the example XML, not the walkthrough doc.
+
+Walked the toolkit looking for doc / template / script drifts no
+in-flight PR was addressing. Grepped for organization-specific
+identifiers that might be stale fork remnants.
+
+**Found:** `grep -rn 'DERP'` returned five hits — all in
+`docs/UNATTEND.md` (lines 44, 64, 66, 91) and one in
+`scripts/first-login.ps1` (line 20). The `DERP_Admin` / `DERP Admin`
+identifier is leftover from PR #21's original commit
+(`ada844f` 2026-05-12) — an organization-specific admin account name
+baked into the walkthrough's password-encoding example, the
+`<LocalAccount>` snippet (section 3), and the `<AutoLogon>` snippet
+(section 4).
+
+Meanwhile, the canonical template `configs/unattend.example.xml`
+(unchanged since PR #21) uses the generic `LocalAdmin` /
+`TechL0`/`TechL1`/`TechL2` quartet, and the walkthrough's *own*
+section 3 intro line ("The template has four example accounts
+(`LocalAdmin` + 3 standard users)") references the generic name.
+An operator reading top-to-bottom saw two different names presented
+as "the example admin account" three paragraphs apart. Either:
+
+- they pick `DERP_Admin` to match the walkthrough's XML snippets
+  and fight the template, or
+- they pick `LocalAdmin` to match the template and the intro line,
+  and have to mentally translate the walkthrough's "paste this"
+  XML snippets.
+
+Both options are friction. The walkthrough is the doc users read
+once before customizing — it should match the template it walks
+through.
+
+The first-login.ps1 `.DESCRIPTION` block had the same drift
+(line 20: `e.g. DERP_Admin`) for the same reason.
+
+**Changed:**
+
+- `docs/UNATTEND.md` — replaced all four `DERP_Admin` / `DERP Admin`
+  occurrences with `LocalAdmin` / `Local Admin` to match the
+  canonical template:
+  - Section 2 password-encoding example (line 44):
+    `# DERP_Admin` → `# LocalAdmin`
+  - Same section's three sibling-comment rows tidied from generic
+    `Level 0`/`Level 1`/`Level 2` to the actual template account
+    names `TechL0`/`TechL1`/`TechL2`, so the operator pasting each
+    base64 output into the matching `<LocalAccount>` slot knows
+    which row it belongs to.
+  - Section 3 `<LocalAccount>` example (lines 64-66): `<Name>` /
+    `<DisplayName>` updated.
+  - Section 4 `<AutoLogon>` example (line 91): `<Username>` updated.
+- `scripts/first-login.ps1` — `.DESCRIPTION` block line 20:
+  `e.g. DERP_Admin` → `e.g. LocalAdmin`.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry at the top
+  describing the doc resync (no version bump; doc-only change).
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed via the CLAUDE.md bootstrap recipe.
+- Drift sweep post-edit: `grep -rn 'DERP' .` returns zero hits.
+- All three local test suites:
+
+  | Suite | Pre-edit | Post-edit |
+  |---|---|---|
+  | `tests/test_parse.ps1` | 48 / 0 | 48 / 0 |
+  | `tests/test_wim_parser.ps1` | 16 / 0 | 16 / 0 |
+  | `tests/test_disk_enumeration.ps1` | 34 / 0 | 34 / 0 |
+
+- `[xml](Get-Content configs/unattend.example.xml -Raw)` under
+  `pwsh 7.4.6` still resolves to root tag `unattend` — same check
+  the deploy script's `-UnattendFile` pre-flight gate runs against
+  any passed answer file. (The template wasn't edited this pass —
+  this is a defensive sanity check that the surrounding XML
+  walkthrough is consistent with the template it walks through.)
+- Pester suite skipped — CI-only per CLAUDE.md, and the change
+  touches no PowerShell function body, no test fixture, no
+  invariant.
+
+**Risks / follow-ups:**
+
+- Minimal. Comment + walkthrough text only. No XML element /
+  attribute change in the example template, no PowerShell logic
+  change in `first-login.ps1` (only its `.DESCRIPTION` doc block).
+  Worst case is a missed reference somewhere; the `grep -rn 'DERP'`
+  sweep returned zero hits, so the drift is fully closed.
+- Coordination with open PRs:
+  - PR #65 touches `tests/test_parse.ps1` (adds Default User hive
+    invariant guards for `first-login.ps1`) but not the script's
+    `.DESCRIPTION` block. No conflict.
+  - PR #76 touches `configs/unattend.example.xml` (different
+    stale-claim fix in the FirstLogonCommands comment block). No
+    file-level overlap with this pass.
+  - `CHANGELOG.md` and the routine log are shared with all routine
+    PRs; this entry is a trivial linear append at the top of
+    `## Unreleased` (new `### Fixed` block) and the routine log
+    (new top entry).
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - `Initialize-BitLockerSetup`'s generated `bitlocker-setup.ps1`
+    has no parse-time validation — PR #71 addresses this; deferred.
+  - `scripts/build_iso.ps1` is still syntax-only in `test_parse.ps1`
+    Test 12 — the destructive-intent gate and source-WinPE cleanup
+    branches deserve invariant tests, deferred while #73/#70/#67/#66
+    are still in flight against the same file.
+  - The `Release Validation` matrix in `docs/RELEASE_VALIDATION.md`
+    doesn't yet name PR #54's new "comment-only `deploy.args` →
+    falls through to TUI" behavior as a scenario. Blocked on #54
+    merging.
+
+**Next recommended improvement:**
+
+- Once PR #54 lands, add a Scenario 16 row to
+  `docs/RELEASE_VALIDATION.md` covering "deploy.args contains only
+  `::` comment lines → boot falls through to interactive TUI with
+  the one-line note." Single-row markdown edit; valuable because
+  the failure mode it documents is exactly the scenario a new
+  operator hits if they copy the example file verbatim.
+- A fixture test for `Invoke-CctkConfig` config-file selection
+  precedence (servicetag > model > default). Mock burden is
+  modest — two `Win32_BIOS` / `Win32_ComputerSystem` properties —
+  and the precedence rule has been silently maintained since v4.5.0
+  with no test guard.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

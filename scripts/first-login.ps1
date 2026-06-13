@@ -17,7 +17,7 @@
 
       1. The currently logged-in user (HKCU live hive). This is whoever
          was named in unattend's <AutoLogon> — typically the maintenance
-         admin (e.g. DERP_Admin). Their profile gets the tweaks now.
+         admin (e.g. LocalAdmin). Their profile gets the tweaks now.
 
       2. The Default User hive (C:\Users\Default\NTUSER.DAT). This is
          the template Windows clones when ANY new user logs in for the
