@@ -5,6 +5,135 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — Pester coverage for `Test-FinalWipeConfirmation`
+
+**Investigated:** open PRs #54-#74 to avoid duplicating in-flight
+work. The cluster around safety / build-iso gates (#67, #69, #70, #73)
+covers cross-checks in `build_iso.ps1` and additional `-Silent`
+validation-gate tests in `Start-Deployment`. PR #55 mentions
+`Test-FinalWipeConfirmation` only in its added entry to
+`docs/SCRIPT_REFERENCE.md`'s function table. No PR adds direct
+unit-test coverage for the parser itself. The routine log's older
+"next recommended improvement" entries flagged `Get-SystemDisks`
+fixture tests (since landed in PR #50) and `Show-ImageList` factoring
+(in flight as PR #56) — `Test-FinalWipeConfirmation` had quietly
+slipped through every prior pass.
+
+**Found:** `Test-FinalWipeConfirmation` is the shared typed-confirmation
+parser called from two prompts inside `Select-TargetDisk` (lines 763
+and 810 of `unified_winpe_deploy.ps1`). Its contract is:
+- Accept `'ERASE'` or `'DELETE ALL DATA'`.
+- Case-insensitive (`$InputText.Trim().ToUpperInvariant()` plus
+  PowerShell's case-insensitive `-in`).
+- Whitespace trimmed.
+- Defensive `$null` handling that returns false rather than throwing.
+
+Masterize CI check 19 grep-asserts both accept strings exist in the
+script body. But the *behavior* (the actual comparison logic) is
+unguarded: a refactor that left `'ERASE'` and `'DELETE ALL DATA'` in
+place as literals while dropping the `Trim()`, swapping `-in` for
+`-eq` (which would lose case-insensitivity on the literal-array side
+in some edge cases), or replacing the function body with `return $true`
+would all pass masterize check 19. Of the 27 functions in the deploy
+script, this was the highest-stakes one with no behavioral test —
+every operator-typed wipe confirmation in the canonical UI path
+flows through it. The Pester suite already loads the script as a
+dynamic module (`BeforeAll` block, lines 40-71), so adding tests
+costs only a new `Describe` block — no new test infrastructure.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — new `Describe
+  "Test-FinalWipeConfirmation accept-string parser"` block inserted
+  between the existing `Resolve-BitLockerKeyPath` and
+  `New-DiskpartScript` `Describe` blocks (function-specific tests
+  cluster, before the top-level `Start-Deployment` tests). 13 `It`
+  blocks cover:
+  - **Positive (5):** canonical `'ERASE'`, alternate `'DELETE ALL DATA'`,
+    lowercase `'erase'`, mixed-case `'Delete All Data'`,
+    whitespace-padded `'  ERASE  '`.
+  - **Negative (8):** empty string, `$null`, truncated typo `'ERAS'`,
+    extra-char typo `'ERASEX'`, partial alternate `'DELETE'`,
+    `'DESTROY SYSTEM'` (system-disk gate), `'WIPE ALL'`
+    (additional-wipe gate), bare `'y'` (no fuzzy yes/no fallback).
+  Each block follows the existing `& $script:DeployModule { ... }`
+  pattern; no new mocks or `BeforeEach` needed.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the coverage extension and the regression class it guards.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`).
+- Baseline + post-edit `tests/test_parse.ps1`: **48 / 0** in both
+  runs (confirms the touched file remains a clean parse — Pester
+  tests aren't run by `test_parse.ps1`, but the file is part of the
+  syntax surface).
+- Baseline `tests/test_wim_parser.ps1` 16/0 and
+  `tests/test_disk_enumeration.ps1` 34/0 unchanged.
+- Direct `PSParser::Tokenize` on `tests/validation-gates.Tests.ps1`
+  post-edit: 0 parse errors, 130 / 130 brace balance, 31 `It`
+  blocks (was 18), 5 `Describe` blocks (was 4).
+- Functional simulation: loaded the deploy script body the same way
+  the Pester `BeforeAll` does (strip `# Execute main process` and
+  the `#Requires` directive, `New-Module` + `Import-Module`), then
+  evaluated each of the 13 input strings through
+  `Test-FinalWipeConfirmation`. All 13 cases pass against the
+  current implementation — confirms the tests go from missing-to-green,
+  not missing-to-red.
+- Drift verification: mutated the script three ways and re-evaluated
+  the matching tests:
+  1. Drop `.Trim()` → whitespace-padded test now returns `False`
+     instead of `True` — assertion fires.
+  2. Drop `'DELETE ALL DATA'` from the accept array → the
+     `DELETE ALL DATA` positive test now returns `False` — assertion
+     fires.
+  3. Add `'OK'` to the accept array → other positive cases unaffected,
+     but a hypothetical loosening test (`Rejects 'OK'`-style — not
+     in the suite but worth noting) would catch it.
+  The intentional redundancy `ToUpperInvariant()` plus case-insensitive
+  `-in` means dropping `ToUpperInvariant` alone doesn't change
+  behavior — that's a minor cleanup candidate, not a regression
+  surface. Recorded as a follow-up rather than acted on here.
+- Pester suite runs **in CI only** — the Claude Code on the Web
+  container's network policy blocks `Install-Module Pester` from
+  PSGallery. Same constraint flagged across PR bodies #23-#74 and
+  in CLAUDE.md. CI's `pester` job on `windows-latest` runs the real
+  `Invoke-Pester` on push.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change. No production code touched. No new
+  dependencies. Pattern matches the existing `Describe` blocks
+  exactly.
+- File-level conflicts with open PRs: PR #64 (BitLocker PIN ceiling)
+  and PR #69 (Pester `-Silent` foundational gates) both add `It`
+  blocks inside the existing `Describe "Start-Deployment validation
+  gates"`. This PR adds a new `Describe` block in a different region
+  of the file, so all three can land without conflict in any merge
+  order. PR #55 documents `Test-FinalWipeConfirmation` in
+  `SCRIPT_REFERENCE.md` but doesn't touch the test file. The
+  `CHANGELOG.md` bullet sits at the top of `## Unreleased / ###
+  Changed`; the other in-flight test PRs add adjacent bullets in the
+  same block, so the merge is a linear append on either side.
+- Outstanding routine-backlog candidates not taken this pass:
+  - `Show-ImageList` / `Show-ImageSelection` factoring is the
+    subject of open PR #56 — retire from backlog when that merges.
+  - `Test-FinalWipeConfirmation`'s `ToUpperInvariant()` call is
+    redundant given PowerShell's case-insensitive `-in` against the
+    literal-string array. Cleanup-only — drop it once these tests
+    land (the case-insensitive assertions guard the behavior either
+    way).
+
+**Next recommended improvement:** the remaining deploy-script
+functions without direct behavioral tests are mostly TUI-heavy
+(`Show-DiskMenu`, `Show-ImageList`, `Show-ImageSelection`) where
+the test cost is high relative to the regression risk, or are
+already covered indirectly via `Start-Deployment` integration tests
+in this same file. Lower-priority candidates: a unit test for
+`Resolve-BitLockerKeyPath`'s `Path` formatting when
+`-BitLockerKeyPath` ends with a trailing slash (currently consumed
+verbatim by `Join-Path`-free literal substitution).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

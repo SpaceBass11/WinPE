@@ -148,6 +148,83 @@ Describe "Resolve-BitLockerKeyPath escrow precedence" {
     }
 }
 
+Describe "Test-FinalWipeConfirmation accept-string parser" {
+
+    # Test-FinalWipeConfirmation is the shared parser behind every typed
+    # final-confirmation prompt in Select-TargetDisk (and any future caller).
+    # Contract: accept 'ERASE' or 'DELETE ALL DATA' case-insensitively after
+    # trimming whitespace; reject anything else. Masterize CI check 19
+    # grep-asserts both strings appear in the script body, but a refactor
+    # that left the strings in place while changing the comparison (e.g.
+    # dropping ToUpperInvariant or removing Trim) would slip past that grep
+    # and silently change which typed inputs accept the wipe.
+
+    It "Accepts 'ERASE' (canonical exact)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE' }
+        $result | Should -BeTrue
+    }
+
+    It "Accepts 'DELETE ALL DATA' (legacy alternate, preserved by masterize check 19)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE ALL DATA' }
+        $result | Should -BeTrue
+    }
+
+    It "Accepts lowercase 'erase' (case-insensitive contract)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'erase' }
+        $result | Should -BeTrue
+    }
+
+    It "Accepts mixed-case 'Delete All Data' (case-insensitive contract)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'Delete All Data' }
+        $result | Should -BeTrue
+    }
+
+    It "Accepts 'ERASE' with surrounding whitespace (Trim contract)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '  ERASE  ' }
+        $result | Should -BeTrue
+    }
+
+    It "Rejects empty string (operator hit Enter on the prompt)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '' }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects `$null without throwing (defensive null handling)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText $null }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects 'ERAS' (truncated typo)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERAS' }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects 'ERASEX' (extra-char typo - prevents accidental accept on overlong input)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASEX' }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects 'DELETE' (partial alternate)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE' }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects 'DESTROY SYSTEM' (different confirmation - belongs to system-disk gate, not final-wipe)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DESTROY SYSTEM' }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects 'WIPE ALL' (different confirmation - belongs to additional-wipe gate, not final-wipe)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'WIPE ALL' }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects 'y' (no fuzzy yes/no fallback)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'y' }
+        $result | Should -BeFalse
+    }
+}
+
 Describe "New-DiskpartScript source-drive protection" {
 
     BeforeEach {

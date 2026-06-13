@@ -9,6 +9,22 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Test-FinalWipeConfirmation` now has Pester coverage.** New
+  `Describe` block in `tests/validation-gates.Tests.ps1` exercises
+  the shared typed-confirmation parser used by every final-wipe
+  prompt in `Select-TargetDisk`: 13 cases cover the two accept
+  strings (`ERASE`, `DELETE ALL DATA`), the case-insensitive +
+  whitespace-trimming contract, and the negative cases (empty,
+  `$null`, truncated/extended typo, partial alternate, and the
+  other confirmation strings `DESTROY SYSTEM`/`WIPE ALL` which
+  belong to different gates). Masterize CI check 19 already
+  grep-asserts both accept strings appear in the script body, but a
+  refactor that left the strings in place while changing the
+  comparison (e.g. dropping `Trim()`, swapping `-in` for `-eq`)
+  would slip past that grep — these Pester cases close that gap by
+  asserting behavior, not just the presence of the literals. Each
+  case was drift-verified against a mutated script copy to confirm
+  it catches the intended regression class. Test-only change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
