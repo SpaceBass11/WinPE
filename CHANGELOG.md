@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`USB_SETUP.md` "Manual alternative" template now flags missing
+  `deploy.args` support.** The abbreviated `startnet.cmd` shown in
+  Step 2's manual fallback launches the deploy script without
+  forwarding any per-USB `deploy.args` line. The builder script
+  (`scripts/build_boot_wim.ps1`) writes a richer template that does.
+  Added a NOTE block pointing readers to `DEPLOY_ARGS.md` and the
+  builder so the manual path doesn't silently drop the feature on
+  the floor. Doc-only.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -5,6 +5,97 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `USB_SETUP.md` manual-startnet template flags missing deploy.args
+
+**Investigated:** open PRs (#54-#85 — 29 in flight; mostly tests +
+small safety fixes), the routine log backlog, and the `docs/` tree
+for documentation drift not already touched by an in-flight PR.
+Specifically looked for spots where v4.7.0+ features (`deploy.args`,
+single-ISO workflow, BitLocker opt-in) hadn't propagated into older
+walkthroughs.
+
+**Found:** `docs/USB_SETUP.md` §2 "Manual alternative (if you can't
+run the builder)" provides a `startnet.cmd` template that an
+operator copies verbatim when the builder script doesn't run for
+them (ADK shell issues, locked-down workstation, etc.). The template
+predates the v4.7.0 `deploy.args` feature by several commits — its
+final line is just:
+
+```cmd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
+```
+
+with no read of `<IMAGES>\deploy.args` at all. So an operator who
+took the manual path, later set up `deploy.args` on the IMAGES
+partition expecting silent-mode behavior, would get a fully
+interactive TUI every boot — the args file would sit on the USB
+ignored. The failure mode is non-destructive (TUI just prompts) but
+silently breaks the per-USB targeting documented in
+`docs/DEPLOY_ARGS.md` and in the README. No comment in the manual
+template warns about this, so the drift is invisible from inside
+the doc.
+
+PR #54 is rewriting the deploy.args read from `set /p` to `for /f`
+inside the builder, but doesn't touch `USB_SETUP.md` — the manual
+template's gap is orthogonal to PR #54's scope, so this entry won't
+collide on rebase.
+
+**Changed:**
+- `docs/USB_SETUP.md` — added a `> [!NOTE]` block immediately after
+  the manual `startnet.cmd` code fence flagging that the abbreviated
+  template skips `deploy.args` support, pointing readers at
+  `docs/DEPLOY_ARGS.md` for the file format and at
+  `scripts/build_boot_wim.ps1` for the full template the builder
+  writes. Kept the manual template itself unchanged (intentionally
+  abbreviated for the no-builder fallback case).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  of the existing Changed block. No version bump (doc-only).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md
+  bootstrap recipe.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0 (unchanged
+  baseline + post-edit; the change is doc-only).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0
+  (sanity, unchanged).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+  (sanity, unchanged).
+- Pester suite deferred to CI per the CLAUDE.md PSGallery note. Not
+  exercised by this change.
+- Lychee (CI link-check) not installed locally; the new NOTE links
+  to `DEPLOY_ARGS.md` (sibling) and `../scripts/build_boot_wim.ps1`
+  (sibling-up), both of which exist in the tree (verified by `ls`).
+
+**Risks / follow-ups:**
+- Minimal. Doc-only addition inside a NOTE block; no code,
+  no test, no CI config, no destructive path touched. No version
+  bump. Worst case is a future rename of `DEPLOY_ARGS.md` or
+  `build_boot_wim.ps1` that breaks the link — lychee's CI job would
+  surface it on the rename PR.
+- No file-level overlap with any of the 29 open PRs (#54-#85)
+  confirmed by spot-checking PR bodies for `USB_SETUP.md` mentions
+  (none). Shared file is `CHANGELOG.md`; this PR prepends a new
+  bullet at the top of `## Unreleased / ### Changed`, so the merge
+  against any in-flight PR is a trivial linear append.
+
+**Next recommended improvement:**
+- `docs/CCTK.md` §"Changing Existing Passwords" example has a
+  duplicate `--valsetuppwd=OldSetup123!` line (the second one
+  should be `--valsyspwd=OldSystem123!` to validate the OLD SYSTEM
+  password when changing the system password). Present since the
+  v4.5.0 CCTK doc commit (cffad18). Low-impact (the duplicate is a
+  no-op, not a CCTK error), but worth fixing before someone copy-
+  pastes it into a real config and wonders why the system password
+  isn't authenticating.
+- `tests/test_parse.ps1` Test 11 (`refresh_usb.ps1`) and Test 12
+  (`build_iso.ps1`) are still syntax-only. PRs #65/#63 raised
+  similar tests to invariant level for `first-login.ps1` and
+  `prepare_wim.ps1`; the same pattern could apply here. Deferred
+  while #85/#80/#73/#77 are touching both scripts to avoid
+  merge-coordination cost.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

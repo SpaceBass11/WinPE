@@ -106,6 +106,17 @@ echo Found image drive: %DEPLOY_IMAGE_DRIVE%
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
 ```
 
+> [!NOTE]
+> This abbreviated template does **not** include per-USB `deploy.args`
+> support — the builder script (`scripts/build_boot_wim.ps1`) writes a
+> richer `startnet.cmd` that also reads optional deploy parameters
+> from `<IMAGES>\deploy.args` and launches the script unattended. If
+> you need that flow (silent deploys, BitLocker PIN pre-staging,
+> per-USB targeting), use the builder. See
+> [`DEPLOY_ARGS.md`](DEPLOY_ARGS.md) for the file format and
+> [`build_boot_wim.ps1`](../scripts/build_boot_wim.ps1) for the full
+> `startnet.cmd` it writes.
+
 And the offline registry tweak (inside the mounted `boot.wim`):
 
 ```cmd
