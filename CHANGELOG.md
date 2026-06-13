@@ -9,6 +9,21 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Invoke-CctkConfig` selection precedence now has fixture-test
+  coverage.** New `tests/test_cctk_selection.ps1` exercises the
+  three-tier config-file lookup (`<servicetag>.ini` >
+  `<normalized-model>.ini` > `default.ini` > skip) against a temp
+  directory of staged `.ini` files. Covers eight model-normalization
+  cases (space / hyphen / parenthesis / underscore strip; whitespace
+  trim; empty / null), six precedence cases (tag wins, model wins,
+  default wins, no match, null-tag fallthrough, both-null fallthrough),
+  and the missing-`cctk\`-directory distinct-reason case. Drift guard
+  asserts that `Win32_BIOS.SerialNumber` / `Win32_ComputerSystem.Model`
+  WMI calls, the alnum-strip regex `'[^A-Za-z0-9]'`, the
+  `$serviceTag.ini` / `$model.ini` / `'default.ini'` literals, the
+  three-step precedence order in source, and the non-zero-exit abort
+  message still live verbatim in `unified_winpe_deploy.ps1`. Wired into
+  the CI `syntax` job. Test-only; no production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -5,6 +5,125 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `Invoke-CctkConfig` selection-precedence fixture test
+
+**Investigated:** open PRs (#54-#83, 27 in flight) plus the merged
+side-branch history since the last entry. Many small improvements
+already covered (build_iso unattend / PIN safety, deploy unattend-
+staging errors, refresh_usb PathType parity, pester gates, doc resyncs,
+the masterize CI tweaks). The routine-log "next recommended improvement"
+backlog from the most recent merged entry (PR #50, `Get-SystemDisks`
+fixture test) plus PR #76's "valid for a later pass" note both flagged
+**CCTK config-file selection precedence** as the last untested parser-
+style logic in the deploy script that has no fixture test and no open
+PR. The two upstream tests in this family — `test_wim_parser.ps1`
+and `test_disk_enumeration.ps1` — establish a clean pattern (mirror
+the safety-critical logic into a local function, exercise it against
+fixtures, drift-guard the deploy script's literals). CCTK selection
+fits that pattern and nothing in flight touches it.
+
+**Found:** `Invoke-CctkConfig` in `unified_winpe_deploy.ps1` (lines
+1269-1373) is the BIOS pre-apply entrypoint. The
+configuration-file selection has three safety properties that today
+nothing locks down:
+
+1. **Precedence**: `<service-tag>.ini` (Win32_BIOS.SerialNumber) must
+   win over `<normalized-model>.ini` (Win32_ComputerSystem.Model with
+   alnum-stripped name) must win over `default.ini`. A refactor that
+   swapped any pair would silently apply the wrong BIOS settings to
+   an entire fleet — and CCTK doesn't fail loud on "wrong settings,"
+   just on invalid settings.
+2. **Model normalization**: `'-replace '[^A-Za-z0-9]', ''` plus
+   `.Trim()` on the raw model string. A regression here breaks every
+   per-model config file in the field (e.g. `Latitude 7430` →
+   `Latitude7430.ini`); operators only discover it on the next
+   redeploy of an affected model.
+3. **No-match fallback**: when none of (tag, model, default) match,
+   the function returns `$true` and skips CCTK — `cctk\` directories
+   that ship only a handful of per-machine configs must keep working
+   on un-listed machines.
+
+Masterize CI check #13 verifies CCTK runs *before* disk selection, but
+doesn't touch which config gets picked. The Pester suite covers
+BitLocker / data-disk / silent-mode gates but not CCTK. No coverage
+gap was previously documented as closed.
+
+**Changed:**
+- `tests/test_cctk_selection.ps1` — new fixture test (270 lines).
+  Mirrors the selection logic into a local `Select-CctkConfig` helper
+  and the alnum-strip into `ConvertTo-NormalizedModel`. Exercises:
+  - **Eight model-normalization cases**: space-stripped
+    (`Latitude 7430` → `Latitude7430`), digit preservation
+    (`OptiPlex 7090` → `OptiPlex7090`), hyphen
+    (`Precision-3460`), parentheses + space (`XPS 13 (9310)` →
+    `XPS139310`), whitespace trim, underscore strip
+    (`Inspiron_15_5000`), empty string, and `$null`.
+  - **Nine precedence cases** against real `.ini` files in a temp
+    directory: tag wins over model + default; model wins over default
+    when no tag; default picked when no tag and no model; no `.ini`
+    files → `no-match`; null/empty tag falls to model; null tag +
+    null model picks default; null tag + null model + no default →
+    `no-match`; missing `cctk\` dir → `no-cctk-dir`; and the
+    end-to-end normalize-then-select flow.
+  - **Eleven drift-guard assertions** against the deploy script:
+    `Invoke-CctkConfig` defined; both WMI calls
+    (`Get-WmiObject -Class Win32_BIOS`,
+    `Get-WmiObject -Class Win32_ComputerSystem`) still present;
+    alnum-strip regex `'[^A-Za-z0-9]'` still present;
+    `"$serviceTag.ini"` and `"$model.ini"` candidate-path
+    expressions both still present; `'default.ini'` literal still
+    present; tag block precedes model block precedes default block
+    by character position; non-zero-exit abort message present.
+- `.github/workflows/ci.yml` — wired the new test into the `syntax`
+  job as a follow-on step (same shape as the three existing test
+  steps).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the coverage extension. Test-only; no version bump.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md bootstrap
+  recipe (PowerShell/Releases tarball into `/opt/pwsh/`); network
+  policy allows the GitHub-Releases download.
+- Baseline (pre-edit): `test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0 — all green.
+- Post-edit: `test_cctk_selection.ps1` **34/0 green** (8 normalization
+  + 15 precedence + 11 drift-guard assertions).
+- Drift-guard sanity check: mutated the alnum-strip literal in a
+  scratch copy of the deploy-script text and confirmed the
+  drift-guard regex correctly flipped from `True` → `False`. Confirms
+  the guard would actually fail loud on a regression rather than
+  silently pass.
+- All three sibling tests re-run after the addition: still 48/0,
+  16/0, 34/0 — no contamination.
+- Pester suite skipped — CI-only per CLAUDE.md, and the change
+  introduces no PowerShell module bodies, no new functions in
+  production code, and no Pester invariants are at risk.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change. No production code touched. No new
+  dependencies. The new test creates and cleans up a temp directory
+  under `[System.IO.Path]::GetTempPath()` inside a `try`/`finally`
+  so a mid-test failure can't leak fixtures.
+- The local `Select-CctkConfig` mirrors the deploy-script logic for
+  the *file-selection* portion only; the actual `cctk.exe` invocation
+  and exit-code handling are still only exercised by the drift guard
+  (asserting the abort message string is present). That's intentional
+  — mocking `cctk.exe` would be high-cost coverage for behavior
+  already covered by masterize CI checks #12, #13, and the runtime
+  guard "non-zero exit from cctk.exe aborts the deploy."
+- Outstanding routine-backlog candidates not taken this pass:
+  - `Initialize-BitLockerSetup`'s generated `bitlocker-setup.ps1`
+    has no parse-time validation — PR #71 addresses exactly this,
+    so deferred.
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code — PR #56 covers the refactor, so deferred.
+  - `tests/test_parse.ps1` Required-Functions list doesn't yet
+    include the newer `Initialize-BitLockerSetup` /
+    `Resolve-BitLockerKeyPath` entries; an additive refresh could
+    close that gap. Less urgent — Pester covers their contracts.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
