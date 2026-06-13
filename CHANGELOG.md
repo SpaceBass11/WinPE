@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/BITLOCKER.md` confirmation-chain table resynced with v4.7.1
+  PIN validation.** The "placeholder PIN refused outright" row was
+  stale — PR #49 (`1fd1937`) removed the `ForbiddenBitLockerPins`
+  policy, and the script now only enforces Windows' 6-20 character
+  Enhanced PIN window. The table row now reflects the actual gates:
+  PIN outside 6-20 chars is refused, missing `-BitLockerPin` in
+  interactive mode prompts at the console, missing `-BitLockerPin`
+  with `-Silent` is refused. The Parameters table at the top of
+  `docs/BITLOCKER.md` already documented the new policy correctly;
+  only the Confirmation chain table needed the sync. No script,
+  test, or CI changes.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

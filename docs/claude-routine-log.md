@@ -5,6 +5,88 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `docs/BITLOCKER.md` confirmation-chain table resync
+
+**Investigated:** open PRs (15 open: #54-#71, covering deploy.args
+parsing, build_iso PIN charset, Pester silent-mode gates, MDT factory,
+docs resyncs, Show-ImageList refactor, etc.) to pick a target that
+isn't being touched. Then scanned the docs for drift against the
+script's current behavior, focusing on changes from PRs #47-#52 (most
+recently merged: TUI PIN prompt + PIN content policy removal + DCC
+DCH API migration).
+
+**Found:** `docs/BITLOCKER.md` line 54 still listed
+`-EnableBitLocker with placeholder PIN | (refused outright) | No`
+in the "Confirmation chain" table. PR #49 (`1fd1937`, merged
+2026-05) removed the `ForbiddenBitLockerPins` list and its runtime
+rejection — the script now only enforces Windows' 6-20 character
+Enhanced PIN window. The Parameters table at line 35 of the same
+document already correctly described the new policy ("PIN content is
+the admin's call"), so the Confirmation chain table contradicted the
+table six lines above it. PR #48 (`61b7714`) added the interactive
+PIN prompt in non-silent mode, which the table also didn't reflect.
+
+Verified by grepping the script and tests:
+- `unified_winpe_deploy.ps1` Start-Deployment lines 1687-1695 show
+  the only PIN gates are "not set" and "length out of 6-20 window."
+- `tests/validation-gates.Tests.ps1` has no placeholder-PIN test.
+- `.github/workflows/ci.yml` masterize numbering jumps 20 → 22 — the
+  PR-#49 CHANGELOG entry confirms check #21 was removed.
+- `scripts/build_iso.ps1` line 43 already documents the new policy
+  ("no placeholder or length policy is enforced here").
+
+So this is pure documentation drift, not a behavior gap.
+
+**Changed:**
+- `docs/BITLOCKER.md` — replaced the stale "placeholder PIN" row
+  with three rows that match what the script actually does today:
+  (1) PIN outside 6-20 chars refused outright; (2) `-BitLockerPin`
+  omitted in interactive mode prompts at the console (n/a for
+  `-Force` because Read-Host is unconditional in that branch);
+  (3) `-BitLockerPin` omitted in `-Silent` mode refused outright
+  (n/a for `-Force`). Same column shape as the surrounding rows.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the resync. Test-only / doc-only — no version bump.
+
+**Verification:**
+- The change is a single-cell replacement in one Markdown table.
+  No script, test, or CI files touched.
+- Cross-checked against the actual gates in
+  `unified_winpe_deploy.ps1` (Start-Deployment, lines 1682-1698):
+  every row in the new table matches a real code path; no row
+  describes a gate that doesn't exist.
+- `pwsh` 7.4.6 installed per the CLAUDE.md bootstrap recipe and
+  the three local test suites run green:
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → exit 0
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → exit 0
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → exit 0
+- The lychee link-check CI job has nothing new to look at (no new
+  links added, no anchors changed); the masterize CI job has nothing
+  new to look at (no version bump, no script edits).
+
+**Risks / follow-ups:**
+- Minimal. Doc-only change confined to one table cell. No anchor
+  changes (heading slugs unchanged). No new links. No words in the
+  table that the lychee config could trip on.
+- Outstanding routine-backlog candidates still in flight:
+  - PR #56 — `Show-ImageList` / `Show-ImageSelection` factoring
+    (the long-running TUI cleanup, finally happening).
+  - PR #58 — `docs/ARCHITECTURE.md` File Layout table resync.
+  - PR #55 — `docs/SCRIPT_REFERENCE.md` v4.7.1 surface resync.
+  - PR #57 — listing `test_disk_enumeration.ps1` in local-test
+    sections.
+
+**Next recommended improvement:** when PR #54 and PR #68 land
+together (they're a paired fix for the `deploy.args` comment-skip
+behavior), `docs/USB_SETUP.md` lines 88-107 will need an update —
+the "Manual alternative" startnet.cmd template there is currently
+missing the `deploy.args` block entirely, and a builder comment
+explicitly says "Keep this in sync with docs/USB_SETUP.md." Deferred
+this pass because touching the same area while #54 is open would
+create a merge conflict.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

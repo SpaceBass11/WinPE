@@ -51,7 +51,9 @@ either alone:
 |---------|--------|----------------------|
 | `-DataDiskNumber` set | Type `WIPE DATA` | Yes |
 | `-DataDiskNumber` is the system disk | (refused outright) | No |
-| `-EnableBitLocker` with placeholder PIN | (refused outright) | No |
+| `-EnableBitLocker -BitLockerPin` outside 6-20 chars | (refused outright) | No |
+| `-EnableBitLocker` without `-BitLockerPin` (interactive) | Type the PIN at the WinPE console | n/a |
+| `-EnableBitLocker` without `-BitLockerPin` (`-Silent`) | (refused; silent mode does not prompt) | n/a |
 | `-Silent -DataDiskNumber N` without `-Force` | (refused; `WIPE DATA` cannot prompt) | n/a |
 
 The existing `ERASE` / `DESTROY SYSTEM` / `WIPE ALL` chain for the
