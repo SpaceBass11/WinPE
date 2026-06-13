@@ -5,6 +5,91 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — `refresh_usb.ps1` input validation `-PathType` parity
+
+**Investigated:** open PRs (#54-#76 all open, 20 in flight covering
+docs cleanup, build_iso safety, BitLocker PIN/charset, Pester gates,
+DISM error surfacing, startnet comment parsing, etc.) and ran the
+three local test suites (`test_parse.ps1`, `test_wim_parser.ps1`,
+`test_disk_enumeration.ps1` — all green) to establish baseline.
+Cross-referenced the existing `Test-Path` usage across the four
+admin-host scripts to find unsynced validation conventions.
+
+**Found:** `scripts/refresh_usb.ps1` validates `-SourceIso` /
+`-SourceWim` and `-ImagesPath` with bare `Test-Path` (no `-PathType`).
+The three sibling scripts shipped in `scripts/` all use the explicit
+`-PathType Leaf` for file inputs (`SourceIso`, `SourceWim`,
+`UnattendFile`, `WimFile`, `DeployScript`) and `-PathType Container`
+for directory inputs (`DriverPath`, `MediaDir`, `CctkSource`). The
+wrapper was the lone outlier.
+
+Concrete failure mode on the lax check: passing a directory as
+`-SourceIso` (easy operator slip — typing `D:\iso` instead of
+`D:\iso\Win11.iso`) is accepted by `Test-Path`, derives an
+`OutputName` from `[IO.Path]::GetFileNameWithoutExtension($dir)` (so
+something like `iso.wim` or `OptiPlex.wim`), and only fails several
+seconds later inside `prepare_wim.ps1`'s own `-PathType Leaf` check
+with `SourceIso not found: D:\iso`. The error is misleading because
+the path *does* exist — it's just the wrong shape. Same story for
+passing a file path as `-ImagesPath`: accepted here, fails later
+inside `Get-ChildItem $ImagesPath -Filter '*.wim'` or `Join-Path`.
+
+None of the 20 open PRs touch `refresh_usb.ps1`, so no duplication
+risk.
+
+**Changed:**
+- `scripts/refresh_usb.ps1` — `Test-Path $sourcePath` →
+  `Test-Path $sourcePath -PathType Leaf`; `Test-Path $ImagesPath` →
+  `Test-Path $ImagesPath -PathType Container`. Error messages
+  clarified to mention the file-vs-directory distinction so the
+  operator sees the actual cause. Comment block above the checks
+  documents the cross-script convention so a future maintainer
+  doesn't relax the type checks under the assumption they're
+  redundant.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the validation parity fix.
+
+**Verification:**
+- `pwsh` installed once per CLAUDE.md note (v7.4.6 tarball into
+  `/opt/pwsh/`) — the network policy allows the GitHub-Releases
+  download.
+- Baseline before the edit:
+  - `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0
+  - `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0
+  - `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+- Post-edit: identical counts on all three (48 / 16 / 34, 0 failed
+  across the board). The parse-test result is the meaningful one
+  for this edit — it re-tokenizes `refresh_usb.ps1` with
+  `[PSParser]::Tokenize`, so a busted `Test-Path` call would surface
+  there.
+- Behavioral spot-check via standalone `pwsh -Command`:
+  - Existing directory passed where a file is expected: rejected
+    with the new "or is a directory, not a file" message.
+  - Existing file passed where a directory is expected: rejected
+    with the new "or is a file, not a directory" message.
+  - Legitimate file as `$sourcePath` and legitimate directory as
+    `$ImagesPath` (happy path): accepted as before.
+
+**Risks / follow-ups:**
+- Minimal. Tightens an input check without changing any subsequent
+  code path. No destructive logic, no diskpart, no DISM, no
+  BitLocker. The two error throws are reached only when the
+  argument shape is already wrong — in every previously-working
+  call the new `-PathType` constraint is true by construction
+  (a happy-path `-SourceIso 'D:\iso\Win11.iso'` is a leaf, a
+  happy-path `-ImagesPath 'I:\images'` is a container).
+- Outstanding routine-backlog candidates I did not take this
+  pass:
+  - **`Find-ImageFiles` `-ImagePath` accepts a file path silently**
+    (`Test-Path $ImagePath` at deploy-script line 332 lacks
+    `-PathType Container`). Same class of fix but inside the
+    destructive deploy script, so wants a Pester regression
+    instead of a one-shot edit. Defer to a separate routine pass.
+  - **`Show-ImageList` / `Show-ImageSelection` consolidation** —
+    PR #56 is already in flight on this.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/refresh_usb.ps1` now uses `-PathType Leaf` / `Container`
+  on its input validation.** The wrapper accepted a directory as
+  `-SourceIso` / `-SourceWim` (or a file as `-ImagesPath`), then
+  derived a bogus `OutputName` and failed deeper in `prepare_wim.ps1`
+  or `Get-ChildItem $ImagesPath`. The fix mirrors the explicit
+  `-PathType` checks already used by the sibling scripts
+  (`prepare_wim.ps1`, `build_iso.ps1`, `build_boot_wim.ps1`), so a
+  swapped file/directory argument fails fast at the wrapper with a
+  clear message instead of a misleading downstream error.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
