@@ -1928,14 +1928,28 @@ function Start-Deployment {
     }
     Write-Log "Deployment verification passed" -Level Success
 
-    # Drop unattend.xml so Windows Setup picks it up on first boot
+    # Drop unattend.xml so Windows Setup picks it up on first boot.
+    # Treat staging failure as a degraded-but-bootable outcome: log loudly,
+    # but don't return $false. We've already partitioned and applied the
+    # image - aborting here would skip BCDBoot and leave an unbootable
+    # disk over a file-copy problem. The operator will hit manual OOBE
+    # but can recover without re-deploying.
     if ($UnattendFile) {
         $pantherDir = 'C:\Windows\Panther'
-        if (-not (Test-Path $pantherDir)) {
-            New-Item -ItemType Directory -Path $pantherDir -Force | Out-Null
+        $pantherDest = "$pantherDir\unattend.xml"
+        try {
+            if (-not (Test-Path $pantherDir)) {
+                New-Item -ItemType Directory -Path $pantherDir -Force -ErrorAction Stop | Out-Null
+            }
+            Copy-Item -Path $UnattendFile -Destination $pantherDest -Force -ErrorAction Stop
+            Write-Log "Unattend file staged: $pantherDest" -Level Success
+        } catch {
+            Write-Log "FAILED to stage unattend file: $($_.Exception.Message)" -Level Error
+            Write-Log "  Source:      $UnattendFile" -Level Error
+            Write-Log "  Destination: $pantherDest" -Level Error
+            Write-Log "  Impact:      Windows Setup will not see the answer file - first boot will run manual OOBE." -Level Warning
+            Write-Log "  Recovery:    Boot another WinPE session and copy the file manually to the destination above - no re-deploy required." -Level Info
         }
-        Copy-Item -Path $UnattendFile -Destination "$pantherDir\unattend.xml" -Force
-        Write-Log "Unattend file staged: $pantherDir\unattend.xml" -Level Success
     }
 
     # Stage BitLocker setup script (runs on first Windows boot via SetupComplete.cmd)

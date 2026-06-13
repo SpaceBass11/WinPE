@@ -5,6 +5,68 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-13 — Unattend staging error handling
+
+**Investigated:** open PRs (#54-#78, all routine items still in flight)
+to avoid duplicating work, then the post-apply unattend staging block
+in `Start-Deployment` (lines 1932-1939 pre-edit). Two open unattend PRs
+(#78 walkthrough resync, #76 Default User claim fix) are doc-only and
+don't cover script behavior.
+
+**Found:** `Copy-Item -Path $UnattendFile -Destination
+"$pantherDir\unattend.xml" -Force` runs with no error handling. Source
+file disappearance (USB removed between scan and copy), antivirus
+block on the destination, or unusual ACLs would produce a
+non-terminating error under the default `$ErrorActionPreference = 'Continue'`,
+the script would still print "Unattend file staged" as Success, continue
+to BCDBoot, and report the deploy a complete success. On first boot
+Windows Setup would silently fall through to manual OOBE — exactly the
+outcome the pre-flight `[xml](Get-Content ...)` validation added in
+the 2026-05-17 routine entry was supposed to prevent. The pre-flight
+catches malformed XML; this catches the I/O failure on the actual
+staging step.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — wrapped both `New-Item` (for the Panther
+  directory) and `Copy-Item` in a single try/catch with explicit
+  `-ErrorAction Stop`. On failure, logs the source, destination,
+  user-visible impact ("Windows Setup will not see the answer file -
+  first boot will run manual OOBE"), and a recovery path that doesn't
+  require re-deploying ("boot another WinPE session and copy the file
+  manually"). Does NOT `return $false` — by this point we've already
+  wiped the disk and applied the image, so aborting before BCDBoot
+  would leave an unbootable disk over a file-copy problem.
+  Block-leading comment updated to explain why the failure path
+  doesn't abort.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note (v7.4.6
+  tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed (unchanged count vs baseline; brace/region/version asserts all
+  still hold).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0
+  (sanity, unaffected by this edit).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+  (sanity, unaffected).
+- Pester suite (`tests/validation-gates.Tests.ps1`) deferred to CI per
+  the CLAUDE.md note about PSGallery being blocked by the network
+  policy.
+
+**Risks / follow-ups:**
+- Minimal. Single function-level change in a non-destructive section
+  (after image apply, before BCDBoot). No new parameters, no behavior
+  change on the success path. Worst case the operator hits manual OOBE
+  — the same outcome as if no `-UnattendFile` were passed.
+- Outstanding routine-backlog items not taken this pass:
+  - `Show-ImageList` / `Show-ImageSelection` duplication (~30 lines of
+    rendering code) — PR #56 is in flight, deferred.
+  - Pester gap around `Initialize-BitLockerSetup`'s generated first-boot
+    script — PR #71 is in flight.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,21 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Unattend staging now surfaces copy failures.** The post-apply
+  `Copy-Item` that drops `unattend.xml` into `C:\Windows\Panther`
+  previously ran without error handling, so a failure (USB unplugged
+  between scan and copy, antivirus block on the destination, ACLs)
+  would print a PowerShell error but the script still logged
+  "Unattend file staged" as Success and continued. On first boot the
+  operator hit manual OOBE, defeating the whole point of the
+  `-UnattendFile` pre-flight XML validation added in v4.6.x.
+  Staging is now wrapped in a try/catch with explicit `-ErrorAction Stop`
+  on both `New-Item` and `Copy-Item`; failure logs the source,
+  destination, impact ("manual OOBE on first boot"), and a recovery
+  path that doesn't require re-deploying. Treated as degraded-success
+  rather than `return $false` — we've already wiped the disk and
+  applied the image; aborting before BCDBoot would leave an unbootable
+  disk over a file-copy problem.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
