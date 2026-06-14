@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/prepare_wim.ps1` rejects `-SourceIso` paths without a
+  `.iso` extension.** Previously, a typo like `-SourceIso
+  'D:\iso\Win11_24H2_English_x64.wim'` (wrong extension) only failed
+  several steps later inside `Mount-DiskImage` with a cryptic
+  CLR/COM error. The check is added immediately after the existing
+  Test-Path / Resolve-Path on `-SourceIso`, mirrors the same shape
+  as the `-SourceWim` extension gate already present in the script,
+  and matches the `-OutputWim` / `-OutputIso` symmetric guards.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

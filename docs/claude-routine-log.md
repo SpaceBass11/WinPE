@@ -5,6 +5,79 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — `prepare_wim.ps1 -SourceIso` extension validation
+
+**Investigated:** open Claude PRs (#69-#98, ~30 in flight — mostly
+small safety/validation/test improvements), the routine log's pending
+follow-ups (Show-ImageList factoring deferred multiple times as
+load-bearing UX; `-ImagePath` PathType Container flagged in PR #91
+as a future candidate), and parameter validation patterns across the
+three shipped pipeline scripts. Looked for a clean, mirror-of-existing-
+pattern improvement not already covered by an open PR.
+
+**Found:** `scripts/prepare_wim.ps1` validates the WIM source side
+(`-SourceWim` must end in `.wim`/`.esd`, line 201) and PR #91
+covers the WIM output side (`-OutputWim`), and PR #90 covers
+`-OutputIso` on `build_iso.ps1` — but `-SourceIso` itself has no
+extension check. A typo like `-SourceIso 'D:\iso\Win11.wim'`
+(wrong extension) gets past the `Test-Path -PathType Leaf` /
+`Resolve-Path` block and fails several steps later inside
+`Mount-DiskImage` with a cryptic CLR/COM error that doesn't name the
+parameter or suggest a fix. This is the same failure-mode class PRs
+#90 and #91 closed for their respective parameters; closing it for
+`-SourceIso` completes the symmetry.
+
+The fix is one block, mirrors the existing `-SourceWim` check in the
+same script, and lives in the same parameter-set branch (`'FromIso'`)
+so the extension check is unreachable when `-SourceWim` is used
+instead. No open PR addresses this.
+
+**Changed:**
+- `scripts/prepare_wim.ps1` — added a `throw` after the `Resolve-Path`
+  call in the `'FromIso'` parameter-set branch that rejects
+  `-SourceIso` paths whose extension is not `.iso`. Comment names
+  the downstream failure mode (Mount-DiskImage cryptic error) and
+  the sibling guards it mirrors (-SourceWim, PR #91, PR #90).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the gate, the cryptic-Mount-DiskImage footgun it closes, and the
+  symmetry with the existing source-side / output-side guards.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md note.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed /
+  0 failed (unchanged total; the new `throw` line is inside an
+  existing `if` block, so brace balance is preserved).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged (no contamination).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged (no contamination).
+- Predicate spot-check on the literal extension comparison:
+  `.iso` accepted, `.ISO` accepted (case-insensitive `-ne`),
+  `.wim` rejected, no-ext rejected, `.img` rejected. Matches the
+  documented contract.
+
+**Risks / follow-ups:**
+- Minimal. The check fires before any ISO mount, WIM mount, or
+  driver injection has started. Worst case is an existing pipeline
+  that piped a non-`.iso` file as `-SourceIso`; that pipeline was
+  already failing at Mount-DiskImage, so the new error is an
+  upgrade in clarity, not a regression in capability.
+- Did not bump `$Script:Config.ScriptVersion` — the deploy script
+  itself is unchanged; the v4.7.1 → v4.7.2 contract only triggers
+  on deploy-script edits. Same precedent as PR #91 (output-side
+  guard, no version bump).
+- Outstanding follow-ups deferred across prior routine entries:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~25
+    lines of listing-render code. Refactoring would reduce
+    duplication but UX is load-bearing — deferred again.
+  - **`Find-ImageFiles -ImagePath` requires Container** — flagged
+    in PR #91 as a future candidate. Passing a file path passes
+    `Test-Path` but downstream `Get-ChildItem -Filter` on a file
+    may not surface the file as discoverable. Minor UX issue,
+    not a safety one; could be a future routine improvement.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

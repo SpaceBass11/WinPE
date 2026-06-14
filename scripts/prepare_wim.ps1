@@ -193,6 +193,12 @@ if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
         throw "SourceIso not found: $SourceIso"
     }
     $SourceIso = (Resolve-Path $SourceIso).Path
+    # Mount-DiskImage fails with a cryptic CLR/COM error when handed a non-ISO
+    # file; reject the obvious typo early. Symmetric with the -SourceWim check
+    # below and the -OutputWim / -OutputIso guards in PR #91 / #90.
+    if ([IO.Path]::GetExtension($SourceIso) -ne '.iso') {
+        throw "SourceIso must have a .iso extension (got: $SourceIso)"
+    }
 } else {
     if (-not (Test-Path $SourceWim -PathType Leaf)) {
         throw "SourceWim not found: $SourceWim"
