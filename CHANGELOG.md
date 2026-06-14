@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-MinImageSizeMB` now rejects negative values at parameter binding.**
+  The discovery filter `$file.Length -gt ($MinImageSizeMB * 1MB)` previously
+  accepted any `int`; a negative value (e.g. `-MinImageSizeMB -1`) made the
+  comparison "greater than a negative number," which silently disabled the
+  filter and surfaced every `.wim`/`.esd` on every scanned drive (boot
+  artifacts, recovery images, etc.) instead of failing fast. Added
+  `[ValidateRange(0, [int]::MaxValue)]` so out-of-range values are
+  rejected up front. `0` (no minimum) remains valid for lab images.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

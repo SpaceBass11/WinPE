@@ -5,6 +5,73 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — `-MinImageSizeMB` rejects negative input at parameter binding
+
+**Investigated:** Open PRs (#70-#99, 28 in flight). Most "obvious" small
+improvements are already covered: file-extension validation on
+prepare_wim / build_iso (-SourceIso, -OutputWim, -OutputIso), warn-on-
+ignored-param work (-WipeDisks without -Silent, -BitLockerKeyPath
+without -EnableBitLocker), refresh_usb -PathType parity, build_iso
+overlap rejection, several Pester suites. Looked for an unaddressed
+small-scope hole in the deploy script's parameter validation.
+
+**Found:** `-MinImageSizeMB` had no range validation. The discovery
+filter `if ($file.Length -gt ($MinImageSizeMB * 1MB))` worked correctly
+for the documented range (0..N) but silently disabled the filter when
+the parameter went negative — `($file.Length -gt -1048576)` is true for
+every non-empty file, so `.\unified_winpe_deploy.ps1 -MinImageSizeMB
+-1` would surface boot artifacts, recovery images, and any other
+`.wim`/`.esd` on every scanned drive instead of rejecting the bad
+input. Matches the "tighten input validation up front" pattern the
+other open PRs are working through.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — added `[ValidateRange(0, [int]::MaxValue)]`
+  above the `[int]$MinImageSizeMB = 100` param. Allows `0` (no
+  minimum, valid for lab images) and any positive int; rejects
+  negative values at binding time with PowerShell's standard
+  validation error.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the validation tightening and the historical behavior
+  it closes off.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per CLAUDE.md guidance.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0 failed.
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0 (sanity).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+  (sanity).
+- Direct attribute behavior check via a minimal fixture script:
+  - `-MinImageSizeMB` unset → default `100` accepted.
+  - `-MinImageSizeMB 0` → accepted (boundary, lab-image case).
+  - `-MinImageSizeMB 50` → accepted.
+  - `-MinImageSizeMB -1` → "Cannot validate argument on parameter
+    'MinImageSizeMB'. The -1 argument is less than the minimum
+    allowed range of 0." exit 1, as expected.
+
+**Risks / follow-ups:**
+- Minimal. Attribute-only change on a non-destructive discovery
+  parameter. No behavioral change for any documented usage
+  (default 100, `0`, or positive values). The only callers affected
+  are ones that were already broken (passing negative values to
+  defeat the filter — undocumented and surfaced random files).
+- PSv5.1 compatible: `[ValidateRange(min, max)]` with `[int]::MaxValue`
+  works on the PSv5.1 WinPE runtime.
+- Outstanding routine candidates from prior entries that I did not
+  take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code that could be factored out —
+    cleanup-only, deferred across multiple routine entries because
+    the menu render is load-bearing TUI UX.
+  - **Pester coverage for `Find-ImageFiles`** parameter-handling
+    paths (the `-WimFile` extension/existence branches, the
+    `$env:DEPLOY_IMAGE_DRIVE` fallback, and the unspecified
+    auto-discovery branch). Higher mock burden than the
+    `Get-WimImageInfo` / `Get-SystemDisks` fixtures because of
+    file-system / drive enumeration dependencies.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

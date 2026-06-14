@@ -111,6 +111,7 @@ param(
     [string]$WimFile,
     [int]$TargetDisk = -1,
     [string]$WipeDisks,
+    [ValidateRange(0, [int]::MaxValue)]
     [int]$MinImageSizeMB = 100,
     [string]$UnattendFile,
     [int]$DataDiskNumber = -1,
