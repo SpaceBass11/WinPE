@@ -111,8 +111,12 @@ Describe "Resolve-BitLockerKeyPath escrow precedence" {
             $BitLockerKeyPath = '\\fileserver\BitLockerKeys'
             Resolve-BitLockerKeyPath
         }
-        $result.Path   | Should -Be '\\fileserver\BitLockerKeys'
-        $result.Source | Should -Match 'parameter'
+        $result.Path       | Should -Be '\\fileserver\BitLockerKeys'
+        $result.Source     | Should -Match 'parameter'
+        # LookupMode drives how Initialize-BitLockerSetup stages the
+        # first-boot recovery-dir block. Operator-supplied paths must
+        # bake in literally, never via IMAGES-label lookup.
+        $result.LookupMode | Should -Be 'Literal'
     }
 
     It "Falls back to <DEPLOY_IMAGE_DRIVE>\BitLockerKeys when env var is set" {
@@ -133,6 +137,12 @@ Describe "Resolve-BitLockerKeyPath escrow precedence" {
         # hint to this string). Same pattern as the parameter-override test
         # above.
         $result.Source | Should -Match 'IMAGES partition'
+        # IMAGES-partition escrow MUST flip LookupMode to 'ImagesLabel' so
+        # Initialize-BitLockerSetup stages the by-label resolution block
+        # for first boot — the v4.7.1 fix for Windows reassigning the USB
+        # drive letter. A silent flip back to 'Literal' would re-bake the
+        # WinPE-time letter and break recovery-key escrow.
+        $result.LookupMode | Should -Be 'ImagesLabel'
     }
 
     It "NEVER falls back to D:\BitLocker (v4.6.x regression block)" {
@@ -145,6 +155,9 @@ Describe "Resolve-BitLockerKeyPath escrow precedence" {
         $result.Path | Should -Not -Be 'D:\BitLocker'
         $result.Path | Should -Not -Match '^D:'
         $result.Path | Should -Match 'C:\\Windows'
+        # Fallback bakes the literal C:\Windows path into the staged
+        # first-boot script — no IMAGES lookup possible without the env var.
+        $result.LookupMode | Should -Be 'Literal'
     }
 }
 

@@ -5,6 +5,73 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — Pester coverage of `Resolve-BitLockerKeyPath.LookupMode`
+
+**Investigated:** open Claude routine PRs (#78–#107) for in-flight work,
+the routine log's next-recommended-improvement backlog, and the explicit
+follow-up flagged in PR #101's body — "`Resolve-BitLockerKeyPath`'s
+`LookupMode` field isn't exercised by `tests/validation-gates.Tests.ps1`
+(only `Path` + `Source` are). `LookupMode` is what decides whether the
+staged first-boot script does literal-path or by-label IMAGES lookup, so
+a silent precedence flip wouldn't be caught."
+
+**Found:** `Resolve-BitLockerKeyPath` returns a hashtable with three
+fields: `Path`, `Source`, `LookupMode`. The three existing Pester cases
+in the "Resolve-BitLockerKeyPath escrow precedence" describe block
+assert against `Path` + `Source` only. `LookupMode` is the field
+consumed by `Initialize-BitLockerSetup` (line 1541 of the deploy
+script) to pick between the two `$recoveryDirBlock` variants — the
+literal-path version vs. the v4.7.1 `Get-Volume -FileSystemLabel
+'IMAGES'` lookup that fixes the WinPE → Windows drive-letter
+reassignment escrow bug. A refactor that quietly flipped any of the
+three precedence arms back to `'Literal'` would re-bake the
+WinPE-time letter into the staged script and silently break recovery-
+key escrow on every first boot — `Path` and `Source` would still
+match, so existing assertions would pass.
+
+No other open PR touches this gap; #98 covers PIN length ceiling,
+#105 rejects relative `-BitLockerKeyPath`, #104/#97 are docs-only.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — three new `LookupMode`
+  assertions, one per existing precedence test, with a short comment
+  on each explaining why the value matters. Pattern matches the
+  existing `Path` / `Source` assertions exactly. No new test
+  scaffolding, no new mocks.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md note.
+- `tests/test_parse.ps1` → 48 passed / 0 failed (unchanged; the
+  Pester file is parsed by `PSParser::Tokenize` along with every
+  other shipped `.ps1`).
+- `tests/validation-gates.Tests.ps1` itself parses cleanly via
+  `[System.Management.Automation.Language.Parser]::ParseFile`.
+- Real-value sanity check: loaded the deploy script as a dynamic
+  module (mirroring the test scaffold), called `Resolve-BitLockerKeyPath`
+  in all three precedence states, confirmed the new expected values
+  (`Literal`, `ImagesLabel`, `Literal`) match the actual returns. So
+  the assertions go from missing-to-green, not missing-to-red.
+- Full Pester run can't be done in this Linux container — PSGallery
+  network policy still blocks `Install-Module Pester` ("No match was
+  found..."), same constraint documented in CLAUDE.md and every prior
+  log entry. CI's `pester` job on `windows-latest` runs the suite
+  end-to-end on push.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition; no production code touched; no new
+  network or module dependencies; pattern identical to existing
+  assertions in the same describe block.
+- Outstanding routine-backlog candidates from prior entries / PRs
+  that I did not take this pass:
+  - The CHANGELOG's `## Unreleased` section has accumulated multiple
+    `### Changed` headers (flagged by PR #101's follow-up list).
+    Cosmetic; better handled at the next version bump than per-session.
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — deferred across
+    multiple entries because the menu render is load-bearing TUI UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
