@@ -5,6 +5,92 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — `scripts/build_boot_wim.ps1 -UsbDrive` system-drive guard
+
+**Investigated:** open PR list (#76-#105: 30 routine PRs, heavily
+covering build_iso safety, prepare_wim extension checks, BitLocker
+docs, masterize CI invariants, Pester coverage). Walked the toolkit
+for unaddressed safety gaps. The deploy script enforces
+`$env:SystemDrive` checks before `mountvol /d` (CLAUDE.md mandates
+this and masterize check #9 enforces it). Cross-referenced the
+builder script's `-UsbDrive` handling against the same rule.
+
+**Found:** `scripts/build_boot_wim.ps1` accepts `-UsbDrive` and
+later runs two destructive operations against it (lines 328-343):
+`xcopy /s /e /y "<media>\*.*" "$UsbDrive\"` and
+`mountvol.exe $UsbDrive /d`. The validation block (lines 135-142)
+only checks the format (`^[A-Za-z]:$`) and that the path is
+accessible. There's no guard against `-UsbDrive` equalling the
+running system drive. A typo or muscle-memory mistake like
+`-UsbDrive C:` would:
+  1. xcopy WinPE boot media into the root of the live Windows
+     install, dumping/overwriting `\sources\`, `\Boot\`,
+     `\bootmgr`, etc.
+  2. attempt `mountvol C: /d` (Windows will usually refuse on the
+     system volume, but the corruption has already happened).
+
+This is the same gap CLAUDE.md flags for the deploy script's own
+`mountvol /d` ("Never unmount the system drive — mountvol /d must
+check $env:SystemDrive first"), but the builder predates the
+guideline. Of the 30 open PRs, none touches the builder's
+`-UsbDrive` validation block.
+
+**Changed:**
+- `scripts/build_boot_wim.ps1` — added a single guard inside the
+  existing `if ($UsbDrive) { ... }` validation block: `if
+  ($UsbDrive -ieq $env:SystemDrive) { throw ... }`. Uses `-ieq` for
+  case-insensitive comparison so both `C:` and `c:` are caught.
+  Throws before any work is done. No effect on the supported
+  `-UsbDrive P:` flow or any non-system letter.
+- `tests/test_parse.ps1` Test 9 — added an invariant assertion that
+  matches the literal guard expression (`\$UsbDrive\s+-ieq\s+\$env:SystemDrive`)
+  so any future refactor that drops the guard fails locally and in
+  CI's `syntax` job. Follows the existing pattern (DCH DLL checks,
+  `$cctkDir` reuse check) in the same block.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the safety hardening. No version bump (additive
+  validation, no behavior change on the supported path).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md
+  bootstrap recipe (GitHub-Releases tarball to `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed before edits.
+- Post-edit: 49 passed / 0 failed (+1 new Builder invariant).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged.
+- Direct semantic test of the guard expression against `$SystemDrive
+  = 'C:'`: matches `C:`, matches `c:` (case-insensitive), does NOT
+  match `P:`. Behavior exactly as intended.
+- Pester suite skipped — CI-only per CLAUDE.md, and the change
+  touches no module body or Pester fixture, so no validation-gate
+  invariant is at risk.
+
+**Risks / follow-ups:**
+- Minimal. Single-line additive validation in a non-destructive
+  parameter-checking block. The only path affected is the
+  previously-unhandled `-UsbDrive C:` (typo) case, which now throws
+  with a clear message instead of corrupting the host Windows
+  install.
+- Doesn't catch every dangerous case: an operator with a SECONDARY
+  Windows install on `D:` could still mis-target it. Considered a
+  `Windows\System32` existence check but deferred — false-positives
+  on a WinPE staging drive that happens to contain a stray
+  `Windows\` folder would block legitimate flows. The
+  `$env:SystemDrive` check covers the dominant operator-error case
+  (~all builds run from C:) without that risk.
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - `Initialize-BitLockerSetup`'s generated `bitlocker-setup.ps1`
+    string has no parse-time validation — PR #71 addresses exactly
+    this, so deferred.
+  - CCTK config-file selection precedence Pester coverage —
+    addressed by PR #84 (open), so deferred.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

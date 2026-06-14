@@ -136,6 +136,11 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # -UsbDrive must be rejected if it equals $env:SystemDrive. Without this
+    # guard, a typo like -UsbDrive C: would xcopy WinPE media over the live
+    # Windows install. Matches the deploy script's mountvol /d guard pattern.
+    Write-Result -Test 'Builder: -UsbDrive guarded against $env:SystemDrive' -Pass ($bc -match '\$UsbDrive\s+-ieq\s+\$env:SystemDrive')
 }
 
 # Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)

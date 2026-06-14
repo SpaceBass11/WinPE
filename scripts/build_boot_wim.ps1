@@ -136,6 +136,13 @@ if ($UsbDrive) {
     if ($UsbDrive -notmatch '^[A-Za-z]:$') {
         throw "-UsbDrive must be a drive letter like 'P:' (got '$UsbDrive')"
     }
+    # Refuse the running system drive. A typo like -UsbDrive C: would xcopy
+    # WinPE media into the root of the live Windows install (\sources\,
+    # \Boot\, etc.) and then attempt mountvol /d on it. Matches the deploy
+    # script's $env:SystemDrive guard on its own mountvol /d call.
+    if ($UsbDrive -ieq $env:SystemDrive) {
+        throw "-UsbDrive '$UsbDrive' is the running system drive ($env:SystemDrive) - refuse to xcopy WinPE media over a live Windows install."
+    }
     if (-not (Test-Path "$UsbDrive\")) {
         throw "USB drive $UsbDrive is not accessible - partition and assign the letter per docs/USB_SETUP.md Step 4 first."
     }

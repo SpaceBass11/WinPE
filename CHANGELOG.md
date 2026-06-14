@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_boot_wim.ps1 -UsbDrive` now refuses the running
+  system drive.** Previously `-UsbDrive C:` (typo / muscle memory)
+  would `xcopy /s /e /y` WinPE media into the root of the live
+  Windows install (`\sources\`, `\Boot\`) and then attempt
+  `mountvol C: /d`. The validation block now throws if `-UsbDrive`
+  case-insensitively equals `$env:SystemDrive` before any work is
+  done, matching the deploy script's existing `mountvol /d` guard
+  pattern. `tests/test_parse.ps1` Test 9 gains an invariant assertion
+  so a regression that drops the guard fails the syntax suite
+  immediately. No effect on the supported `-UsbDrive P:` flow.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
