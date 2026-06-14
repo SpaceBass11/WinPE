@@ -215,6 +215,14 @@ if ($DriverPath) {
     Write-Step "Driver injection: found $infCount .inf file(s) under $DriverPath"
 }
 
+# Catch the easy footgun: writing to a path without a .wim/.esd extension
+# silently produces an output that unified_winpe_deploy.ps1's Find-ImageFiles
+# scan won't pick up (it filters by $Script:Config.ImageExtensions). Mirrors
+# the source-side check on -SourceWim above.
+if ([IO.Path]::GetExtension($OutputWim) -notin '.wim','.esd') {
+    throw "OutputWim must have a .wim or .esd extension (got: $OutputWim)"
+}
+
 $outputDir = Split-Path -Parent $OutputWim
 if ($outputDir -and -not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null

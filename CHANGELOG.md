@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/prepare_wim.ps1` rejects `-OutputWim` paths without a
+  `.wim`/`.esd` extension.** Previously, a typo like `-OutputWim
+  'I:\images\Win11_Pro'` (no extension) silently wrote a WIM-format
+  file to that path — and `unified_winpe_deploy.ps1`'s
+  `Find-ImageFiles` only enumerates files matching
+  `$Script:Config.ImageExtensions` (`*.wim`, `*.esd`), so the
+  customized output was invisible to auto-discovery. The check is
+  added before any work begins, mirrors the existing source-side
+  validation on `-SourceWim`, and uses the same shape as PR #90's
+  `-OutputIso` extension gate in `scripts/build_iso.ps1`.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

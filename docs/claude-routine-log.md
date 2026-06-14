@@ -5,6 +5,78 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — `prepare_wim.ps1 -OutputWim` extension validation
+
+**Investigated:** open Claude PRs (#58, #62-#90 — ~30 in flight, mostly
+small safety/validation/test improvements), the routine log's pending
+follow-ups (Show-ImageList factoring deferred multiple times as
+load-bearing UX), and parameter validation patterns across the three
+shipped pipeline scripts. Looked for a clean, mirror-of-existing-pattern
+improvement not already covered by an open PR.
+
+**Found:** `scripts/prepare_wim.ps1` validates the source side
+(`-SourceWim` must end in `.wim`/`.esd`, line 201) and the directory
+side (`-OutputWim`'s parent dir is created if missing, line 218) but
+never checks the extension of `-OutputWim` itself. A typo like
+`-OutputWim 'I:\images\Win11_Pro'` (no extension) silently writes a
+WIM-format file to that path, and the deploy script's
+`Find-ImageFiles` only enumerates files matching
+`$Script:Config.ImageExtensions` (`*.wim`, `*.esd`, deploy script
+line 138), so the customized output is invisible to auto-discovery on
+the IMAGES partition. The operator only discovers the silent loss
+after re-running prepare_wim (cheap) or after a failed deploy when
+the WIM doesn't show up in the TUI menu (expensive — full prep is
+minutes to tens of minutes for a debloated WIM).
+
+The pattern matches open PR #90 (`safety(build_iso): require .iso
+extension on -OutputIso`) — same shape of bug, same shape of fix,
+different script. No open PR addresses prepare_wim.
+
+**Changed:**
+- `scripts/prepare_wim.ps1` — added a `throw` after the `-DriverPath`
+  block and before the `$outputDir` resolution that rejects
+  `-OutputWim` paths whose extension is not `.wim` or `.esd`. Mirrors
+  the existing `-SourceWim` check verbatim. Comment names the
+  downstream consumer (`Find-ImageFiles` /
+  `$Script:Config.ImageExtensions`) so a future agent doesn't
+  re-loosen it without understanding the coupling.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the gate, the silent-loss footgun it closes, and the symmetry with
+  PR #90.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md note.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed (unchanged total; the new `throw` line is inside an existing
+  `if` block, so brace balance is preserved).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged (no contamination).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged (no contamination).
+- Predicate spot-check on the literal extension comparison: no-ext
+  rejected (True), `.wim` accepted (False), `.esd` accepted (False),
+  `.txt` rejected (True). Matches the documented contract.
+
+**Risks / follow-ups:**
+- Minimal. The check fires before any destructive work (no ISO mount,
+  no WIM mount, no driver injection has started). Worst case is an
+  existing automation pipeline that piped a file without an extension
+  through to `-OutputWim`; that pipeline was already producing an
+  invisible WIM, so the new error is an upgrade, not a regression.
+- Did not bump `$Script:Config.ScriptVersion` — the deploy script
+  itself is unchanged; the v4.7.1 → v4.7.2 contract only triggers
+  on deploy-script edits.
+- Outstanding follow-ups deferred across prior routine entries:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~25
+    lines of listing-render code. Refactoring would reduce
+    duplication but UX is load-bearing — deferred again.
+  - **`Find-ImageFiles -ImagePath` requires Container** — passing a
+    file path passes `Test-Path` but `Get-ChildItem -Filter '*.wim'`
+    on a file silently returns empty. Minor UX issue, not a safety
+    one; could be a future routine improvement.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
