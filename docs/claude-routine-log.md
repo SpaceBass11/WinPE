@@ -5,6 +5,68 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — Masterize check #27: startnet.cmd `{DRIVE}` substitution
+
+**Investigated:** open PRs (#71-#100, ~30 open at run time), the
+existing masterize CI invariant set (#1-#26), and the wiring between
+`scripts/build_iso.ps1` and `scripts/build_boot_wim.ps1`'s generated
+`startnet.cmd`. `build_iso.ps1` writes paths into `deploy.args` as
+`{DRIVE}\images\...`, `{DRIVE}\configs\unattend.xml`, etc. so a
+single ISO works regardless of which drive letter WinPE assigns the
+USB at boot. The substitution from `{DRIVE}` to the real
+`%DEPLOY_IMAGE_DRIVE%` happens in one place: the
+`set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"` line
+in the `startnet.cmd` written by `build_boot_wim.ps1`. Nothing in
+CI guards that line.
+
+**Found:** existing masterize checks #24 + #25 cover the deploy.args
+loading (`set /p DEPLOYARGS=<...`) and the no-PIN-echo property,
+but the `{DRIVE}` substitution is its own invariant: if a refactor
+removes (or breaks the regex of) the substitution, PowerShell
+receives `{DRIVE}\images\foo.wim` as a literal path and the deploy
+fails to find the image — at boot, on the operator's hardware, with
+no CI signal. Class of silent regression that masterize-style greps
+are designed to catch.
+
+**Changed:** `.github/workflows/ci.yml` — added masterize Phase 1B
+check #27. Greps `scripts/build_boot_wim.ps1` for the regex
+`DEPLOYARGS:\{DRIVE\}=%DEPLOY_IMAGE_DRIVE%`. Fails the build with a
+diagnostic pointing at the build_iso.ps1 ISO breakage path if the
+substitution drifts.
+
+**Verification:**
+
+- Positive case (HEAD): the regex matches the current
+  `build_boot_wim.ps1` line 306. Confirmed with a local
+  `grep -qE` run.
+- Negative case: simulated a regression by sed-replacing the
+  substitution line, re-ran the grep, confirmed it fails with the
+  intended diagnostic. Builder file restored after the test.
+- YAML well-formedness: `python3 -c "import yaml;
+  yaml.safe_load(...)"` returned clean.
+- No production code touched. Builder file (and therefore every
+  shipped `boot.wim`'s startnet.cmd) is unchanged.
+
+**Risks:** CI-only addition; no production behavior change. Smallest
+possible blast radius. The check is a `grep -qE` so a false positive
+would only happen if someone introduced a textually-identical line
+in a different role inside the same file — vanishingly unlikely
+given the specificity of the pattern.
+
+**Next recommended improvement:**
+
+- The `Resolve-BitLockerKeyPath` `LookupMode` field is not exercised
+  by `tests/validation-gates.Tests.ps1` (only `Path` + `Source` are).
+  Since `LookupMode` is what decides whether the staged first-boot
+  script does literal-path or by-label IMAGES lookup, a regression
+  that silently flipped the precedence wouldn't be caught.
+- The CHANGELOG's `## Unreleased` section has accumulated four
+  separate `### Changed` headers; Keep-a-Changelog convention is one
+  per category. Coalescing them is cosmetic and risky to do without
+  a dedicated review, so flag rather than auto-fix.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
