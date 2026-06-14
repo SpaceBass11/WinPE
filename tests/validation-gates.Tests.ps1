@@ -416,4 +416,31 @@ Describe "Start-Deployment validation gates" {
         $val = & $script:DeployModule { $Script:Config.BitLockerPin }
         $val | Should -Be 'goodpin42'
     }
+
+    It "Rejects -UnattendFile with malformed XML before any destructive op" {
+        # The -UnattendFile gate parses the file as XML up-front via
+        # [xml](Get-Content ...). Windows Setup silently ignores a malformed
+        # unattend.xml on first boot and falls through to manual OOBE - which
+        # the operator only discovers after the target disk has been wiped
+        # and the image applied. Failing here saves a wipe + re-deploy cycle.
+        # Use a real TestDrive file so [xml]'s actual parser runs, not a mock.
+        $unattendPath = Join-Path $TestDrive 'malformed-unattend.xml'
+        Set-Content -Path $unattendPath -Value '<unattend><missing-close>' -Encoding UTF8
+
+        $result = & $script:DeployModule {
+            param($p)
+            $WimFile      = 'I:\images\Win.wim'
+            $TargetDisk   =  0
+            $UnattendFile = $p
+            $Force        = $true
+            $Silent       = $true
+            Start-Deployment
+        } $unattendPath
+
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'not well-formed XML' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
 }

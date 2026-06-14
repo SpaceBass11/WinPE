@@ -5,6 +5,163 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — Pester coverage of `-UnattendFile` XML well-formedness gate
+
+**Investigated:** 30 open routine PRs (#77-#106), recent merges (#46-#52),
+and the existing test surface (`tests/test_parse.ps1`,
+`tests/test_wim_parser.ps1`, `tests/test_disk_enumeration.ps1`,
+`tests/validation-gates.Tests.ps1`). Looked for safety-critical helpers
+in `unified_winpe_deploy.ps1` that had no test coverage and weren't
+covered by any in-flight PR.
+
+Cross-checked open PRs touching `tests/validation-gates.Tests.ps1`:
+
+- **PR #81** — `-DataDiskNumber` / extra-wipe overlap (different gate,
+  different It block placement).
+- **PR #98** — BitLocker PIN length ceiling at 21 chars (sibling to the
+  existing 5-char floor test).
+- **PR #102** — `Test-FinalWipeConfirmation` typed-input parser (new
+  Describe block, doesn't touch existing Describes).
+
+None overlap the `-UnattendFile` well-formedness validation block at
+`unified_winpe_deploy.ps1` lines 1727-1747.
+
+**Found:** the `-UnattendFile` well-formedness gate (added in the
+2026-05-17 routine entry to close a known foot-gun: Windows Setup
+silently ignores a malformed unattend.xml and falls through to manual
+OOBE, so the operator only discovers the failure after the target
+disk has been wiped) has no Pester coverage. PR #95's routine entry
+flagged this as an outstanding follow-up:
+
+> Pester coverage of `-UnattendFile` well-formedness validation
+> (line 1737-1745 in the deploy script) — has no test yet. Could
+> parallel the existing `Resolve-BitLockerKeyPath` Pester pattern.
+
+A silent regression that loosened the `[xml](Get-Content ...)` parse
+(catching only a specific exception type, or removing the try/catch
+entirely) would let a malformed unattend pass pre-flight and only
+fail downstream at Windows Setup time. The deploy script's whole
+philosophy is "fail loud, fail early"; this gate is one of the few
+that runs before any destructive op.
+
+**Changed:**
+
+- `tests/validation-gates.Tests.ps1` — added one `It` block at the
+  end of the existing `Describe "Start-Deployment validation gates"`
+  block (sibling to the existing "Passes the wiring" tests). It:
+  1. Writes a real malformed `<unattend><missing-close>` snippet to
+     `$TestDrive`, so the `[xml]` parser's actual implementation
+     decides whether it's well-formed (no parser mocking, no fixture
+     drift risk).
+  2. Invokes `Start-Deployment` with `-Silent -Force -TargetDisk 0
+     -WimFile <mock>` and the TestDrive path as `-UnattendFile`,
+     passed via the `param()`-positional pattern that survives the
+     `& $module {}` scope boundary (verified with `pwsh 7.4.6` —
+     plain `$X = $localValue` does NOT work because the script
+     block runs in the module scope, not the caller's).
+  3. Asserts the result is `$false`, the `not well-formed XML`
+     log line was captured, and `Invoke-Diskpart` /
+     `Apply-WindowsImage` were never invoked (`-Times 0`).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  of the existing Changed block describing the coverage extension.
+  No version bump (test-only change).
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md
+  bootstrap recipe (GitHub Releases tarball into `/opt/pwsh/`).
+- Pre-edit baselines:
+
+  | Suite | Pre | Post |
+  |---|---|---|
+  | `tests/test_parse.ps1` | 48 / 0 | 48 / 0 |
+  | `tests/test_wim_parser.ps1` | 16 / 0 | 16 / 0 |
+  | `tests/test_disk_enumeration.ps1` | 34 / 0 | 34 / 0 |
+
+  Test-only Pester edit — these three suites are syntax/fixture-only
+  and unaffected.
+
+- `tests/validation-gates.Tests.ps1` syntax: `PSParser::Tokenize`
+  clean on PSv7.4.6. Brace balance 106/106 (was 102/102; +4/+4 from
+  the new `It` + `try`/`catch`-shape `Where-Object` filter). Static
+  structural sanity: 4 `Describe` blocks (unchanged), 19 `It` blocks
+  (+1), 32 `| Should ...` assertions (+2; the two `Should -Invoke ...`
+  calls don't match the pipe-pattern regex but are real assertions
+  giving the It a total of 4 assertions).
+
+- **Gate behavior simulated end-to-end** (the critical check —
+  Pester suite can't run in this sandbox per CLAUDE.md PSGallery
+  note): loaded the deploy script body as a dynamic module exactly
+  the way `BeforeAll` does (`# Execute main process` marker cut,
+  `#Requires` stripped, `New-Module | Import-Module`), then
+  invoked the bare validation gate via
+  `& $mod { param($p); $UnattendFile = $p; ... ; if ($UnattendFile)
+  { [xml](Get-Content -Path $UnattendFile -Raw) ... } }`. Result:
+  malformed-XML path returned `MALFORMED` (would translate to
+  `return $false` in `Start-Deployment`); well-formed XML
+  (`<?xml version="1.0"?><unattend></unattend>`) returned `VALID`
+  (would translate to falling through to the destructive section).
+  The `param()`-positional path passes the dynamic TestDrive path
+  through cleanly.
+
+- Pester (`tests/validation-gates.Tests.ps1`) CI-only per CLAUDE.md.
+  The new `It` mirrors the existing `"Rejects -EnableBitLocker
+  without -BitLockerPin"` style (param vars set inside the block,
+  `Should -BeFalse` on result, log-capture filter, `Should -Invoke
+  -Times 0` for destructive mocks) so the CI Pester runner picks it
+  up under the same Describe with no infrastructure change.
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only addition. No production code touched. No new
+  Pester mocks added. Mocking surface is unchanged — the test reuses
+  the universal `Test-Path { $true }` mock from `BeforeEach` and
+  relies on the real PSv5.1-compatible `Get-Content` + `[xml]` cast
+  for parser behavior, so PSv5.1 compatibility is preserved (the
+  function under test is PSv5.1-only itself).
+- Coordination with open PRs:
+  - **PR #81** (-DataDiskNumber/extra-wipe overlap) adds an `It`
+    higher in the same Describe; my addition sits at the end. Merge
+    is a linear append in either order.
+  - **PR #98** (BitLocker PIN length ceiling) adds an `It` next to
+    the existing PIN floor test, mid-Describe. No line overlap.
+  - **PR #102** (Test-FinalWipeConfirmation parser) adds a *new*
+    Describe block before "Resolve-BitLockerKeyPath escrow
+    precedence". No overlap with the "Start-Deployment validation
+    gates" Describe I'm extending.
+  - `CHANGELOG.md` is shared with every routine PR; this change
+    prepends one new bullet at the top of `## Unreleased /
+    ### Changed`, so the merge against any in-flight PR is a
+    trivial linear append.
+  - `docs/claude-routine-log.md` shared similarly; new top entry
+    above the existing 2026-05-24 entry.
+
+- **Outstanding routine-backlog candidates not taken this pass:**
+  - **`Initialize-BitLockerSetup` generated-script invariants** —
+    PR #102's follow-up flagged this; the function builds a
+    multi-hundred-line first-boot PowerShell script via
+    here-strings and has no fixture test that asserts the PIN
+    substitution lands inside `ConvertTo-SecureString`,
+    `Enable-BitLocker -TpmAndPinProtector` is present, and the
+    self-delete block at the end is wired up. PIN-with-single-quote
+    escaping would be the most useful negative case.
+  - **`Show-ImageList` / `Show-ImageSelection`** factoring still
+    deferred — ~30 lines of duplicated listing render. Flagged
+    across many prior entries; load-bearing TUI UX.
+
+**Next recommended improvement:** the `Initialize-BitLockerSetup`
+generated-script invariants test would be the highest-value next
+step. It would parallel PR #102's parser fixture pattern: load the
+deploy script body as a module, call `Initialize-BitLockerSetup`
+in a controlled scope, capture the generated `bitlocker-setup.ps1`
+content (mock `Set-Content` to intercept), and assert key invariants
+in the rendered output. Mocking burden is modest (Set-Content,
+New-Item, the path resolver) and the function has shipped without
+behavioral test coverage since v4.7.0.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

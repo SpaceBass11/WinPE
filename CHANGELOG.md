@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-UnattendFile` XML well-formedness gate now has Pester coverage.**
+  New `It` block in `tests/validation-gates.Tests.ps1` exercises the
+  fail-fast `[xml](Get-Content ...)` validation that runs before any
+  destructive operation. The test writes a real malformed
+  `unattend.xml` to `$TestDrive`, invokes `Start-Deployment` with
+  `-Silent -Force -TargetDisk 0 -WimFile <mock>`, and asserts that
+  the gate logs the `not well-formed XML` message, returns `$false`,
+  and that `Invoke-Diskpart` / `Apply-WindowsImage` were never
+  invoked (0 times). Guards against silent regressions that would
+  let a malformed unattend pass pre-flight and only fail at
+  Windows-Setup time — after the target disk has been wiped and
+  the image applied. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
