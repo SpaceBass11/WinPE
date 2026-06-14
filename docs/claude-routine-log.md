@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — Pester coverage of `Test-FinalWipeConfirmation`
+
+**Investigated:** open PRs (#82-#101 — 20 in flight, all routine-style
+validation/test/docs work) and the existing test surface in
+`tests/test_parse.ps1`, `tests/test_wim_parser.ps1`,
+`tests/test_disk_enumeration.ps1`, and `tests/validation-gates.Tests.ps1`.
+Looked for safety-critical helpers in `unified_winpe_deploy.ps1` that
+weren't covered by any in-flight PR or existing test.
+
+**Found:** `Test-FinalWipeConfirmation` (deploy script lines 712-717)
+is the shared parser behind the final `ERASE` / `DELETE ALL DATA` typed
+prompt on the primary-target wipe path (called by `Select-TargetDisk`
+at lines 763 and 810). It does input normalization — `Trim().ToUpperInvariant()`
+then exact-match against `@('ERASE', 'DELETE ALL DATA')`. No existing
+test covers it. The function name was added to
+`tests/test_parse.ps1`'s required-functions list earlier this year
+(masterize check #19 also pins both literal strings) but neither
+verifies behavior. A silent regression in the normalization — e.g.
+losing `.Trim()`, dropping `ToUpperInvariant()`, switching to
+prefix match — would either tighten authorization (operators get
+rejected after typing the documented word) or loosen it (a stray
+keystroke passes). Both are safety regressions.
+
+The closest in-flight Pester work is PR #98 (BitLocker PIN length
+ceiling); that's a separate `Describe` topic, so the additions are
+additive, not conflicting.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — new `Describe "Test-FinalWipeConfirmation
+  typed-input normalization"` block with 9 `It` cases covering: documented
+  'ERASE' and 'DELETE ALL DATA' positives, case insensitivity, edge
+  whitespace trim, empty/`$null` defensive handling, unrelated-input
+  rejection, near-miss rejection ('ERASES', 'ERASE!'), and internal-whitespace
+  significance ('DELETE  ALL  DATA' must fail). Calls via
+  `& $script:DeployModule { Test-FinalWipeConfirmation -InputText ... }`
+  mirroring the existing module-import pattern (no new mocks needed).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing the
+  new coverage. No version bump (test-only change).
+
+**Verification:**
+- `pwsh` installed once per session (v7.4.6 tarball into `/opt/pwsh/`).
+- Pre-edit standalone behavior: 20 hand-coded edge cases against the
+  function body copied verbatim — all 20 produced the expected return
+  value (Passed=20 Failed=0).
+- Post-edit module-import behavior: loaded the full deploy script body
+  as a dynamic module exactly the way the Pester `BeforeAll` block does
+  (cut at `# Execute main process` marker, strip `#Requires`,
+  `New-Module | Import-Module`), then invoked `Test-FinalWipeConfirmation`
+  via `& $mod { ... }` against 13 cases — all 13 passed.
+- `tests/validation-gates.Tests.ps1` syntax: `PSParser::Tokenize` clean
+  on PSv7.4.6. Brace balance 125/125. Static structural sanity check
+  via regex: 5 `Describe` blocks (was 4, +1 added), 27 `It` blocks
+  (was 18, +9 added), 49 `Should` assertions (was 30, +19 added).
+- Pester suite itself can't run locally — CLAUDE.md notes the Claude
+  Code on the Web network policy blocks PSGallery so
+  `Install-Module Pester` fails. CI's `pester` job runs the full
+  suite on `windows-latest`.
+- Sanity ran the other three test scripts to confirm no contamination:
+  `tests/test_parse.ps1` 48/0, `tests/test_wim_parser.ps1` 16/0,
+  `tests/test_disk_enumeration.ps1` 34/0 — all unchanged.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. Module-load
+  shape matches the existing `Describe` blocks exactly. PSv5.1
+  compatibility: only `Trim()`, `ToUpperInvariant()`, `-in` operator,
+  and `Should -BeTrue`/`-BeFalse` are used — all PSv5.1-safe (the
+  function under test is also PSv5.1-safe, which is the deploy-time
+  constraint).
+- Outstanding backlog candidates still worth picking up:
+  - **`Initialize-BitLockerSetup` generated-script invariants** — the
+    function builds a multi-hundred-line first-boot PowerShell script
+    via here-strings. Worth a fixture test that asserts key invariants
+    in the rendered output: PIN substitution lands inside
+    `ConvertTo-SecureString`, `Enable-BitLocker -TpmAndPinProtector`
+    present, `Add-BitLockerKeyProtector` present, and the self-delete
+    block at the end is still wired up. PIN-with-single-quote escaping
+    (line 1530) would be the most useful negative case.
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines of
+    listing-render code — flagged across many prior log entries and
+    deferred because the menu render is load-bearing TUI UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

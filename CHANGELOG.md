@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Test-FinalWipeConfirmation` typed-input parser now has Pester
+  coverage.** New `Describe` block in `tests/validation-gates.Tests.ps1`
+  exercises the safety-critical normalization rules behind the final
+  `ERASE` / `DELETE ALL DATA` typed prompt on the primary-target wipe
+  path (`Select-TargetDisk`): case insensitivity, edge whitespace trim,
+  exact-match rejection of near-misses (`ERASES`, `ERASE!`,
+  `DELETE  ALL  DATA`, `PARTIAL ERASE`), and defensive `$null` handling.
+  Guards against silent regressions that would change what operators
+  must type to authorize a destructive wipe. Runs in the existing CI
+  Pester job. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

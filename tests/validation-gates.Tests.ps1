@@ -99,6 +99,78 @@ Describe "v4.7.0 default configuration (must stay opt-in)" {
 
 }
 
+Describe "Test-FinalWipeConfirmation typed-input normalization" {
+    # Test-FinalWipeConfirmation is the shared parser behind the final 'ERASE' /
+    # 'DELETE ALL DATA' typed prompt on the primary-target wipe path
+    # (Select-TargetDisk). A silent regression in the normalization rules would
+    # change what operators must type to authorize a destructive wipe - either
+    # tightening the rules (operators get rejected after typing the documented
+    # word) or loosening them (an accidental keystroke passes). Both are safety
+    # regressions, so the parser gets its own behavioral fixture.
+
+    It "Accepts the documented 'ERASE' prompt response" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE' }
+        $result | Should -BeTrue
+    }
+
+    It "Accepts the documented 'DELETE ALL DATA' alternative" {
+        # Both literals are pinned by masterize CI check #19. The parser must
+        # keep accepting both so a future doc-only rename can't desync them.
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE ALL DATA' }
+        $result | Should -BeTrue
+    }
+
+    It "Is case-insensitive (operator types 'erase' in any case)" {
+        $upper = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'erase' }
+        $mixed = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'Erase' }
+        $upper | Should -BeTrue
+        $mixed | Should -BeTrue
+    }
+
+    It "Trims leading and trailing whitespace before matching" {
+        # Terminal pastes and copy-paste from docs often carry surrounding
+        # whitespace; the parser must absorb it instead of silently rejecting
+        # a visually-correct response.
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '  ERASE  ' }
+        $result | Should -BeTrue
+    }
+
+    It "Rejects empty string (operator hit Enter without typing)" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '' }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects `$null without throwing (defensive null handling)" {
+        # Read-Host always returns a string, but the function is called from
+        # multiple sites; a future caller that passes $null must not crash
+        # mid-confirmation.
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText $null }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects unrelated input ('OOPS')" {
+        $result = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'OOPS' }
+        $result | Should -BeFalse
+    }
+
+    It "Rejects near-misses that extend the accepted word ('ERASES', 'ERASE!')" {
+        # Exact-match (not prefix or substring) after normalization so accidental
+        # extra characters never authorize a wipe.
+        $extra      = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASES' }
+        $punctuated = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE!' }
+        $extra      | Should -BeFalse
+        $punctuated | Should -BeFalse
+    }
+
+    It "Rejects 'DELETE ALL DATA' with collapsed or doubled internal whitespace" {
+        # Internal spacing is significant - the parser only trims edges.
+        $doubled = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE  ALL  DATA' }
+        $partial = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE' }
+        $doubled | Should -BeFalse
+        $partial | Should -BeFalse
+    }
+}
+
 Describe "Resolve-BitLockerKeyPath escrow precedence" {
 
     AfterEach {
