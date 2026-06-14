@@ -5,6 +5,66 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — `prepare_wim.ps1` rejects empty effective whitelist
+
+**Investigated:** the 30+ open routine PRs (#63-#92) and recent merges
+(#46-#52) to find a small safety improvement not already in flight.
+PRs in flight cover build_iso extension/charset/overlap checks,
+prepare_wim `-OutputWim` extension, refresh_usb path-type parity,
+unattend staging error surfacing, BitLocker doc/test gaps, and
+Pester coverage for several gates. Empty-whitelist handling in
+`prepare_wim.ps1` was not in any open PR and not in the CHANGELOG.
+
+**Found:** `prepare_wim.ps1` lines 224-232 (pre-edit) loaded `-WhitelistFile`
+via `Get-Content | Where-Object { ... }`. If the file was blank or
+contained only `#` comments / blank lines, `$Whitelist` quietly became
+zero entries. The debloat loop at line ~361 is "remove anything NOT in
+this list", so a zero-entry whitelist meant *every* provisioned AppX
+package got removed — including the codec extensions
+(`Microsoft.HEIFImageExtension`, `Microsoft.HEVCVideoExtension`, etc.)
+that the Photos and Camera apps need to work. The operator's intent
+was almost certainly "customize what stays," not "nuke everything."
+Same hole for an explicit `-Whitelist @()`.
+
+**Changed:**
+- `scripts/prepare_wim.ps1` — wrapped the `-WhitelistFile` parse in
+  `@(...)` and added a trailing `Where-Object { $_ }` to strip blank
+  lines explicitly. Added a post-resolution guard that `throw`s on
+  zero effective entries, with a tailored error message for each
+  source (file vs explicit array). Updated `.PARAMETER WhitelistFile`
+  doc string to call out the rejection.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet at the top.
+
+**Verification:**
+- `pwsh` installed once per session per CLAUDE.md (PowerShell 7.4.6).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0 (unchanged from
+  pre-edit count; the parse harness now includes prepare_wim).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0.
+- Behavioral fixture: ran the new pipeline (`Get-Content | Where {!#} |
+  Trim | Where {$_}`) against three test files — empty file, all-comments
+  file, real file with 2 entries + comment header + blank line — produced
+  counts 0/0/2 as expected.
+- Throw verification: ran the validation block standalone with the
+  empty-comments fixture; caught the expected error message verbatim.
+
+**Risks / follow-ups:**
+- Minimal. Behavior change is "fail fast with a clear message" for a
+  case that previously silently misbehaved. No destructive code paths
+  touched. The only operators affected are ones who pass an empty-but-
+  unintentional whitelist; the doc string documents the carve-out for
+  those who genuinely want a total wipe.
+- Outstanding follow-ups from the open routine PRs that I did not take:
+  - The `Show-ImageList` / `Show-ImageSelection` listing-render
+    consolidation continues to defer across multiple passes — load-
+    bearing TUI UX, low payoff for the refactor cost.
+  - Several open PRs (#91 `-OutputWim` ext, #77 refresh_usb path-type,
+    #74 DISM /Get-WimInfo error surfacing) look like quick merges once
+    reviewed; closing those clears the backlog faster than adding new
+    ones.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`prepare_wim.ps1` rejects an empty effective whitelist.** Previously,
+  `-WhitelistFile` pointing at a file that's blank or contains only
+  comments left `$Whitelist` at zero entries, and the debloat loop
+  silently removed every provisioned AppX package — including the
+  codec extensions photos / camera need to function. Same hole existed
+  for an explicit `-Whitelist @()`. The script now throws a clear
+  error in both cases (with a hint pointing the operator at either the
+  empty file or the empty array). Admins who genuinely want to wipe
+  every provisioned package can pass a harmless dummy entry.
+  Doc string for `-WhitelistFile` updated to call this out.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

@@ -60,8 +60,11 @@
 
 .PARAMETER WhitelistFile
     Path to a text file with one DisplayName per line. Overrides -Whitelist.
-    Lines starting with # are treated as comments. Useful for keeping the
-    whitelist in source control separately from this script.
+    Lines starting with # are treated as comments; blank lines are ignored.
+    Useful for keeping the whitelist in source control separately from this
+    script. A file that resolves to zero effective entries is rejected — a
+    silent total-debloat (every provisioned AppX, including the codec
+    extensions photos / camera need) is almost never intentional.
 
 .PARAMETER DriverPath
     Path to a folder containing driver packages (.inf files) to inject into
@@ -225,10 +228,24 @@ if ($WhitelistFile) {
     if (-not (Test-Path $WhitelistFile -PathType Leaf)) {
         throw "WhitelistFile not found: $WhitelistFile"
     }
-    $Whitelist = Get-Content $WhitelistFile |
+    $Whitelist = @(Get-Content $WhitelistFile |
         Where-Object { $_ -and $_ -notmatch '^\s*#' } |
-        ForEach-Object { $_.Trim() }
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ })
     Write-Step "Loaded $($Whitelist.Count) whitelist entries from $WhitelistFile"
+}
+
+# An empty whitelist would silently remove every provisioned AppX package —
+# including codec extensions that camera/photos need — because the debloat
+# loop is "remove anything NOT in this list". Almost always unintentional:
+# a WhitelistFile that's blank or only comments, or `-Whitelist @()` typed
+# by mistake. Refuse rather than nuke. Admins who genuinely want a total
+# wipe can pass at least one harmless dummy entry.
+if (@($Whitelist).Count -eq 0) {
+    if ($WhitelistFile) {
+        throw "Whitelist resolved to 0 entries from '$WhitelistFile' (file is empty or contains only comments/blank lines). Refusing to debloat — would remove every provisioned AppX package. Add at least one DisplayName, or omit -WhitelistFile to use the built-in default."
+    }
+    throw "-Whitelist is empty. Refusing to debloat — would remove every provisioned AppX package. Pass at least one DisplayName, or omit -Whitelist to use the built-in default."
 }
 
 # Working paths
