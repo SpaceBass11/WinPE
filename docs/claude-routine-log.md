@@ -5,6 +5,94 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — Masterize CI check #1 now also verifies `.VERSION` block
+
+**Investigated:** 30 open PRs (#54-#95) for overlap, the masterize CI
+job's check #1 (`.github/workflows/ci.yml` lines 140-146), and the
+"Version field lives in four places" list in `CLAUDE.md` (lines
+168-173). Cross-checked the open PRs to confirm none touch check #1
+itself — PR #68 widens check #24 (deploy.args reader), PR #95 adds
+typed-confirmation phrase checks, PR #94 adds SCRIPT_REFERENCE.md to
+its scope as a "follow-up". So check #1's predicate is open territory.
+
+**Found:** `CLAUDE.md` lists four places that must hold a matching
+version string: the script's `$Script:Config.ScriptVersion`, the
+`.VERSION` block in the script header comment, `CHANGELOG.md`,
+`CLAUDE.md`, and `README.md` — the trailing "masterize CI check #1
+enforces this" claim. The current CI check uses ScriptVersion as the
+source and verifies the latter three docs, but never reads the
+`.VERSION` block. Result: a future bump that updates ScriptVersion +
+the three docs but forgets to prepend a new entry to the in-script
+`.VERSION` changelog passes green. The header block is the
+operator-visible self-documentation for the script and lagging it
+silently is the exact drift class check #1 exists to prevent.
+
+**Changed:**
+
+- `.github/workflows/ci.yml` — appended an in-block assertion to
+  check #1 that extracts the first version listed inside the
+  `.VERSION` POD-style block (`grep -A 1 '^\.VERSION' ... | tail -1
+  | grep -oP '^\s*\K[0-9.]+'`) and compares it against the
+  already-extracted `$ver`. Mismatch emits a `FAIL:` line naming both
+  values and sets `fail=1`. Comment block above the assertion
+  explains the drift class and references the four-places list in
+  CLAUDE.md so future agents see why the check exists. Sits inside
+  the existing check #1 block — no new heading or check number, no
+  shift in downstream check numbering.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed per the CLAUDE.md bootstrap recipe.
+- YAML parse: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` → clean.
+- Locally simulated the entire check #1 block against the current
+  tree: all four version-string assertions (`CHANGELOG.md`,
+  `CLAUDE.md`, `README.md`, `.VERSION` block) pass with
+  `header_ver=4.7.1` matching `ver=4.7.1`. Final `fail=0`.
+- Drift simulation: copied `unified_winpe_deploy.ps1` to a temp
+  path, replaced the `4.7.1 - BitLocker recovery...` lead in the
+  `.VERSION` block with `4.7.0 - BitLocker recovery...`, and re-ran
+  the extraction. Got `header_ver=4.7.0` vs `ver=4.7.1`, mismatch
+  caught — confirms the new assertion would have surfaced the
+  forgotten-header-bump regression class.
+- Local tests unchanged: `test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0.
+- Pester (`validation-gates.Tests.ps1`) runs in CI only per CLAUDE.md
+  (PSGallery blocked from container). No Pester logic touched.
+
+**Risks / follow-ups:**
+
+- Minimal. CI-only change; no production PowerShell, no test files,
+  no doc-format changes. The script header's `.VERSION` block has
+  lived at column 1 with one space-indented entry per version since
+  before v4.4.0 — the regex matches every entry in the current
+  block (`4.7.1`, `4.7.0`, `4.6.0`, `4.5.0`, `4.4.0`). A future
+  reformatting that re-indents the block would need to update this
+  predicate too; the comment above the assertion names the dependency.
+- No file-level overlap with open PRs:
+  - **PR #68** (`startnet` deploy.args reader, check #24) — different
+    check, different file region.
+  - **PR #95** (typed-confirmation phrases) — adds new check, doesn't
+    touch check #1.
+  - **PR #94** (`SCRIPT_REFERENCE.md` v4.7.0/v4.7.1 resync) — doc
+    change; its follow-up suggested adding `SCRIPT_REFERENCE.md` to
+    check #1's `for f in ...` loop. I deliberately did NOT do that
+    here because `SCRIPT_REFERENCE.md` is still at v4.6.0 on `main`;
+    that addition is blocked on #94 merging. After #94 lands a
+    one-line addition to the loop closes the doc-side gap symmetrically.
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **Boundary-accept Pester tests at exactly 6 and 20 chars for
+    `-BitLockerPin`.** PR #64's deferred follow-up; needs the
+    passing-validation mock chain from line 372/406 of the Pester
+    suite, larger edit than this routine pass.
+  - **Invariant tests for `scripts/build_iso.ps1`** (still syntax-only
+    in `test_parse.ps1` Test 12). PR #64 and PR #65 follow-ups
+    flagged this. Larger writing effort; would benefit from #56 /
+    #54 / #71 settling first to avoid merge-coordination cost.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

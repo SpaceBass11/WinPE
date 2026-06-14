@@ -144,6 +144,20 @@ jobs:
           for f in CHANGELOG.md CLAUDE.md README.md; do
             if grep -q "$ver" "$f"; then echo "OK: $f"; else echo "FAIL: $f missing $ver"; fail=1; fi
           done
+          # .VERSION block top entry inside the script header. CLAUDE.md's
+          # "version field lives in four places" list names this as one of
+          # them but the CI didn't enforce it — a bump that updated
+          # $Script:Config.ScriptVersion + CHANGELOG/CLAUDE/README but
+          # forgot to prepend a new entry to the .VERSION block would
+          # pass green and ship a script whose header self-changelog lags
+          # the runtime version. Catch it here instead.
+          header_ver=$(grep -A 1 '^\.VERSION' unified_winpe_deploy.ps1 | tail -n 1 | grep -oP '^\s*\K[0-9.]+')
+          if [ "$header_ver" = "$ver" ]; then
+            echo "OK: unified_winpe_deploy.ps1 .VERSION block top entry matches"
+          else
+            echo "FAIL: .VERSION block top entry is '$header_ver' but ScriptVersion is '$ver'"
+            fail=1
+          fi
 
           echo ""
           echo "=== 2. Cross-doc script coverage ==="
