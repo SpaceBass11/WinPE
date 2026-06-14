@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Typed-confirmation chain resynced across `AGENTS.md` and the PR
+  template.** `.github/PULL_REQUEST_TEMPLATE.md` listed only `ERASE`,
+  `DESTROY SYSTEM`, and `CONTINUE ANYWAY` in its safety checklist;
+  `AGENTS.md` listed those four plus `WIPE DATA`. Both omitted
+  `WIPE ALL` (added in v4.5.0 with the additional-wipe disks feature)
+  — and the PR template additionally omitted `WIPE DATA` (added in
+  v4.7.0 with the BitLocker / data-disk staging). A reviewer following
+  the safety checklist verbatim could miss a regression that weakened
+  the `WIPE ALL` or `WIPE DATA` prompt. Both files now enumerate all
+  five confirmations. `README.md`'s typed-confirmation chain table
+  (already complete) is the source of truth.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

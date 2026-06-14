@@ -5,6 +5,93 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — Typed-confirmation chain resync (`AGENTS.md` + PR template)
+
+**Investigated:** all 20+ open routine PRs (#54-#91) to find a fresh,
+non-overlapping improvement. Cross-checked every safety-rules /
+confirmation-chain reference across `CLAUDE.md`, `AGENTS.md`,
+`README.md`, `.github/PULL_REQUEST_TEMPLATE.md`, and
+`docs/TROUBLESHOOTING.md` against the actual typed prompts in
+`unified_winpe_deploy.ps1`.
+
+**Found:** the script ships five typed-confirmation phrases —
+`ERASE`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`, `WIPE ALL` (v4.5.0,
+additional-wipe disks), and `WIPE DATA` (v4.7.0, data-disk format).
+README.md's "Typed-confirmation chain" table is correct. But:
+
+- **`.github/PULL_REQUEST_TEMPLATE.md`** safety-checklist bullet
+  enumerated only three (`ERASE`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`)
+  — missing both `WIPE ALL` and `WIPE DATA`. The template last
+  changed in PR #20, before either prompt existed.
+- **`AGENTS.md`** "Non-negotiable safety rules" listed four
+  (`ERASE`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`, `WIPE DATA`) —
+  missing `WIPE ALL`. AGENTS.md is the first file an agent reads
+  when entering this repo, so the gap is load-bearing.
+
+A reviewer following either checklist verbatim could merge a PR that
+silently weakened the `WIPE ALL` (additional-wipe) or `WIPE DATA`
+(data-disk) prompt without noticing. No CI grep covers these doc
+strings, so the drift was invisible.
+
+**Changed:**
+- `.github/PULL_REQUEST_TEMPLATE.md` — expanded the safety-checklist
+  bullet to enumerate all five typed-confirmation phrases. No other
+  section touched.
+- `AGENTS.md` — added `WIPE ALL` to the "Non-negotiable safety
+  rules" bullet (lines 19-22). No other section touched.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  of the existing Changed block, naming the drift class and the
+  README being the source of truth.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` 7.4.6 installed via the CLAUDE.md bootstrap recipe.
+- Pre-edit and post-edit (doc-only change; identical pass counts expected):
+
+  | Suite | Pre | Post |
+  |---|---|---|
+  | `tests/test_parse.ps1` | 48 / 0 | 48 / 0 |
+  | `tests/test_wim_parser.ps1` | 16 / 0 | 16 / 0 |
+  | `tests/test_disk_enumeration.ps1` | 34 / 0 | 34 / 0 |
+
+- Cross-checked each of the five phrases exists verbatim in
+  `unified_winpe_deploy.ps1`:
+  - `'CONTINUE ANYWAY'` at line 537-538 (`Test-WinPEEnvironment`)
+  - `'DESTROY SYSTEM'` at lines 741, 755, 796 (`Select-TargetDisk`)
+  - `'ERASE'` at lines 716 (`Test-FinalWipeConfirmation`), 762, 808
+  - `'WIPE ALL'` at lines 1460, 1462 (`Select-AdditionalWipeDisks`)
+  - `'WIPE DATA'` at lines 1722, 1812, 1813 (`Start-Deployment`)
+
+**Risks / follow-ups:**
+- Minimal. Pure documentation. No production code, scripts, tests,
+  or CI workflows touched. No new dependencies. No new outbound links.
+- **Coordination with open PRs:**
+  - PR #57 touches `AGENTS.md` at lines 56-58 (the "Required
+    validation before pushing" snippet). This change touches lines
+    19-22 (safety rules) — non-overlapping sections, trivial linear
+    merge in either order.
+  - PR #71 also touches `AGENTS.md` at the same validation snippet
+    as #57 — same trivial-merge story.
+  - No other open PR touches `.github/PULL_REQUEST_TEMPLATE.md`.
+  - `CHANGELOG.md` and `docs/claude-routine-log.md` are shared with
+    many open PRs; this change adds linear-append bullets at the top
+    of each, so merges remain trivial.
+- **Drift class:** masterize CI has no check that enumerates the
+  typed-confirmation chain across docs and the script. A future
+  improvement would add a Phase 1A grep that asserts each of the
+  five phrases appears in `AGENTS.md` + `.github/PULL_REQUEST_TEMPLATE.md`
+  + `README.md` so a sixth prompt (or a removed one) can't drift
+  silently again. CI workflow change, separate concern.
+- **Outstanding follow-ups not taken this pass:**
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line render
+    duplication still outstanding (deferred across multiple routine
+    entries; the TUI render is load-bearing UX).
+  - `docs/SCRIPT_REFERENCE.md` is missing dedicated sections for
+    `scripts/build_iso.ps1` and `scripts/first-login.ps1` (flagged
+    by PRs #55 / #56).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
