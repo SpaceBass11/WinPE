@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Masterize CI check #19 now guards all five user-facing typed
+  confirmation phrases.** Previously it only enforced
+  `DELETE ALL DATA` and `DESTROY SYSTEM`, so a refactor that silently
+  dropped any of `ERASE`, `CONTINUE ANYWAY`, `WIPE ALL`, or
+  `WIPE DATA` from `unified_winpe_deploy.ps1` would have shipped
+  green — weakening the destructive-operation gates the deploy
+  script relies on (final ERASE confirmation, the WinPE skip-warning
+  escape hatch, the additional-wipe disk prompt, and the data-disk
+  format prompt respectively). Order in the check matches the
+  typed-confirmation chain table in `README.md` so the docs and gate
+  stay visually aligned. CI-only change; the deploy script and its
+  tests are untouched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

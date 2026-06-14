@@ -320,9 +320,14 @@ jobs:
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: exit-code chain broken"; fail=1; fi
 
           echo ""
-          echo "=== 19. Safety confirmation strings present (DELETE ALL DATA, DESTROY SYSTEM) ==="
+          echo "=== 19. Safety confirmation strings present (ERASE, DESTROY SYSTEM, CONTINUE ANYWAY, WIPE ALL, WIPE DATA, DELETE ALL DATA) ==="
+          # All five user-facing typed-confirmation phrases plus the legacy
+          # 'DELETE ALL DATA' accept-string. A refactor that silently dropped
+          # any one of them would weaken a destructive-operation gate without
+          # CI noticing. Order matches the typed-confirmation chain table in
+          # README.md so the docs and this gate stay visually aligned.
           ok=1
-          for s in 'DELETE ALL DATA' 'DESTROY SYSTEM'; do
+          for s in 'ERASE' 'DESTROY SYSTEM' 'CONTINUE ANYWAY' 'WIPE ALL' 'WIPE DATA' 'DELETE ALL DATA'; do
             grep -qF "$s" $script || { echo "  missing: '$s'"; ok=0; }
           done
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: confirmation strings drifted"; fail=1; fi
