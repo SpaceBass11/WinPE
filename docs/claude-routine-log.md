@@ -5,6 +5,72 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — Pester coverage for BitLocker PIN length ceiling (21 chars)
+
+**Investigated:** All 20 open Claude routine PRs (#78-#97) and the
+Pester validation-gate suite. Cross-referenced the
+`BitLocker length floor` test at `tests/validation-gates.Tests.ps1:342`
+against the production validation block in `unified_winpe_deploy.ps1`
+(lines 1691-1695). No open PR adds a ceiling test; the closest
+in-flight Pester work (PR #81 `-DataDiskNumber / extra-wipe overlap`,
+PR #84 `Invoke-CctkConfig` selection) is on different invariants.
+
+**Found:** The production gate refuses any PIN where
+`Length -lt 6 -or Length -gt 20`. Only the floor (5 chars) has a
+Pester assertion; the ceiling (20+ chars) has none. A refactor that
+weakens the check to `-lt 6` only (drops the `-gt 20`) would not be
+caught by CI. The downstream consequence is a 21+ char PIN passing
+validation, the disk being wiped and the image applied, and then
+`Add-BitLockerKeyProtector` failing at first boot — exactly the
+"already destructive" outcome the validation gates exist to
+prevent. The `It "five-char value below length floor"` test at
+line 342 already establishes the pattern (use of `'6-20 characters'`
+match, `Force=$true`/`Silent=$true` short-circuit, no destructive
+mocks invoked); the new test mirrors it for 21 chars (`'a' * 21`).
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — added a new `It` block
+  immediately after the existing floor test. Uses `'a' * 21` for
+  the PIN (matches `'abcde'` style of the floor test), asserts
+  `Should -BeFalse`, matches the `'6-20 characters'` log line, and
+  pins `Should -Invoke Invoke-Diskpart -Times 0` / `Apply-WindowsImage
+  -Times 0` so a future regression that wipes-then-rejects is caught.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` entry at the top.
+
+**Verification:**
+- Installed `pwsh` 7.4.6 per the CLAUDE.md note (PSGallery is
+  blocked in this container, so the actual Pester suite can't run
+  locally — same constraint flagged in every previous routine
+  entry).
+- `pwsh` AST parse of the edited test file: 2028 tokens, 0 errors,
+  19 `It` blocks (was 18, +1 for the new ceiling test).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1`: 48 passed / 0
+  failed (baseline + post-edit unchanged; the Pester file isn't in
+  the test_parse.ps1 list, but the edit doesn't touch any of the
+  six shipped pipeline scripts that test_parse.ps1 does check).
+- Production-gate sanity check: ran the same boolean condition
+  the script uses against `'a' * 21` in standalone pwsh; it trips
+  the gate ("PIN length=21 is outside 6-20"). So the new test is
+  asserting actual behavior, not a phantom.
+- Existing tests untouched: `tests/test_wim_parser.ps1` 16/0,
+  `tests/test_disk_enumeration.ps1` 34/0.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change. No production code touched. No new
+  network dependencies. New `It` block follows the same pattern as
+  the 16 sibling tests in `Describe "Start-Deployment validation
+  gates"`, including the `BeforeEach` mock surface.
+- Outstanding candidates from prior routine entries that this
+  pass did not take:
+  - **`Show-ImageList` / `Show-ImageSelection` ~30-line de-dup** —
+    flagged across PRs #26-#52; UX-load-bearing so still deferred.
+  - **`prepare_wim.ps1` parameter-set fixture test** — would
+    cover the `-SourceIso` vs `-SourceWim` branch logic from PR
+    #22 / #41. Higher mock burden because of `Mount-DiskImage` /
+    `Get-WindowsImage` so not the smallest follow-up.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -354,6 +354,27 @@ Describe "Start-Deployment validation gates" {
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
     }
 
+    It "Rejects -EnableBitLocker -BitLockerPin 21-char value above length ceiling" {
+        # Windows Enhanced PIN policy caps at 20 chars; a 21+ char PIN would
+        # fail Add-BitLockerKeyProtector at first boot AFTER the disk is
+        # already wiped and the image applied. The validation gate must
+        # reject both ends of the 6-20 window; only the floor had a test.
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $true
+            $BitLockerPin    = 'a' * 21   # 21 chars, ceiling is 20
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
         $result = & $script:DeployModule {
             $WimFile        = 'I:\images\Win.wim'
