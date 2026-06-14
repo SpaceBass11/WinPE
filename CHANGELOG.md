@@ -8,6 +8,16 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Stale "placeholder PIN" claim in `docs/BITLOCKER.md`.** The
+  Confirmation Chain table still listed
+  `` `-EnableBitLocker` with placeholder PIN | (refused outright) ``
+  after the `ForbiddenBitLockerPins` list was removed (see Removed
+  entry below). Replaced with the actual current gate: PIN length
+  outside the Windows 6-20 character window. README/SCRIPT_REFERENCE
+  were resync'd by separate PRs; this catches the remaining doc that
+  had drifted.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

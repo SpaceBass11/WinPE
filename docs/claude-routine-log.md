@@ -5,6 +5,75 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — `docs/BITLOCKER.md` confirmation-chain row resync
+
+**Investigated:** the 30 open routine PRs (#74-#103) plus the recent
+commit history to find a gap that hadn't already been claimed. Most
+shapes are already covered: typed-confirmation guards (PR #95),
+{DRIVE} substitution (PR #101), file-extension validation
+(PRs #90/#91/#99), warnings for ignored parameters (PRs #88/#89),
+Pester gates (PRs #75/#81/#98/#102), CI masterize checks (PR #96),
+and several doc resyncs (PRs #76/#78/#92/#94/#97).
+
+The remaining gap was BitLocker doc drift: the
+`ForbiddenBitLockerPins` list and PIN content policy were removed in
+PR #49 (commit `1fd1937`). PR #97 catches the stale "Placeholder PINs
+are rejected at runtime" line in `README.md`'s parameter table.
+`docs/SCRIPT_REFERENCE.md` doesn't have the same staleness. But
+`docs/BITLOCKER.md` line 54 still carried a Confirmation Chain row
+``` | `-EnableBitLocker` with placeholder PIN | (refused outright) | No | ```
+that no longer reflects the script. Not covered by any open PR.
+
+**Changed:**
+- `docs/BITLOCKER.md` line 54 — replaced the stale "placeholder PIN"
+  row with the actual current gate: PIN length outside Windows'
+  6-20-character window. The replacement mirrors what
+  `tests/validation-gates.Tests.ps1` line 354 asserts (the
+  `'6-20 characters'` log message) and what `Start-Deployment` enforces
+  at `unified_winpe_deploy.ps1:1692-1693`.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing the
+  drift and the resync.
+
+**Verification:**
+- `pwsh` installed once per session per CLAUDE.md (PowerShell/Releases
+  v7.4.6 tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed (baseline + post-edit; doc change has no script impact).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged.
+- `grep -n "placeholder PIN\|placeholder PINs are rejected"
+  docs/BITLOCKER.md` returns no matches post-edit (confirms the
+  stale claim is fully removed from the file).
+- `grep -n "BitLockerPin" unified_winpe_deploy.ps1` shows the actual
+  enforcement at line 1692-1693 still matches the new doc wording
+  ("6-20 characters (Enhanced PIN policy)").
+
+**Risks / follow-ups:**
+- Minimal. Pure doc change. No production code, no test code, no CI
+  workflow modified. No conflict with the open PR queue — none of
+  #74-#103 touch this specific row.
+- Outstanding routine-backlog candidates from prior entries that
+  remain unclaimed:
+  - **`Show-ImageList` / `Show-ImageSelection` factoring** —
+    deferred across multiple entries because the menu render is
+    load-bearing UX.
+  - **`scripts/prepare_wim.ps1` and `scripts/build_iso.ps1`
+    behavioral invariants in `tests/test_parse.ps1`** — Tests 10/12
+    currently only check syntax; Test 9 added behavioral
+    invariants for `build_boot_wim.ps1` in PR #52. Symmetric
+    coverage for the other two would close the test parity gap.
+  - **`.VERSION` block v4.7.0 entry mentions "placeholder PIN
+    rejected at runtime"** (line 94 of the deploy script). Could
+    arguably be rephrased as past-tense / removed-since context, but
+    a strict reading is that v4.7.0 *did* add that gate (the removal
+    came in v4.7.1+ work via PR #49). Left as-is on the theory that
+    `.VERSION` is append-only history and the CHANGELOG tracks the
+    later removal.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

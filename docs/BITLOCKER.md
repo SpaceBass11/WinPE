@@ -51,7 +51,7 @@ either alone:
 |---------|--------|----------------------|
 | `-DataDiskNumber` set | Type `WIPE DATA` | Yes |
 | `-DataDiskNumber` is the system disk | (refused outright) | No |
-| `-EnableBitLocker` with placeholder PIN | (refused outright) | No |
+| `-EnableBitLocker -BitLockerPin` length outside 6-20 chars | (refused outright) | No |
 | `-Silent -DataDiskNumber N` without `-Force` | (refused; `WIPE DATA` cannot prompt) | n/a |
 
 The existing `ERASE` / `DESTROY SYSTEM` / `WIPE ALL` chain for the
