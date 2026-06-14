@@ -94,6 +94,67 @@ the deploy aborts early if the path is wrong.
 ### -ListOnly [switch]
 Discovers and displays all available images non-interactively, then exits without deploying.
 
+### -DataDiskNumber [int]
+Disk number of an additional internal drive to wipe and format as an NTFS
+data volume (D:) in the same diskpart session as the target disk. Default
+`-1` (off). When set, the disk must exist, must not be the target disk,
+must not be USB, and must not be the running system disk. Requires a
+typed `WIPE DATA` confirmation unless `-Force` is set. Silent mode without
+`-Force` is rejected (the prompt cannot run unattended).
+
+```powershell
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" -TargetDisk 0 -DataDiskNumber 1
+```
+
+Pairs with `-EnableBitLocker` for a TPM+PIN encrypted C: plus an
+auto-unlocked recovery-key D:. See [BITLOCKER.md](BITLOCKER.md).
+
+### -EnableBitLocker [switch]
+Stages `C:\Windows\Setup\Scripts\bitlocker-setup.ps1` plus a
+`SetupComplete.cmd` shim so that BitLocker is enabled on first boot:
+TPM + Enhanced PIN on C:, and (when `-DataDiskNumber` is also set) a
+recovery-key protector + `Enable-BitLockerAutoUnlock` on D:. Requires
+`-BitLockerPin`. Recovery keys escrow to the IMAGES partition by default
+(see `-BitLockerKeyPath` for overrides).
+
+```powershell
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" -TargetDisk 0 `
+    -EnableBitLocker -BitLockerPin "0451pin"
+```
+
+### -BitLockerPin [string]
+Startup PIN for the TPM+PIN protector on C:. Required when
+`-EnableBitLocker` is set. Enhanced PIN policy is enabled, so 6-20
+characters of digits, letters, and symbols are accepted. PIN content
+policy (forbidden lists, character-class requirements) is the admin's
+call — the script enforces only the Windows length window so a malformed
+PIN fails at deploy time instead of first boot.
+
+In non-silent mode, omitting `-BitLockerPin` while `-EnableBitLocker` is
+set prompts at the WinPE console via `Read-Host`. Silent mode requires
+the parameter — there is no prompt fallback to avoid deadlocking
+unattended deploys.
+
+### -BitLockerKeyPath [string]
+Override the default IMAGES-partition escrow path for BitLocker recovery
+keys. Use a UNC share (e.g. `\\fileserver\BitLockerKeys`) or a fixed-disk
+path on the deployed machine for centralized escrow. When unset:
+
+1. If `$env:DEPLOY_IMAGE_DRIVE` is populated by `startnet.cmd`, the
+   staged first-boot script looks up the IMAGES partition by volume
+   label (`Get-Volume -FileSystemLabel 'IMAGES'`) at first boot — this
+   survives Windows assigning the USB a different letter than WinPE did,
+   but the USB must remain plugged in through the first reboot.
+2. Otherwise falls back to `C:\Windows\Setup\BitLockerKeys` on the
+   encrypted volume itself, with a warning logged at deploy time so the
+   operator knows to copy the keys off before the first lock.
+
+```powershell
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" -TargetDisk 0 `
+    -EnableBitLocker -BitLockerPin "0451pin" `
+    -BitLockerKeyPath "\\fileserver\BitLockerKeys"
+```
+
 ## Functions
 
 ### Core Functions
@@ -130,6 +191,7 @@ Discovers and displays all available images non-interactively, then exits withou
 | `Show-DiskMenu` | Color-coded disk selection display |
 | `Select-TargetDisk` | Interactive disk picker with safety confirmations |
 | `Select-AdditionalWipeDisks` | Optional menu for extra disks to clean (streamlined single `WIPE ALL` confirmation) |
+| `Test-FinalWipeConfirmation` | Parses the `ERASE` / `DESTROY SYSTEM` typed-confirmation string (silent / `-Force` bypass logic lives here) |
 
 ### BIOS Configuration
 
@@ -148,10 +210,17 @@ Discovers and displays all available images non-interactively, then exits withou
 
 | Function | Purpose |
 |----------|---------|
-| `New-DiskpartScript` | Generates GPT partition script, frees C:/S: drive letters |
-| `Invoke-Diskpart` | Executes diskpart with generated script |
-| `Apply-WindowsImage` | Runs DISM /apply-image |
-| `Set-BootConfiguration` | Runs bcdboot.exe for UEFI |
+| `New-DiskpartScript` | Generates GPT partition script, frees C:/S:/D: drive letters, refuses to release the WIM source drive |
+| `Invoke-Diskpart` | Executes diskpart with generated script; surfaces GPT / read-only failure hints |
+| `Apply-WindowsImage` | Runs `dism /apply-image /CheckIntegrity`; per-exit-code recovery guidance for DISM failures |
+| `Set-BootConfiguration` | Runs `bcdboot.exe /s S: /f UEFI`; surfaces missing-bootmgfw and S:-not-mounted diagnostics on failure |
+
+### BitLocker / Data-Disk Staging
+
+| Function | Purpose |
+|----------|---------|
+| `Resolve-BitLockerKeyPath` | Picks the recovery-key escrow path (precedence: `-BitLockerKeyPath` override → IMAGES partition by label → `C:\Windows\Setup\BitLockerKeys` fallback) |
+| `Initialize-BitLockerSetup` | Writes `bitlocker-setup.ps1` + `SetupComplete.cmd` under `C:\Windows\Setup\Scripts\` so first boot does TPM+PIN on C: (and recovery key + auto-unlock on D: when staged) |
 
 ### Main Orchestrator
 
@@ -165,13 +234,20 @@ Located at the top of the script in `$Script:Config`:
 
 ```powershell
 $Script:Config = @{
-    MinimumMemoryGB    = 8          # Warn below this
-    ScriptVersion      = '4.6.0'   # Display version
+    MinimumMemoryGB    = 8                    # Warn below this
+    ScriptVersion      = '4.7.1'              # Display version
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths        = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions    = @('*.wim', '*.esd')
     CctkPath           = 'X:\cctk\cctk.exe'   # In-image CCTK location (set by builder)
     CctkConfigDir      = 'cctk'               # Subdirectory on IMAGES drive for configs
+    # BitLocker / data-disk are OFF by default. The runtime parameters
+    # -DataDiskNumber / -EnableBitLocker / -BitLockerPin / -BitLockerKeyPath
+    # overwrite these. See docs/BITLOCKER.md.
+    BitLockerPin       = $null                # Operator-supplied PIN (6-20 chars)
+    BitLockerKeyDir    = 'BitLockerKeys'      # Subdirectory on IMAGES drive for recovery keys
+    DataDiskNumber     = -1                   # -1 = no data disk staging
+    EnableBitLocker    = $false               # $false = no BitLocker staging
 }
 ```
 
@@ -207,24 +283,36 @@ Disk (GPT)
 ## Safety Chain
 
 ```
-Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
-           → -UnattendFile validation (fail fast if path doesn't exist)
+Admin check → Silent-mode foundational validation (rejects -Silent without -WimFile/-TargetDisk/-Force,
+              -EnableBitLocker without -BitLockerPin, PIN outside 6-20 chars,
+              -Silent -DataDiskNumber without -Force, malformed -WipeDisks)
+           → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
+           → -UnattendFile validation (path exists + XML well-formed; fail fast)
+           → BitLocker PIN TUI prompt (only if -EnableBitLocker w/o -BitLockerPin in non-silent mode)
            → Image selection → Edition selection
            → Memory check
            → CCTK pre-apply (if X:\cctk\cctk.exe present and config matched)
                               └── Non-zero exit → abort deploy
-           → Disk selection
+           → Target disk selection
                               ├── System disk? → Type "DESTROY SYSTEM"
                               ├── -TargetDisk without -Force → Type "ERASE"
                               └── Final confirm → Type "ERASE"
+           → -DataDiskNumber validation (if set: must exist, ≠ target, non-USB, non-system)
+                              └── Type "WIPE DATA"  (unless -Force)
            → Additional-wipe prompt (optional)
                               └── Selected disks → single "WIPE ALL" confirmation
+                              └── Reject overlap with -DataDiskNumber
+           → BitLocker key escrow path resolved (Resolve-BitLockerKeyPath: parameter → IMAGES label → C:\ fallback)
            → Disk size validation
-           → Diskpart (frees C:/S: first; clean-only preamble for extras)
-           → DISM (inline progress)
+           → Diskpart (frees C:/S:/D: first; refuses to release WIM source drive;
+                       clean-only preamble for extras; formats D: NTFS when -DataDiskNumber set)
+           → Post-diskpart verification (S: + C: + D:-when-staged available)
+           → DISM /apply-image /CheckIntegrity (inline progress; per-exit-code recovery guidance)
            → Post-deploy verification (C:\Windows, C:\Windows\System32)
            → Unattend staging (if -UnattendFile: copy to C:\Windows\Panther\unattend.xml)
-           → Boot config → Success
+           → BitLocker staging (if -EnableBitLocker: write bitlocker-setup.ps1 + SetupComplete.cmd
+                                to C:\Windows\Setup\Scripts\ for first-boot TPM+PIN)
+           → Boot config (bcdboot /s S: /f UEFI) → Success
 ```
 
 ## Log File

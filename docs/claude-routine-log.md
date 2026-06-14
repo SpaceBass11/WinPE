@@ -5,6 +5,87 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — Resync `docs/SCRIPT_REFERENCE.md` with v4.7.0/v4.7.1
+
+**Investigated:** open PR queue (30 PRs - none touch
+`docs/SCRIPT_REFERENCE.md`), prior routine-log entries, and the
+literal parameter / function / configuration coverage of the script
+reference doc against the live `unified_winpe_deploy.ps1` (v4.7.1).
+
+**Found:** `docs/SCRIPT_REFERENCE.md` predated the v4.7.0 BitLocker /
+data-disk feature and was never updated. Concretely:
+- All four v4.7.0 parameters were undocumented: `-DataDiskNumber`,
+  `-EnableBitLocker`, `-BitLockerPin`, `-BitLockerKeyPath`. The
+  script accepts them, the masterize CI gates protect their defaults,
+  the Pester suite covers their validation gates, but the operator
+  reference doc didn't mention them at all.
+- `## Configuration` sample still showed `ScriptVersion = '4.6.0'`
+  and omitted the four new `$Script:Config` keys (`BitLockerPin`,
+  `BitLockerKeyDir`, `DataDiskNumber`, `EnableBitLocker`). The
+  masterize CI version-consistency gate (#1) only checks
+  CLAUDE.md / CHANGELOG.md / README.md, so this drift was invisible
+  to CI.
+- Function tables were missing three load-bearing v4.7.0 functions:
+  `Test-FinalWipeConfirmation` (the `ERASE` / `DESTROY SYSTEM`
+  parser), `Resolve-BitLockerKeyPath` (recovery-key escrow path
+  precedence), and `Initialize-BitLockerSetup` (the staging
+  function that writes `bitlocker-setup.ps1` + `SetupComplete.cmd`).
+- `## Safety Chain` ASCII diagram skipped the v4.7.0 additions:
+  silent-mode foundational validation, BitLocker PIN TUI prompt,
+  `WIPE DATA` typed confirmation, key-escrow path resolution,
+  `D:` formatting in diskpart, BitLocker first-boot staging.
+
+**Changed:** `docs/SCRIPT_REFERENCE.md` only. Pure documentation —
+no script behavior or test changes.
+- Added four `###` parameter sections after `-ListOnly` (the new
+  v4.7.0 surface).
+- Added `Test-FinalWipeConfirmation` to the Disk Management table,
+  and a new `BitLocker / Data-Disk Staging` table for
+  `Resolve-BitLockerKeyPath` + `Initialize-BitLockerSetup`.
+- Refreshed `Image Deployment` function descriptions to mention
+  the v4.5+/v4.7+ behaviors that were already shipped (DISM
+  `/CheckIntegrity`, BCDBoot diagnostics, source-drive protection,
+  D: drive-letter freeing).
+- Updated the `## Configuration` sample to the live v4.7.1
+  `$Script:Config` block.
+- Extended the `## Safety Chain` diagram with every v4.7.0 gate.
+
+**Verification:**
+- Reinstalled `/opt/pwsh` (PowerShell 7.4.6) per the CLAUDE.md
+  one-shot recipe.
+- `./tests/test_parse.ps1`: 48 passed / 0 failed (was 48/0;
+  doc-only change cannot affect parser tests, run anyway as
+  a smoke).
+- `./tests/test_wim_parser.ps1`: 16/0.
+- `./tests/test_disk_enumeration.ps1`: 34/0.
+- Manually walked the new parameter sections against
+  `unified_winpe_deploy.ps1` lines 46-72 (`.PARAMETER` blocks) and
+  lines 132-148 (`$Script:Config`) - parameter names, defaults,
+  silent-mode handling, and escrow precedence all match the
+  current implementation.
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md — PSGallery is unreachable from this sandbox. No
+  Pester logic changed; the new doc text states the same
+  invariants that the Pester suite already asserts.
+- Markdown link check: only relative link added (`BITLOCKER.md`)
+  resolves to an existing file in the same directory; `include_fragments
+  = false` in `.lychee.toml` means the new H3 anchors don't need
+  to be validated by lychee.
+
+**Risks:** None. Pure documentation. No code, no tests, no CI workflow,
+no behavior change. The masterize CI doc-consistency gates (`grep -q "$ver"`
+across CLAUDE.md / CHANGELOG.md / README.md) don't include
+`docs/SCRIPT_REFERENCE.md`, so this change is invisible to CI; the
+benefit is reader-facing only.
+
+**Next recommended improvement:** the masterize CI version-consistency
+gate (Phase 1A #1) could be extended to grep `docs/SCRIPT_REFERENCE.md`
+for the current `$Script:Config.ScriptVersion` too — this exact drift
+(reference doc lagging the script by a minor version) would then surface
+on the first push instead of waiting for an audit pass.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
