@@ -1697,6 +1697,22 @@ function Start-Deployment {
         Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
     }
 
+    # Validate -BitLockerKeyPath format. A relative path silently resolves at
+    # first-boot time to whatever working directory SetupComplete.cmd inherits
+    # (typically C:\Windows\System32), landing recovery keys on the encrypted
+    # volume - exactly the silent failure mode the override is meant to avoid.
+    # docs/BITLOCKER.md already documents the contract ("UNC share or a
+    # fixed-disk path"); enforce it here so a typo fails before the wipe.
+    if ($BitLockerKeyPath) {
+        $isAbsoluteLocal = $BitLockerKeyPath -match '^[A-Za-z]:[\\/]'
+        $isUncPath       = $BitLockerKeyPath -match '^\\\\[^\\/]+[\\/][^\\/]+'
+        if (-not ($isAbsoluteLocal -or $isUncPath)) {
+            Write-Log "-BitLockerKeyPath must be an absolute local path (e.g. C:\BitLockerKeys) or a UNC share (e.g. \\fileserver\BitLockerKeys); got '$BitLockerKeyPath'" -Level Error
+            Write-Log "  Relative paths resolve at first-boot time to an unpredictable working directory and may silently land recovery keys on the encrypted volume." -Level Error
+            return $false
+        }
+    }
+
     # Silent mode is intended for unattended runs and must not trigger prompts
     if ($Silent -and -not $ListOnly) {
         if (-not $WimFile) {

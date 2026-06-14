@@ -5,6 +5,103 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — `-BitLockerKeyPath` format validation gate
+
+**Investigated:** Open routine PRs (#85-#104, 20 in flight). Most
+mechanical parameter-extension validations are already taken
+(`-OutputIso` .iso, `-OutputWim` .wim/.esd, `-SourceIso` .iso,
+`-MinImageSizeMB` negative). PR #88 adds a warning for
+`-BitLockerKeyPath` set without `-EnableBitLocker`. None of the open
+PRs cover the format of `-BitLockerKeyPath` itself.
+
+**Found:** `docs/BITLOCKER.md` documents `-BitLockerKeyPath` as
+accepting "a UNC share (e.g. `\\fileserver\BitLockerKeys`) or a
+fixed-disk path on the deployed machine," but `Start-Deployment`
+never enforces that contract. A relative value (or rooted-but-
+driveless value like `\BitLockerKeys`) flows straight through
+`Resolve-BitLockerKeyPath` -> the staged first-boot script ->
+`Add-BitLockerKeyProtector -RecoveryKeyPath <rel>`, which resolves
+the path at first-boot time against whatever working directory
+`SetupComplete.cmd` inherits (typically `C:\Windows\System32`). The
+recovery key lands on the encrypted volume — exactly the failure
+mode the parameter exists to prevent. The behaviour is silent: the
+operator gets a "deployment succeeded" log and only discovers the
+key is missing when they need it. The staged first-boot script also
+self-deletes after use, so the recovery-key file is the only forensic
+artifact, and it's locked inside an unrecoverable C:.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — added a format gate immediately after
+  the existing `-BitLockerPin / -BitLockerKeyPath` parameter
+  reconciliation block in `Start-Deployment`. Accepts:
+  `^[A-Za-z]:[\\/]` (absolute drive-letter local path) or
+  `^\\\\[^\\/]+[\\/][^\\/]+` (UNC share, at minimum `\\srv\share`).
+  Anything else logs an operator-facing error explaining the
+  silent-footgun reason and returns `$false` before the disk is
+  touched. Independent of `-EnableBitLocker` — a malformed path is
+  rejected even when the param would otherwise be ignored, so a
+  typo can't hide behind another mistake.
+- `tests/validation-gates.Tests.ps1` — four new `It` rows in the
+  `Start-Deployment validation gates` `Describe` block: two reject
+  cases (relative `BitLockerKeys`, rooted-only `\BitLockerKeys`)
+  and two accept cases (`\\fileserver\BitLockerKeys`,
+  `D:\BitLockerKeys`). Reject cases also assert
+  `Should -Invoke Invoke-Diskpart -Times 0` so a future regression
+  that pushes the gate below the destructive ops fails loud.
+  Mocks inherited from the existing `BeforeEach` scaffolding — no
+  new setup, same pattern as PR #88's two new rows.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the new gate, the rationale (silent-footgun mode), and the
+  test additions.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell 7.4.6 tarball into `/opt/pwsh/`).
+- `tests/test_parse.ps1` -> 48/0 (unchanged from baseline; the
+  function-list and version-consistency checks are unaffected by
+  the additive `if`/`return` block).
+- `tests/test_wim_parser.ps1` -> 16/0 (unchanged).
+- `tests/test_disk_enumeration.ps1` -> 34/0 (unchanged).
+- `PSParser::Tokenize` clean (0 errors) on both
+  `unified_winpe_deploy.ps1` and `tests/validation-gates.Tests.ps1`.
+- Regex sanity-fired against 11 test strings (relative,
+  rooted-only, `..\\foo`, `foo/bar`, three absolute drive-letter
+  variants, two UNC variants, `C:` no-slash, `C:foo` drive-relative).
+  All classify in the expected reject/accept buckets.
+- Pester (`tests/validation-gates.Tests.ps1`) runs in CI only —
+  PSGallery is blocked by the network policy (`Install-Module Pester`
+  -> "No match was found"), same constraint flagged in CLAUDE.md
+  and every prior routine entry. The four new rows reuse the
+  existing `BeforeEach` mock scaffolding, so the failure surface
+  is the same as the surrounding rows. CI's `pester` job on
+  `windows-latest` is the source of truth.
+
+**Risks / follow-ups:**
+- Minimal. The gate is a pre-flight validation that runs before any
+  destructive op (diskpart / DISM / bcdboot). The only behaviour
+  change is rejection of a previously-accepted malformed value;
+  every well-formed value (UNC or absolute drive-letter) still
+  passes through unchanged.
+- Edge: `\\?\C:\path` (long-path DOS-device prefix) does NOT match
+  either regex and would be rejected by the gate. That's intentional
+  — the operator would have to spell it out as `C:\path` instead.
+  No real-world recipe in `docs/BITLOCKER.md` or any open PR uses
+  the long-path form for BitLocker escrow.
+- Edge: `c:/Path` (forward slash on a drive-letter path) DOES match
+  `^[A-Za-z]:[\\/]` and is accepted — PowerShell normalises forward
+  slashes on Windows. Matches the existing tolerance in
+  `Search-DirectoryForImages`.
+- Outstanding routine-backlog candidates I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` ~30 lines of shared
+    listing code — deferred across many entries because the menu
+    rendering is load-bearing TUI UX.
+  - A fixture test for `Get-WimImageInfo`'s DISM-output handling
+    when `$LASTEXITCODE` is non-zero (parallel to PR #50's
+    disk-enumeration coverage) — covers the second branch in
+    `Get-WimImageInfo`.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -354,6 +354,71 @@ Describe "Start-Deployment validation gates" {
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
     }
 
+    It "Rejects a relative -BitLockerKeyPath before any destructive op" {
+        # Relative paths silently resolve at first-boot time to whatever CWD
+        # SetupComplete.cmd inherits (typically C:\Windows\System32), landing
+        # recovery keys on the encrypted volume. The format gate must fail
+        # fast before diskpart/DISM ever runs.
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $BitLockerKeyPath = 'BitLockerKeys'   # relative - silent footgun
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'absolute local path' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects a rooted-but-driveless -BitLockerKeyPath (e.g. '\BitLockerKeys')" {
+        # PowerShell's [IO.Path]::IsPathRooted treats '\foo' as rooted, but on
+        # Windows it resolves to '<current drive>:\foo' at runtime - same silent
+        # footgun as a fully relative path. The gate must reject it.
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $BitLockerKeyPath = '\BitLockerKeys'
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'absolute local path' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It "Accepts a UNC -BitLockerKeyPath" {
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $BitLockerKeyPath = '\\fileserver\BitLockerKeys'
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'absolute local path' }) | Should -BeNullOrEmpty
+    }
+
+    It "Accepts an absolute drive-letter -BitLockerKeyPath" {
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $BitLockerKeyPath = 'D:\BitLockerKeys'
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'absolute local path' }) | Should -BeNullOrEmpty
+    }
+
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
         $result = & $script:DeployModule {
             $WimFile        = 'I:\images\Win.wim'

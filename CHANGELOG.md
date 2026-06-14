@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-BitLockerKeyPath` now hard-fails before any destructive op when
+  it isn't an absolute local path or UNC share.** A relative value
+  (e.g. `BitLockerKeys`) silently resolved at first-boot time to
+  whatever working directory `SetupComplete.cmd` inherited (typically
+  `C:\Windows\System32`), landing recovery keys on the encrypted
+  volume — exactly the silent failure mode the override was meant to
+  avoid. `docs/BITLOCKER.md` already documented the contract ("UNC
+  share or a fixed-disk path"); the script now enforces it. Two new
+  `It` rows in `tests/validation-gates.Tests.ps1` cover the reject
+  cases (relative, rooted-but-driveless) and two cover the accept
+  cases (UNC, drive-letter). No change to the success path or to
+  deploys that already passed a well-formed value.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
