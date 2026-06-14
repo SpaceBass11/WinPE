@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — README parameter table: drop stale "placeholder PIN" claim
+
+**Investigated:** 30 open PRs (#67-#96) by title and (where overlap was
+plausible) by diff. PR #72 already fixes the same stale text in
+`docs/BITLOCKER.md` confirmation-chain table; PR #94 resyncs
+`docs/SCRIPT_REFERENCE.md` with v4.7.0/v4.7.1 surface. Neither touches
+`README.md`. PR #87 corrects an unrelated v4.7.1 escrow-path doctring
+in the script header. PR #96 enforces the `.VERSION` block / script
+header version match, which is a different drift class.
+
+**Found:** `README.md` line 359 — the `-BitLockerPin` row in the
+`### BitLocker / data disk (opt-in)` parameter table — still claims
+"Placeholder PINs are rejected at runtime." PR #49 (`1fd1937`,
+merged 2026-05) removed the `ForbiddenBitLockerPins` list and its
+runtime rejection. The script's only PIN gates today are "not set"
+and "length outside 6-20." The README's own deeper `### BitLocker
+guardrails` section at line 397 already gets this right ("PIN content
+is the admin's call — the script enforces only Windows' 6-20
+character window"), so the parameter table at line 359 was
+internally inconsistent with line 397, plus contradicted the actual
+script behavior. The `.PARAMETER BitLockerPin` block in
+`unified_winpe_deploy.ps1` (lines 60-67) and the CHANGELOG entry
+"Removed: ForbiddenBitLockerPins list and PIN content policy" both
+match the new (line 397) framing. Other stale spots: the
+v4.7.0 `.VERSION` entry in the script header (line 94) — that
+is historical changelog text describing what v4.7.0 actually did,
+so it is correct in context and should stay. PR #72 covers
+`docs/BITLOCKER.md`; no other doc had the stale claim.
+
+**Changed:** `README.md` only. The single Markdown cell on line 359 —
+replaced "Placeholder PINs are rejected at runtime." with the
+line-397-consistent phrasing ("PIN content is the admin's call —
+only the Windows length window is enforced"). No script behavior,
+no tests, no CI workflow, no version bump.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md recipe.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0 failed.
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0.
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md — PSGallery is unreachable from the container, and no
+  Pester logic changed.
+- Visual check of `README.md` lines 353-361: table shape preserved
+  (3 columns, alignment unchanged), edit confined to one cell.
+- Cross-checked against `unified_winpe_deploy.ps1` lines 1687-1695
+  (the only PIN gates) and `.PARAMETER BitLockerPin` (lines 60-67)
+  to confirm the new sentence describes the current behavior.
+
+**Risks / follow-ups:**
+- Minimal. Pure documentation, one Markdown cell. No anchor changes
+  (heading slugs unchanged), no new links for lychee to check, no
+  CI grep targets touched (masterize CI does not grep this string).
+- Outstanding routine-backlog candidates still in flight in open PRs:
+  - **PR #72** — fixes the same drift in `docs/BITLOCKER.md`.
+  - **PR #94** — `docs/SCRIPT_REFERENCE.md` v4.7.0/v4.7.1 resync.
+  - **PR #87** — `-EnableBitLocker` escrow-path docstring in script
+    header.
+  - **PR #92** — typed-confirmation chain in AGENTS.md + PR template.
+- Did not bundle a CI doc-consistency grep for this string. PR #94's
+  "next recommended improvement" already proposes extending the
+  masterize CI version-consistency check to cover
+  `docs/SCRIPT_REFERENCE.md`; the same pattern could fold this in,
+  but it would conflict if attempted before #94 lands.
+
+**Next recommended improvement:** once PR #72 (BITLOCKER.md table)
+and this README change both merge, the only remaining mention of the
+stale policy in the repo is the v4.7.0 `.VERSION` entry in the script
+header (line 94, "Hardcoded placeholder PIN rejected at runtime") —
+which is historically accurate for v4.7.0 and should stay. After that,
+no live doc references the removed policy. A future pass could
+collapse the README parameter row's PIN policy clause further (it
+duplicates info from line 397's "BitLocker guardrails" section), but
+that is a stylistic call deferred for the same reason
+`Show-ImageList`/`Show-ImageSelection` was deferred — the parameter
+table is load-bearing user-facing copy.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
