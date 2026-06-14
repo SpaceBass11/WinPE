@@ -9,6 +9,13 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/CCTK.md` "Changing Existing Passwords" example fixed.**
+  The fourth line of the example was a copy-paste duplicate
+  (`--valsetuppwd=OldSetup123!` instead of `--valsyspwd=OldSystem123!`),
+  which would have left an operator authenticating with the setup
+  password when changing the system password. Corrected to use
+  `--valsyspwd` for the system-password change and added a one-line
+  note explaining the `--Xpwd` / `--valXpwd` pairing rule. Doc-only.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

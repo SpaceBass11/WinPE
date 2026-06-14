@@ -112,8 +112,12 @@ the current one to authenticate:
 --setuppwd=NewSetup123!
 --valsetuppwd=OldSetup123!
 --syspwd=NewSystem123!
---valsetuppwd=OldSetup123!
+--valsyspwd=OldSystem123!
 ```
+
+Each `--Xpwd=<new>` change needs the matching `--valXpwd=<current>`
+to authenticate: `--valsetuppwd` for a setup-password change,
+`--valsyspwd` for a system-password change.
 
 For **clearing** a password:
 

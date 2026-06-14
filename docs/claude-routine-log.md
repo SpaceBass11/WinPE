@@ -5,6 +5,77 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-14 — `docs/CCTK.md` "Changing Existing Passwords" example typo
+
+**Investigated:** the 30 open routine PRs (#73-#102) for already-claimed
+work, and the prior-run recommendations in PR #86's diff (whose log
+entry explicitly flagged a duplicated `--valsetuppwd` line in
+`docs/CCTK.md` §"Changing Existing Passwords"). Confirmed the bug is
+still live on `main` and not addressed by any open PR.
+
+**Found:** `docs/CCTK.md:115` ends a four-line "change existing
+passwords" example with a duplicate of line 113 (`--valsetuppwd=OldSetup123!`).
+The intent is clearly `--valsyspwd=OldSystem123!` — Dell CCTK pairs
+each `--Xpwd=<new>` password change with a matching
+`--valXpwd=<current>` authenticator (`--valsyspwd` for the system
+password, `--valsetuppwd` for the setup password). An operator
+copy-pasting the snippet would silently authenticate with the setup
+password when changing the system password and hit CCTK exit 149
+("Password mismatch") at deploy time, or — worse — accidentally
+succeed if both passwords happen to match. The bug has been present
+since the v4.5.0 CCTK doc commit (cffad18).
+
+**Changed:**
+- `docs/CCTK.md` — line 115 now reads `--valsyspwd=OldSystem123!`.
+  Added a one-paragraph follow-up explaining the `--Xpwd` /
+  `--valXpwd` pairing rule so a future reader doesn't re-introduce
+  the same shape of bug.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the
+  top describing the docs fix. No version bump (docs-only).
+
+**Verification:**
+- `pwsh` 7.4.6 installed per the CLAUDE.md bootstrap recipe.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → all green
+  (baseline + post-edit; the change is doc-only and cannot affect
+  any PowerShell script's parse).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → all green
+  (sanity, unchanged).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → all
+  green (sanity, unchanged).
+- Pester deferred to CI per the CLAUDE.md PSGallery note. Not
+  exercised by this change.
+- Visual review: confirmed the four-line example now has matched
+  setuppwd/valsetuppwd and syspwd/valsyspwd pairs.
+
+**Risks / follow-ups:**
+- Minimal. Docs-only change in a single example block. No code,
+  test, or CI config touched. No version bump.
+- No file overlap with any of the 30 open PRs (#73-#102 spot-checked
+  for `CCTK.md` mentions — only PR #82 touches anything CCTK-related,
+  and that's `.gitignore` DCH DLLs, not the doc).
+- Outstanding routine backlog candidates this pass did NOT take:
+  - **`docs/DEPLOY_ARGS.md` does not document the `{DRIVE}`
+    placeholder substitution** that `startnet.cmd` performs (added
+    in v4.7.0 by build_iso.ps1's silent-mode args). The example file
+    `configs/deploy.args.example` shows `{DRIVE}\images\...` but
+    `DEPLOY_ARGS.md` itself says "No environment-variable expansion"
+    without naming the substitution. PR #101 guards the substitution
+    at the CI level but doesn't document it for operators. Good
+    candidate for the next routine run.
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of identical listing-render code in the deploy script.
+    Cleanup-only, repeatedly deferred — the menu render is
+    load-bearing TUI UX and the duplication is harmless.
+
+**Next recommended improvement:** add a "Drive-letter substitution"
+subsection to `docs/DEPLOY_ARGS.md` documenting the `{DRIVE}` =>
+`%DEPLOY_IMAGE_DRIVE%` replacement that startnet.cmd performs at
+boot time. The doc currently understates startnet's behavior and
+operators writing their own deploy.args files don't know they can
+use the placeholder.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
