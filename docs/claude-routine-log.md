@@ -5,6 +5,90 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `-Force` docs catch up to `WIPE DATA` skip behavior
+
+**Investigated:** open PRs (#91-#120, 30 open at run time — many small
+"safety reject X" gates already in flight for `build_iso.ps1`,
+`prepare_wim.ps1`, `refresh_usb.ps1`, plus several Pester additions
+covering `Test-FinalWipeConfirmation`, `Resolve-BitLockerKeyPath`,
+`-UnattendFile` XML, `Invoke-CctkConfig`). To avoid duplicating that
+work, I read the `-Force` runtime behavior end-to-end against every
+typed-confirmation phrase the script enforces.
+
+**Found:** the `.PARAMETER Force` docstring at
+`unified_winpe_deploy.ps1:29-33` and the `-Force` row at
+`docs/SCRIPT_REFERENCE.md:41-45` both listed only `ERASE` and
+`WIPE ALL` as the typed confirmations `-Force` bypasses. The runtime
+behavior at `Start-Deployment:1811-1819` (the `-DataDiskNumber` block)
+also lets `-Force` skip the typed `WIPE DATA` prompt — and emits
+"-Force set: skipping 'WIPE DATA' confirmation for disk N" when it
+does. `README.md:393` (the typed-confirmation chain table) and
+`docs/BITLOCKER.md:50-55` (the trigger/prompt/`-Force?` table) both
+document this correctly, so the two stragglers were the only doc-drift
+sites. None of the open PRs touches the `.PARAMETER Force` block or
+the `SCRIPT_REFERENCE.md -Force` entry — PR #92 ("docs: resync
+typed-confirmation chain in AGENTS.md + PR template") is in the same
+family but a different scope.
+
+**Changed:**
+
+- `unified_winpe_deploy.ps1` — `.PARAMETER Force` block: added
+  "and the 'WIPE DATA' confirmation when -DataDiskNumber is set" to
+  the bypass list. Kept the "Does NOT bypass DESTROY SYSTEM" half
+  verbatim so the safety contract for the system-disk gate is
+  unchanged.
+- `docs/SCRIPT_REFERENCE.md` — `-Force [switch]` section: added
+  `WIPE DATA` and `-DataDiskNumber` to the parallel "Skips … when
+  combined with … respectively" sentence, mirroring the README's
+  typed-confirmation chain table.
+- `CHANGELOG.md` — new `## Unreleased / ### Fixed` bullet at top
+  describing the docs catch-up. No version bump (docs only, no
+  `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+
+- `pwsh` installed once per session per CLAUDE.md (PowerShell/Releases
+  v7.4.6 tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed (includes the version-consistency check, balanced-brace
+  count, region balance, and all required functions). Confirms the
+  edit to the `.PARAMETER Force` block — which sits inside the
+  top-level `<# .SYNOPSIS ... #>` comment — did not break the
+  PSParser tokenizer.
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0 (no
+  contamination of the parser tests).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  (no contamination of the disk-enumeration tests).
+- Pester suite (`tests/validation-gates.Tests.ps1`) only exercises
+  Start-Deployment validation gates and Resolve-BitLockerKeyPath
+  precedence — neither path reads the `.PARAMETER` block. CI runs
+  it end-to-end on push.
+
+**Risks:**
+
+- Minimal. Pure docs change. No production code path touched, no
+  parameter validation added or removed, no destructive logic
+  affected. The README's typed-confirmation chain table and
+  BITLOCKER.md's trigger table already documented this behavior —
+  the change merely brings two doc sites into alignment with the
+  other docs and with the actual code.
+
+**Next recommended improvement:**
+
+- AGENTS.md line 19-22 lists only four typed-confirmation phrases
+  (`ERASE`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`, `WIPE DATA`) — it
+  is missing `WIPE ALL`. PR #92 may be addressing this in the same
+  resync pass; if it lands, no follow-up needed. If not, a one-line
+  fix in a separate routine entry.
+- No fixture test currently exercises `Select-AdditionalWipeDisks`
+  silent-path parsing (the `$WipeDisks -split ','` branch at
+  `unified_winpe_deploy.ps1:1391` and the "requested extra wipe
+  disks N are not valid non-target disks" rejection at line 1395).
+  A small Pester or fixture test there would close out the last
+  destructive-path parser without coverage.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

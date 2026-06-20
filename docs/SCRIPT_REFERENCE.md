@@ -39,10 +39,11 @@ confirmation unless combined with `-Force`. Use `diskpart` > `list disk` to find
 ```
 
 ### -Force [switch]
-Skips the typed `ERASE` / `WIPE ALL` confirmations when combined with
-`-TargetDisk` / `-WipeDisks` respectively. Without this flag, those flags
-pre-select but still require typed confirmation. **Never bypasses
-`DESTROY SYSTEM`** — the system-disk gate always requires the typed string.
+Skips the typed `ERASE` / `WIPE ALL` / `WIPE DATA` confirmations when
+combined with `-TargetDisk` / `-WipeDisks` / `-DataDiskNumber` respectively.
+Without this flag, those flags pre-select but still require typed
+confirmation. **Never bypasses `DESTROY SYSTEM`** — the system-disk gate
+always requires the typed string.
 
 ### -WipeDisks [string]
 Comma-separated disk numbers to also wipe (clean-only, no repartitioning)

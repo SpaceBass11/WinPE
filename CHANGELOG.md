@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`-Force` parameter docs now mention the `WIPE DATA` confirmation
+  it also skips.** The `.PARAMETER Force` block in
+  `unified_winpe_deploy.ps1` and the matching `-Force` entry in
+  `docs/SCRIPT_REFERENCE.md` previously listed only `ERASE` and
+  `WIPE ALL` as the confirmations `-Force` bypasses. The runtime
+  behavior at `Start-Deployment` lines 1811-1819 also lets `-Force`
+  skip the typed `WIPE DATA` prompt when `-DataDiskNumber` is set,
+  matching the `README.md` typed-confirmation table and the
+  `docs/BITLOCKER.md` `-Force?` column. No behavior change — docs
+  catch up to the code (and to the other docs).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
