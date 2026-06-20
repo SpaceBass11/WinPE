@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`-WimFile` is now resolved to its absolute path before downstream use.**
+  `Find-ImageFiles` returned the parameter value as given, so a relative
+  `-WimFile` (e.g. invoked after `cd D:\images`) propagated unchanged
+  into `Start-Deployment`. The source-drive protection in
+  `New-DiskpartScript` relies on `Split-Path -Qualifier` to extract the
+  drive letter, which returns an empty string for a relative path and
+  silently no-ops the guard — diskpart could then unmount the WIM
+  source mid-deploy, leaving DISM with no file to apply. The function
+  now returns `$item.FullName` (always absolute) and uses `$item.Name`
+  for the display label. Pure defensive normalization; the absolute
+  path case is unchanged.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

@@ -300,9 +300,13 @@ function Find-ImageFiles {
         if ((Test-Path $WimFile -PathType Leaf) -and ([IO.Path]::GetExtension($WimFile).ToLowerInvariant() -in @('.wim', '.esd'))) {
             Write-Log "Using specified WIM file: $WimFile" -Level Success
             $item = Get-Item $WimFile
+            # Use $item.FullName (absolute) so downstream source-drive protection
+            # in New-DiskpartScript (Split-Path -Qualifier) actually resolves a
+            # drive letter; a relative -WimFile would otherwise no-op the guard
+            # and risk diskpart unmounting the WIM source mid-deploy.
             return @(@{
-                Path = $WimFile
-                Name = Split-Path -Leaf $WimFile
+                Path = $item.FullName
+                Name = $item.Name
                 Size = $item.Length
                 Type = 'Specified'
                 LastModified = $item.LastWriteTime

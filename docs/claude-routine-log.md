@@ -5,6 +5,105 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `-WimFile` resolves to absolute path in `Find-ImageFiles`
+
+**Investigated:** the 30 open Claude routine PRs (#94-#123) for overlap
+with the candidate change. Reviewed `Find-ImageFiles`
+(`unified_winpe_deploy.ps1` lines 295-317), the source-drive protection
+in `New-DiskpartScript` (lines 941-958), and the existing
+`Resolve-Path` use pattern across `scripts/build_iso.ps1`,
+`scripts/prepare_wim.ps1`, and `scripts/build_boot_wim.ps1` (every
+companion script normalizes input paths; the deploy script does not).
+
+**Found:** when `-WimFile` is passed as a relative path (e.g. operator
+`cd`'d into `D:\images` before running the script with
+`-WimFile foo.wim`), `Find-ImageFiles` returns the literal parameter
+value in the `Path` field. Downstream, `Start-Deployment` (line 1875)
+computes `Split-Path -Qualifier $selectedImage.Path` to feed
+`New-DiskpartScript -ProtectedSourceDrive`. `Split-Path -Qualifier` on
+a relative path returns the empty string; `New-DiskpartScript` then
+sees no protected drive and silently skips the guard that prevents
+`mountvol /d` against the WIM source. If the WIM source happens to be
+on `D:` and the operator also passed `-DataDiskNumber 1` (where disk 1
+is the WIM USB), diskpart unmounts `D:` and DISM later fails with
+exit 2 (file not found) — but only AFTER the target was partitioned,
+so the operator can recover but must re-deploy.
+
+Confirmed on Linux pwsh 7.4.6:
+- `Set-Location /tmp; (Resolve-Path 'foo.wim').Path` → `/tmp/foo.wim`
+- `Split-Path -Qualifier 'foo.wim'` → `''`
+- `Split-Path -Qualifier 'D:\images\foo.wim'` → `D:`
+
+`Get-Item $WimFile` is already called immediately after the validity
+check, so `$item.FullName` is an already-computed absolute path —
+no new IO needed, just substitute it into the returned hashtable.
+Companion scripts (`build_iso.ps1`, `prepare_wim.ps1`,
+`build_boot_wim.ps1`) already follow this same pattern (each calls
+`(Resolve-Path $x).Path` after the existence check), so this aligns
+the deploy script with established convention.
+
+Cross-checked all 30 open PRs (#94-#123): #105 rejects relative
+`-BitLockerKeyPath` (different parameter, different blast radius —
+it's a literal path baked into the staged first-boot script). No PR
+touches `Find-ImageFiles` or `-WimFile` path handling.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Find-ImageFiles`: returned hashtable
+  uses `$item.FullName` for `Path` and `$item.Name` for `Name`
+  instead of the raw `$WimFile` parameter. Added a four-line comment
+  explaining the source-drive-protection rationale so the next
+  reader doesn't "simplify" it back.
+- `CHANGELOG.md` — `### Fixed` bullet under `## Unreleased` at the
+  top of the file. No version bump (defensive normalization, not a
+  user-visible behavior change on the happy path).
+
+**Verification:**
+- `pwsh` v7.4.6 installed in-session per CLAUDE.md note (PowerShell/
+  Releases tarball into `/opt/pwsh/`; the network policy allows the
+  download).
+- Baseline before edit: `tests/test_parse.ps1` 48/0,
+  `test_wim_parser.ps1` 16/0, `test_disk_enumeration.ps1` 34/0.
+- Post-edit: same counts (48 / 16 / 34, all green). No new test
+  added — the change is a one-line value substitution inside an
+  existing branch and `test_parse` exercises the surrounding
+  function via `PSParser::Tokenize`.
+- Structural balance: 397 `{` / 397 `}` (unchanged), 10 `#region`
+  / 10 `#endregion` (unchanged), `PSParser::Tokenize` parse
+  errors = 0.
+- Behavior confirmed via the Linux pwsh probes shown above:
+  `Get-Item 'foo.wim'` on a relative path returns a `FileInfo`
+  whose `.FullName` is the absolute path; `.Name` returns
+  `foo.wim` (identical to `Split-Path -Leaf $WimFile`), so the
+  display label is unchanged.
+
+**Risks / follow-ups:**
+- Minimal. Pure defensive normalization. The absolute-path case
+  (overwhelmingly the common one — `deploy.args` and the
+  end-user Rufus flow both produce absolute paths) is byte-for-byte
+  unchanged. Only the relative-path case is affected, and the
+  effect is to make the source-drive guard work as designed.
+- The same defensive-`Resolve-Path` idea could be applied to
+  `-UnattendFile` (line 1937 `Copy-Item` runs the parameter value
+  literally after diskpart has potentially altered the working
+  directory's mount state). Skipping this pass because PR #110
+  is restructuring the post-DISM unattend staging block; better
+  to rebase on top of #110 than to conflict with it.
+- The `-ImagePath` parameter is only used to scope `Get-ChildItem`
+  recursion (line 333) and the resulting `$file.FullName` values
+  are already absolute, so propagating a relative `-ImagePath` is
+  harmless. Intentionally not touched.
+
+**Next recommended improvement:**
+1. After PR #110 lands, apply the same `Resolve-Path` normalization
+   to `-UnattendFile` so the post-DISM `Copy-Item -Path` call is
+   robust to working-directory changes.
+2. `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+   listing-render code that could be factored out — flagged
+   across multiple routine entries; deferred again because the
+   menu render is load-bearing TUI UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
