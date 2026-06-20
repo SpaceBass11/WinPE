@@ -172,6 +172,29 @@ confirmation. To proceed, re-run with one of:
 "@
 }
 
+# --- Silent-mode disk-number collision gate ---
+# The deploy script rejects -DataDiskNumber == -TargetDisk (same disk can't be
+# both Windows C: and data D:; see unified_winpe_deploy.ps1 line ~1796) and
+# rejects -DataDiskNumber appearing in -WipeDisks (the extra-wipe 'clean'
+# would race against the data-volume create; line ~1829). Both are caught at
+# deploy time today - but for silent ISOs the bad deploy.args has already
+# shipped on the USB by then. Catch the collisions at build time so the
+# operator fixes them locally instead of on the end user's hardware.
+if (-not $Interactive) {
+    if ($DataDiskNumber -ge 0 -and $DataDiskNumber -eq $TargetDisk) {
+        throw "-DataDiskNumber ($DataDiskNumber) cannot equal -TargetDisk ($TargetDisk). The same disk cannot be both the Windows target and the data volume - the deploy would abort on the end-user's machine."
+    }
+    if ($WipeDisks -and $WipeDisks -match '^\s*\d+(\s*,\s*\d+)*\s*$') {
+        $wipeNums = @($WipeDisks -split ',' | ForEach-Object { [int]($_.Trim()) })
+        if ($DataDiskNumber -ge 0 -and $wipeNums -contains $DataDiskNumber) {
+            throw "-DataDiskNumber ($DataDiskNumber) cannot also appear in -WipeDisks ($WipeDisks). The extra-wipe 'clean' would erase the data volume the deploy creates - the deploy would abort on the end-user's machine."
+        }
+        if ($wipeNums -contains $TargetDisk) {
+            throw "-TargetDisk ($TargetDisk) cannot also appear in -WipeDisks ($WipeDisks). The deploy script silently skips the target from the extra-wipe set in interactive mode but aborts in silent mode (which is what this ISO uses)."
+        }
+    }
+}
+
 # --- Input validation ---
 
 if (-not (Test-Path $WimFile -PathType Leaf)) {

@@ -5,6 +5,97 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `build_iso.ps1` silent-mode disk-number collision gate
+
+**Investigated:** the 30 open Claude routine PRs (#84-#113), the
+routine log's outstanding backlog, and the parameter-validation
+surface of `scripts/build_iso.ps1` looking for silent-failure paths
+not already in flight. Open PRs cover `-Interactive` silent-drop
+(#85, #113), `.iso` extension (#90), `-ConfirmSilentDestructiveIso`
+(#44, merged), and the deploy-script-side equivalents (#100, #105).
+None touch silent-mode disk-number collisions.
+
+**Found:** the deploy script rejects three disk-number collisions:
+`-DataDiskNumber == -TargetDisk` (line ~1796 — same disk can't be
+both Windows C: and data D:), `-DataDiskNumber` appearing in
+`-WipeDisks` (line ~1829 — extra-wipe `clean` would race against
+data-volume create), and `-TargetDisk` appearing in `-WipeDisks`
+(silent mode aborts via the `Select-AdditionalWipeDisks` "not valid
+non-target disks" path because the candidate set excludes the
+primary target). All three are caught at deploy time — but for
+silent ISOs (`build_iso.ps1` without `-Interactive`), the bad
+`deploy.args` has already shipped on the USB by then. The deploy
+script aborts cleanly on the end user's machine instead of doing
+the wrong thing, but the operator still has to redo the ISO build
+and re-ship. Catching the same three collisions at build time is
+purely additive (no destructive code path touched) and saves the
+ship-redo round trip.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a "Silent-mode disk-number
+  collision gate" block immediately after the existing
+  destructive-intent gate (and before any input validation). Gated
+  on `-not $Interactive` so interactive ISOs are unaffected (their
+  `deploy.args` only sets `-ImagePath` and the operator picks disk
+  numbers at the target). Three throws, each naming both offending
+  parameters in the message so the operator disambiguates in one
+  round-trip. Uses the same `^\s*\d+(\s*,\s*\d+)*\s*$` regex the
+  existing `-WipeDisks` validator uses — malformed `-WipeDisks`
+  strings skip the overlap parse and hit the existing validator
+  further down.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing
+  the gate.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md
+  tarball recipe.
+- Baseline: `tests/test_parse.ps1` 48/0,
+  `tests/test_wim_parser.ps1` 16/0,
+  `tests/test_disk_enumeration.ps1` 34/0. All unchanged
+  post-edit (the gate is added to `build_iso.ps1`, which the parse
+  test exercises as Test 12 — it still parses clean).
+- One-off smoke harness (not committed): runs the real
+  `build_iso.ps1` against 7 cases, asserts which throw fires
+  (or doesn't):
+    - `-TargetDisk 0 -DataDiskNumber 0` → "cannot equal -TargetDisk"
+    - `-TargetDisk 0 -DataDiskNumber 2 -WipeDisks '1,2'` →
+      "cannot also appear in -WipeDisks"
+    - `-TargetDisk 1 -WipeDisks '1,2'` → "-TargetDisk (1) cannot
+      also appear"
+    - Distinct values → falls through to "WimFile not found"
+    - Default `-DataDiskNumber` (-1) → falls through
+    - `-Interactive` + colliding numbers → gate skipped; falls
+      through (Interactive guard is correctly scoped to silent
+      mode only)
+    - Malformed `-WipeDisks '1,abc'` → regex mismatch skips
+      overlap parse; falls through to existing validator
+- The Pester suite (`tests/validation-gates.Tests.ps1`) is
+  CI-only — PSGallery is blocked in this container per
+  `CLAUDE.md`. The new gate lives in `scripts/`, which the Pester
+  suite doesn't load.
+
+**Risks / follow-ups:**
+- Minimal. Additive validation only; the three throws fire before
+  any filesystem write or `oscdimg` call. No silent-mode behavior
+  change for any deploy.args that wasn't already going to fail at
+  deploy time. Worst case: someone was relying on the deploy
+  script's deploy-time abort to surface the typo, and now sees it
+  one step earlier (which is the point).
+- Outstanding backlog candidates I did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share
+    ~30 lines of listing-render code — deferred across many
+    entries because the menu render is load-bearing TUI UX.
+  - **Pester block for this gate** under
+    `tests/validation-gates.Tests.ps1` (7 cases mirror the
+    isolated test above) — deferred so this stays a single-file
+    edit and so PSGallery's blocked CI status doesn't shape this
+    branch's diff.
+  - **CI masterize guard** for the three throw strings would
+    lock the gate in place. Small follow-up; not added here to
+    keep the diff scoped.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

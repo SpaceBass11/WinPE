@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/build_iso.ps1` now rejects silent-mode disk-number
+  collisions at build time.** The deploy script already rejects
+  `-DataDiskNumber == -TargetDisk`, `-DataDiskNumber` inside
+  `-WipeDisks`, and `-TargetDisk` inside `-WipeDisks` at deploy
+  time — but by then the bad `deploy.args` has shipped on the USB
+  to the end user. A new build-time gate (only for silent ISOs;
+  interactive mode is unaffected) catches all three collisions
+  before any staging happens and names which pair conflicts so the
+  operator fixes it locally instead of on the end user's hardware.
+  The malformed-`-WipeDisks` case is left to the existing regex
+  validator further down.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
