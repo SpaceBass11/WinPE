@@ -46,10 +46,16 @@ read the file from the IMAGES partition directly.
 
 ## Constraints
 
-- **Single line.** `set /p` reads only the first line of the file.
-  If you need more parameters than fit on one line, stop using
-  `deploy.args` and rebuild `boot.wim` with a customized
-  `startnet.cmd`.
+- **First line only.** `set /p` reads only the first line of the file.
+  Any subsequent lines — including `::` comment headers — are ignored,
+  so do NOT put a comment on line 1 of `deploy.args`: cmd.exe will
+  hand the comment text to PowerShell as a malformed argument list and
+  the deploy will abort on parameter binding before any disk work. The
+  shipped `configs/deploy.args.example` puts the working pattern on
+  line 1 and uses `::` comments below it for the alternative patterns;
+  preserve that layout if you edit. If you need more parameters than
+  fit on one line, stop using `deploy.args` and rebuild `boot.wim`
+  with a customized `startnet.cmd`.
 - **Quoting follows cmd.exe rules.** Wrap paths with spaces in
   double quotes. PowerShell re-parses the args on its end so the
   normal `-Param "value"` pattern works.

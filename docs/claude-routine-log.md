@@ -5,6 +5,91 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `configs/deploy.args.example` drop-in regression
+
+**Investigated:** open PRs (#79-#108, ~30 of them, all small safety /
+test / docs increments), the routine log's standing follow-ups, and
+the `startnet.cmd` → `deploy.args` plumbing. The standing follow-ups
+(DISM exit-code expansion, `Get-WimImageInfo` parser test,
+`Get-SystemDisks` fixture test) are all already shipped (PRs #25, #33,
+#50). Looked for an uncovered gap that wasn't in the open-PR queue.
+
+**Found:** the example file `configs/deploy.args.example` (introduced
+in PR #34, expanded in PR #35) has been silently broken since the
+PR #35 expansion. The first line is a `::` comment header:
+
+```text
+:: Two-partition USB (legacy workflow: FAT32 WinPE boot + NTFS IMAGES data partition)
+```
+
+`startnet.cmd` reads the file with `set /p DEPLOYARGS=<...deploy.args`,
+which captures **only the first line** regardless of content. So a user
+who follows the `docs/DEPLOY_ARGS.md` quickstart literally (`Copy
+configs/deploy.args.example to the IMAGES partition root as
+deploy.args`) gets `DEPLOYARGS=:: Two-partition USB (legacy workflow:...)`,
+which then gets handed to PowerShell as a malformed argument list.
+Deploy aborts on parameter binding before any disk work — non-
+destructive but confusing and undermines the documented "copy + edit"
+workflow. The bug was introduced when PR #35 added `::`-headed
+explanatory comments to what had been a single-line template.
+
+The same constraint isn't surfaced in `docs/DEPLOY_ARGS.md`'s
+Constraints section either — "Single line. `set /p` reads only the
+first line" is there, but doesn't warn against putting a comment on
+that first line.
+
+**Changed:**
+- `configs/deploy.args.example` — restructured so line 1 is the
+  working two-partition USB pattern (same as before PR #35; matches the
+  air-gapped operator USB pattern in `README.md`). The `::` header
+  banner and the two alternative patterns (single-ISO `{DRIVE}` and
+  interactive `-ImagePath`) moved below line 1 as `::` comments where
+  `set /p` will ignore them. The banner explicitly tells the operator
+  "startnet.cmd reads ONLY THE FIRST LINE" so a future edit can't
+  re-introduce the regression by accident.
+- `docs/DEPLOY_ARGS.md` — tightened the "First line only" constraint
+  bullet to explicitly warn against a `::` comment on line 1 and to
+  point at the example file's layout convention.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry at the top
+  describing the regression and the fix. No version bump (config /
+  docs only; no `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- `pwsh` already cached from prior routine entries on this container,
+  but no PS validation is needed here — `configs/deploy.args.example`
+  isn't parsed by any of the test scripts (verified by `grep
+  'deploy.args.example' tests/`), and `tests/test_parse.ps1` exits
+  cleanly on existing pwsh state.
+- Manual `head -1 configs/deploy.args.example` returns the working
+  `-WimFile "I:\..." ... -Force -Silent` line — the exact text that
+  `set /p` will assign to DEPLOYARGS, matching the README's air-gapped
+  operator USB example verbatim.
+- Brace / quote balance of the working line preserved from the
+  pre-PR-35 single-line file (literal restore + new banner below).
+- No CI checks reference the example file (verified by `grep
+  'deploy.args.example' .github/workflows/ci.yml`), so no masterize
+  job changes needed.
+
+**Risks / follow-ups:**
+- Minimal. Config + docs only; no production code touched. No
+  parameter or behavior changes; the failure mode the fix targets
+  was non-destructive (aborted-on-bind, not silent-wipe), so this is
+  pure UX recovery.
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code that could be factored out
+    (cleanup-only, deferred across multiple routine entries because
+    the menu render is load-bearing TUI UX).
+  - Consider whether the per-USB args fallback should also tolerate
+    a leading `::` on `deploy.args` itself (defense-in-depth so a
+    user who edits the file but forgets to delete the example's
+    banner still gets a working deploy). Lower priority than the
+    example-file fix and would touch `build_boot_wim.ps1` +
+    masterize check #24.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

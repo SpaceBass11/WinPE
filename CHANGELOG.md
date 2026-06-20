@@ -8,6 +8,16 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/deploy.args.example` is now drop-in usable again.** Since
+  v4.6.0 (PR #35) the first line of the example file was a `::` comment
+  header, which `set /p` in `startnet.cmd` would read verbatim and pass
+  to PowerShell as a malformed argument list, aborting the deploy on
+  parameter binding before any disk work. Restored the working pattern
+  to line 1 and moved all `::` comments + alternative patterns below
+  it, where `set /p` won't see them. Also clarified the constraint in
+  `docs/DEPLOY_ARGS.md`. No code change.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

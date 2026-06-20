@@ -1,12 +1,26 @@
-:: Two-partition USB (legacy workflow: FAT32 WinPE boot + NTFS IMAGES data partition)
-:: Drive letter is fixed at whatever letter the IMAGES partition gets (I: below is an example).
 -WimFile "I:\images\Win11_Enterprise.wim" -TargetDisk 0 -UnattendFile "I:\configs\unattend.xml" -DataDiskNumber 1 -EnableBitLocker -BitLockerPin "ReplaceWithYourPin42" -Force -Silent
 
-:: Single-ISO workflow (build_iso.ps1 output — one file, Rufus to USB)
-:: {DRIVE} is substituted at boot time with the actual drive letter WinPE assigns the USB.
-:: build_iso.ps1 writes this file automatically; edit as needed before building.
--WimFile "{DRIVE}\images\Win11_Pro_Custom.wim" -TargetDisk 0 -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
-
-:: Interactive/TUI variant: pre-locates the WIM dir but prompts the operator
-:: for edition selection, target disk, and confirmations. Good for lab/testing USBs.
--ImagePath "{DRIVE}\images"
+:: ============================================================================
+:: IMPORTANT: startnet.cmd reads ONLY THE FIRST LINE of this file (via `set /p`).
+:: Everything below this banner is reference documentation — `::` lines are
+:: ignored. Edit line 1 above to match your USB.
+:: ============================================================================
+::
+:: Line 1 above is the **two-partition USB** pattern (FAT32 WinPE boot
+:: partition + NTFS IMAGES data partition). I: is an example - whatever drive
+:: letter the IMAGES partition gets is fine, just keep the paths consistent.
+::
+:: ----------------------------------------------------------------------------
+:: Alternative pattern A: single-ISO workflow (build_iso.ps1 output - one
+:: file, Rufus to USB). {DRIVE} is substituted at boot time with the actual
+:: drive letter WinPE assigns the USB. build_iso.ps1 writes this file
+:: automatically; edit before running the builder if needed.
+::
+::     -WimFile "{DRIVE}\images\Win11_Pro_Custom.wim" -TargetDisk 0 -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
+::
+:: ----------------------------------------------------------------------------
+:: Alternative pattern B: interactive / TUI variant - pre-locates the WIM dir
+:: but prompts the operator for edition selection, target disk, and
+:: confirmations. Good for lab / testing USBs.
+::
+::     -ImagePath "{DRIVE}\images"
