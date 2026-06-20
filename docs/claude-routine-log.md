@@ -5,6 +5,78 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — Wire `tests/test_disk_enumeration.ps1` into local-test docs
+
+**Investigated:** Open PRs (#82-#111 all in flight); the routine-log
+backlog of follow-ups; the actual test files shipped under `tests/`
+against what `CLAUDE.md` / `AGENTS.md` / `CONTRIBUTING.md` instruct
+contributors and agents to run locally.
+
+**Found:** `tests/test_disk_enumeration.ps1` (added in PR #50) is wired
+into the CI `syntax` job at `.github/workflows/ci.yml:34`, but the
+three docs that point operators and agents at "the local test suite"
+were never refreshed:
+
+- `CLAUDE.md:64` Key Files table lists only `tests/test_parse.ps1`,
+  not the two fixture tests or the Pester suite — a contributor
+  reading the table to find the test surface area is left guessing
+  the rest.
+- `CLAUDE.md:111` says "The repo has three test files" — actually
+  four; the listing table at lines 115-117 omits the disk-enumeration
+  test, and the runner snippet at line 122 only invokes two of the
+  three locally runnable tests.
+- `AGENTS.md:56-59` "Required validation before pushing" runner snippet
+  omits the same command.
+- `CONTRIBUTING.md:20-27` "Syntax parse" snippet omits both the WIM
+  parser test and the disk-enumeration test.
+
+Net effect: a contributor or agent who follows the docs runs only
+~2/3 of what CI runs locally, so a regression in `Get-SystemDisks`
+disk filter / partition rendering would only surface after pushing.
+Same documentation-drift pattern as 2026-05-24 (when `test_parse.ps1`
+coverage was extended but the doc tables drifted).
+
+**Changed:**
+- `CLAUDE.md` — Key Files table now lists `tests/test_wim_parser.ps1`,
+  `tests/test_disk_enumeration.ps1`, and `tests/validation-gates.Tests.ps1`
+  alongside `test_parse.ps1`. The Running Checks table grew a row for
+  the disk-enumeration test ("USB/removable/CD exclusion filter,
+  partition rendering, and the Linux/LVM-disk-as-empty mitigation"),
+  the prose "three test files" became "four test files", and the
+  runner snippet adds the third locally runnable command.
+- `AGENTS.md` — "Required validation before pushing" snippet adds the
+  `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` line.
+- `CONTRIBUTING.md` — "Syntax parse" snippet renamed to
+  "Syntax + fixture tests (mirrors CI's syntax job)" and now lists
+  all three pwsh-runnable tests.
+
+No production code touched.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md note.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0 passed (matches
+  the post-PR #46 baseline).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0 passed.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  passed — confirms the command the docs now instruct contributors to
+  run actually works against the current tree.
+- Visually re-read each edited block to confirm the inserted lines
+  match the surrounding indentation and code-fence syntax.
+
+**Risks / follow-ups:**
+- Pure docs-only change. No production code or test logic touched. No
+  new dependencies. No CI workflow changes — the actual CI job already
+  runs the test; only the local mirror was stale.
+- Outstanding routine-backlog candidates from prior entries that this
+  pass does not address:
+  - `Show-ImageList` / `Show-ImageSelection` shared listing-render
+    code factor — repeatedly deferred across routine runs because
+    the menu render is load-bearing TUI UX.
+  - DISM-apply exit-code coverage already widened in 2026-05-16; no
+    further candidate exit codes have surfaced from open issues.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -18,8 +18,10 @@ You need Windows (or a Windows VM) to run the script for real. For
 syntax and static analysis, any platform with PowerShell 7 works.
 
 ```powershell
-# Syntax parse
+# Syntax + fixture tests (mirrors CI's syntax job)
 pwsh -NoProfile -File ./tests/test_parse.ps1
+pwsh -NoProfile -File ./tests/test_wim_parser.ps1
+pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1
 
 # PSScriptAnalyzer (matches CI)
 Install-Module PSScriptAnalyzer -Scope CurrentUser -Force

@@ -56,6 +56,7 @@ Run these locally — they are also enforced in CI:
 ```bash
 pwsh -NoProfile -File ./tests/test_parse.ps1
 pwsh -NoProfile -File ./tests/test_wim_parser.ps1
+pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1
 ```
 
 The Pester suite (`tests/validation-gates.Tests.ps1`) runs in CI
