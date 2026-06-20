@@ -416,4 +416,46 @@ Describe "Start-Deployment validation gates" {
         $val = & $script:DeployModule { $Script:Config.BitLockerPin }
         $val | Should -Be 'goodpin42'
     }
+
+    It "Accepts -BitLockerPin at the 6-char floor (boundary-accept)" {
+        # Windows Enhanced PIN policy accepts 6 chars exactly. The reject side
+        # is covered by the 5-char floor test above; this guards the inclusive
+        # boundary so an off-by-one refactor (e.g. `-lt 6` flipped to `-le 6`)
+        # surfaces in CI instead of silently rejecting valid PINs.
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $true
+            $BitLockerPin    = 'abcdef'   # 6 chars exactly
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 1
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 1
+    }
+
+    It "Accepts -BitLockerPin at the 20-char ceiling (boundary-accept)" {
+        # Windows Enhanced PIN policy accepts 20 chars exactly. The reject side
+        # for the ceiling is the 21-char above-ceiling test; this guards the
+        # inclusive boundary so `-gt 20` flipped to `-ge 20` surfaces in CI
+        # instead of silently rejecting valid 20-char PINs.
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $true
+            $BitLockerPin    = 'a' * 20   # 20 chars exactly
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 1
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 1
+    }
 }

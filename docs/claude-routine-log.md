@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — Pester boundary-accept tests for BitLocker PIN length (6, 20)
+
+**Investigated:** 30 open Claude routine PRs (#93-#122) and the
+routine-log backlog. Most "small obvious" gaps are already in flight:
+PR #98 covers the 21-char ceiling reject, #105 covers relative
+`-BitLockerKeyPath`, #108 covers `Resolve-BitLockerKeyPath.LookupMode`,
+#100 covers `-MinImageSizeMB` negative range, #114 covers silent-mode
+disk-number collisions in `build_iso.ps1`. Walked the
+`Start-Deployment validation gates` describe block in
+`tests/validation-gates.Tests.ps1` against the production gate at
+`unified_winpe_deploy.ps1:1691-1695`.
+
+**Found:** the BitLocker PIN length gate (`Length -lt 6 -or Length
+-gt 20`) had reject tests at 5 chars (existing) and 21 chars (PR
+#98 in flight) — but no accept tests at the inclusive boundaries.
+A refactor that flipped `-lt 6` to `-le 6` (or `-gt 20` to `-ge
+20`) would silently reject valid 6-char / 20-char PINs while
+passing every existing test (which uses 5, 9, or 21 chars). 6 and
+20 are documented in the production error message ("BitLockerPin
+must be 6-20 characters") and are Windows Enhanced PIN policy hard
+boundaries — Microsoft accepts both ends inclusively.
+Boundary-accept coverage is the standard counterpart to PR #98's
+boundary-reject test. No open PR touches this gap.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — two new `It` blocks at the
+  end of the existing `Start-Deployment validation gates` describe
+  (after the wiring tests at line 406-418, before the closing
+  brace). Each asserts the gate passes for the boundary PIN
+  (`'abcdef'` for 6 chars, `'a' * 20` for 20 chars), no
+  "6-20 characters" log line appears, and the deploy reaches both
+  `Invoke-Diskpart` and `Apply-WindowsImage` via the existing mock
+  chain. Pattern matches the sibling tests verbatim.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the off-by-one regression class it guards against.
+  No version bump (test-only change, no `$Script:Config.ScriptVersion`
+  touch).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per CLAUDE.md (PSGallery
+  blocked by the container network policy, so the actual Pester
+  suite can't run locally — same constraint flagged in every
+  prior routine entry).
+- AST parse via
+  `[System.Management.Automation.Language.Parser]::ParseFile(...)`
+  → clean, 2120 tokens, 0 parse errors.
+- `It`-block count went from 18 → 20, matching the two added tests.
+- Production-gate sanity: replayed the exact gate predicate
+  (`$pin.Length -lt 6 -or $pin.Length -gt 20`) against the four
+  values used across the suite — 5 rejects (existing test),
+  6 passes (new test), 20 passes (new test), 21 rejects (PR #98)
+  — confirms the new assertions are asserting actual behavior,
+  not a phantom.
+- Baselines green: `tests/test_parse.ps1` 48/0,
+  `tests/test_wim_parser.ps1` 16/0,
+  `tests/test_disk_enumeration.ps1` 34/0 — unchanged pre- and
+  post-edit (the edited file isn't in any of those three test
+  lists, but the sanity check confirms no cross-file drift).
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition; no production code touched; no new
+  network or module dependencies; pattern identical to the 18
+  existing `It` blocks in the same describe. Placement at the end
+  of the block, after PR #98's insertion point at line ~355, so
+  no merge conflict with #98 when both land.
+- The new tests rely on the existing `BeforeEach` mock chain
+  (`Initialize-BitLockerSetup -MockWith { $true }` is already
+  there); no new mock surface added.
+- Outstanding routine-backlog candidates not taken this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** ~30-line render
+    de-dup — load-bearing TUI, deferred across many entries
+    including PR #56's attempt.
+  - Defense-in-depth `::` comment-line skip in
+    `build_boot_wim.ps1`'s embedded `startnet.cmd` — flagged in
+    PR #109's follow-up list; touches boot-critical batch code,
+    lower priority than #109's example-file fix.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

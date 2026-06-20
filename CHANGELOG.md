@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Pester suite now covers BitLocker PIN length boundary-accept (6
+  and 20 chars).** The existing `Start-Deployment` validation tests
+  cover the reject side at 5 chars (below the floor); the open
+  ceiling-reject test covers 21 chars. Neither asserts that PINs at
+  the inclusive boundaries (exactly 6, exactly 20) pass validation
+  — so an off-by-one refactor flipping `-lt 6` to `-le 6` or
+  `-gt 20` to `-ge 20` would silently reject valid PINs while
+  passing every existing test. Added two `It` blocks that assert
+  6-char and 20-char PINs each pass validation and let the deploy
+  proceed through `Invoke-Diskpart` + `Apply-WindowsImage` under
+  the existing mock chain.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
