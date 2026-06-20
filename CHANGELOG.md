@@ -8,6 +8,21 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Unattend.xml staging now fails loudly when the copy itself fails.**
+  Previously the post-DISM-apply `Copy-Item` to `C:\Windows\Panther\unattend.xml`
+  ran without `-ErrorAction Stop` and without verifying the destination
+  file existed afterward, so a permission / disk-space / read failure
+  surfaced only as a non-terminating error in the trace while the
+  "Unattend file staged" success line still printed. The operator
+  discovered the silent miss at OOBE on first boot, after the disk had
+  been wiped. `Start-Deployment` now wraps the `New-Item` + `Copy-Item`
+  in a `try`/`catch` (Stop), confirms the target file is present, logs
+  a clear failure message, and returns `$false` before BCDBoot — the
+  same fail-fast contract as the pre-flight XML well-formedness gate.
+  Pre-flight XML well-formedness validation (added 2026-05-17) is
+  unchanged.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

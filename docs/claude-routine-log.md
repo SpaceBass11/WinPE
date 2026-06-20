@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — Unattend.xml staging fails loud on copy failure
+
+**Investigated:** open + closed PRs (20 open at run time, none touching
+the post-DISM-apply unattend.xml staging path), the routine log's
+`-UnattendFile` entry (2026-05-17) which added pre-flight XML
+well-formedness validation, and `Start-Deployment`'s post-apply block
+(`unified_winpe_deploy.ps1` lines 1931-1939 pre-edit).
+
+**Found:** the post-apply unattend.xml staging block did not
+defend against `Copy-Item` itself failing. PowerShell's default
+`$ErrorActionPreference` is `Continue`, so a permission denial,
+write failure, or disk-space exhaustion on the C: target would
+emit a non-terminating error in the trace while the
+`Write-Log "Unattend file staged"` success line still printed
+immediately afterward. The deploy would then continue into
+BCDBoot and exit successfully, and the operator wouldn't
+discover the missing file until OOBE prompted them for an
+account on first boot — by which point the target disk was
+already partitioned and imaged. Mirrors the failure-mode the
+pre-flight XML validation was added to prevent (PR-era
+2026-05-17 routine entry), but for a different failure path
+(staging-time copy, not parse-time validation).
+
+**Changed:** `unified_winpe_deploy.ps1` — wrapped the
+`New-Item` + `Copy-Item` block in a `try`/`catch` with
+`-ErrorAction Stop`, added a post-copy `Test-Path -PathType Leaf`
+verification on the destination, and made the catch return `$false`
+before BCDBoot fires. Failure message names the destination path
+and explicitly tells the operator "Windows Setup would fall through
+to manual OOBE on first boot - aborting before BCDBoot."
+`CHANGELOG.md` gets a `### Fixed` bullet under Unreleased.
+
+**Verification:**
+- `pwsh` v7.4.6 installed per CLAUDE.md note (tarball into `/opt/pwsh/`).
+- Baseline before edit: `tests/test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0.
+- Post-edit: same counts (48 / 16 / 34). No new test added; existing
+  Pester suite universally mocks `Test-Path` to `$true` and doesn't
+  exercise the `$UnattendFile` branch, so the change is invisible to
+  the gates Pester does cover (no Pester regression risk).
+- Brace balance: 401/401 (was 399/399; +2/+2 from the new
+  `try`/`catch`).
+- Region balance: 10/10 (unchanged).
+- Simulated masterize CI check #14 (verify < unattend < bcdboot):
+  verify=1229, panther=1937, bcdboot=1959 — order preserved, the
+  `pantherDir.*Panther` and `verifyPaths` greps still match the same
+  lines.
+
+**Risks / follow-ups:**
+- Minimal. The change adds a fail-fast on a path that previously
+  silently swallowed errors; on the happy path (where `Copy-Item`
+  succeeds) behavior is identical. The new failure return happens
+  AFTER DISM apply but BEFORE BCDBoot, which means a partitioned
+  but unconfigured target — the same recoverable state as the
+  existing BCDBoot failure return, and the operator can re-run.
+- A Pester test that mocks `Copy-Item` to throw and asserts
+  `Start-Deployment` returns `$false` would close the regression
+  guard. Skipped this pass because the existing Pester `BeforeEach`
+  universally mocks `Test-Path` to `$true` and would need a
+  per-test override to exercise the new code path cleanly — not
+  hard, but adds Pester-specific scaffolding that's better landed
+  as a separate test-only PR.
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** ~30 lines of
+    listing-render code that could be factored out — deferred
+    across multiple routine entries because the menu render is
+    load-bearing TUI UX.
+
+**Next recommended improvement:** Pester regression guard for the
+new unattend-staging fail-fast described above. Test outline: in a
+fresh `It` block, set `$UnattendFile = 'I:\configs\unattend.xml'`,
+`Mock Copy-Item -MockWith { throw 'simulated denied' }`, and assert
+`Start-Deployment` returns `$false` and that
+`Set-BootConfiguration` was NOT invoked.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

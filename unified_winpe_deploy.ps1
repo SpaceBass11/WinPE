@@ -1928,14 +1928,28 @@ function Start-Deployment {
     }
     Write-Log "Deployment verification passed" -Level Success
 
-    # Drop unattend.xml so Windows Setup picks it up on first boot
+    # Drop unattend.xml so Windows Setup picks it up on first boot. XML
+    # well-formedness was already validated at pre-flight; the copy itself
+    # must fail loudly here because a silent miss only surfaces at OOBE
+    # (after the disk has been wiped) when the expected autologon / domain
+    # join doesn't happen.
     if ($UnattendFile) {
         $pantherDir = 'C:\Windows\Panther'
-        if (-not (Test-Path $pantherDir)) {
-            New-Item -ItemType Directory -Path $pantherDir -Force | Out-Null
+        $pantherTarget = Join-Path $pantherDir 'unattend.xml'
+        try {
+            if (-not (Test-Path $pantherDir)) {
+                New-Item -ItemType Directory -Path $pantherDir -Force -ErrorAction Stop | Out-Null
+            }
+            Copy-Item -Path $UnattendFile -Destination $pantherTarget -Force -ErrorAction Stop
+            if (-not (Test-Path $pantherTarget -PathType Leaf)) {
+                throw "destination file missing after Copy-Item"
+            }
+        } catch {
+            Write-Log "Failed to stage unattend file at ${pantherTarget}: $($_.Exception.Message)" -Level Error
+            Write-Log "Windows Setup would fall through to manual OOBE on first boot - aborting before BCDBoot." -Level Warning
+            return $false
         }
-        Copy-Item -Path $UnattendFile -Destination "$pantherDir\unattend.xml" -Force
-        Write-Log "Unattend file staged: $pantherDir\unattend.xml" -Level Success
+        Write-Log "Unattend file staged: $pantherTarget" -Level Success
     }
 
     # Stage BitLocker setup script (runs on first Windows boot via SetupComplete.cmd)
