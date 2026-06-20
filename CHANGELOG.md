@@ -9,6 +9,20 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`tests/test_parse.ps1` now guards `build_iso.ps1`'s safety gates.**
+  Extended Test 12 (previously syntax-only) with three behavioral
+  invariants: the `-ConfirmSilentDestructiveIso` parameter is declared,
+  the `-not $Interactive -and -not $ConfirmSilentDestructiveIso` throw
+  block fires the "silent disk-wiping ISO" message, and `-WipeDisks`
+  values pass through the `-notmatch` format regex before being
+  embedded in `deploy.args`. The pattern mirrors Test 9
+  (`build_boot_wim.ps1` DCH DLL checks added in PR #52). Locks the
+  load-bearing safety gates added by PR #44 and the original PR #35
+  in place so a future refactor surfaces them as a local-test
+  failure instead of waiting for hardware review. No production
+  code changed.
+
+### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

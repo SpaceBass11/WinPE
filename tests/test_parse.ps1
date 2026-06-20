@@ -146,9 +146,32 @@ Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 
-# Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
+# Test 12: build_iso.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
+$buildIsoOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($buildIsoOk) {
+    $bi = Get-Content $buildIsoPath -Raw
+
+    # -ConfirmSilentDestructiveIso gate must stay in place. Without
+    # -Interactive, the generated deploy.args contains -Force -Silent
+    # -TargetDisk N, so anyone who boots the resulting ISO wipes that
+    # physical disk with no operator prompt. The acknowledgement throw
+    # at the top of the script is the only thing that prevents a default-
+    # flag run from producing an unintended silent wiper.
+    Write-Result -Test "ISO builder: -ConfirmSilentDestructiveIso parameter declared" -Pass ($bi -match '\[switch\]\$ConfirmSilentDestructiveIso')
+    Write-Result -Test "ISO builder: silent destructive ISO gate present" -Pass (
+        ($bi -match '-not\s+\$Interactive\s+-and\s+-not\s+\$ConfirmSilentDestructiveIso') -and
+        ($bi -match 'silent disk-wiping ISO')
+    )
+
+    # -WipeDisks must be format-validated BEFORE the value is embedded
+    # in deploy.args - a typo'd value otherwise rides into the ISO and
+    # misfires on the end-user's hardware with no operator there to see.
+    Write-Result -Test "ISO builder: -WipeDisks format validated before embedding" -Pass (
+        ($bi -match 'WipeDisks\s+-notmatch') -and
+        ($bi -match 'comma-separated disk numbers')
+    )
+}
 
 # Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan

@@ -5,6 +5,103 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `build_iso.ps1` safety-gate behavioral invariants in `tests/test_parse.ps1`
+
+**Investigated:** the routine-log backlog (PR #94 already in flight
+for the SCRIPT_REFERENCE.md drift; PR #108 already covers the
+`Resolve-BitLockerKeyPath.LookupMode` field; PR #50 already added
+the `Get-SystemDisks` fixture test that prior entries flagged);
+the 30 open Claude PRs (#86–#115) for in-flight work I could
+duplicate; and the actual behavioral test coverage of
+`scripts/build_iso.ps1`.
+
+**Found:** Test 12 of `tests/test_parse.ps1` (added in PR #46)
+syntax-checks `build_iso.ps1` but does not exercise any of its
+load-bearing safety gates. Three are unlocked at the local-test
+level:
+1. The `-ConfirmSilentDestructiveIso` parameter declaration (added
+   in PR #44 in response to the v4.7.0 "silent destructive ISO by
+   default" risk). A `[switch]$ConfirmSilentDestructiveIso` removal
+   would let the gate degrade to a `-not $Interactive` false-branch
+   that just produces silent ISOs without acknowledgement.
+2. The actual gate condition (`-not $Interactive -and -not
+   $ConfirmSilentDestructiveIso`) plus its `silent disk-wiping ISO`
+   throw text. Either side could be silently relaxed by a refactor
+   (e.g. someone deciding the throw was "too aggressive") and the
+   syntax test would not notice.
+3. The `-WipeDisks` format regex (`-notmatch '^\s*\d+...'`) plus
+   the `comma-separated disk numbers` throw text. A typo'd
+   `-WipeDisks` value otherwise rides into deploy.args and misfires
+   on the end-user's hardware with no operator there to see.
+
+PR #52 had already established the behavioral-invariant pattern for
+the sibling builder (`build_boot_wim.ps1` DCH DLL checks at Test 9);
+`build_iso.ps1` should follow the same pattern but had been left at
+syntax-only because PR #46 added it as a thin coverage extension.
+
+Cross-checked open PR titles for `build_iso` overlap: PRs #90, #113,
+and #114 each add a *new* runtime check to `build_iso.ps1` (`.iso`
+extension on `-OutputIso`, `-Interactive` silent-drop guard,
+silent-mode disk-number collisions). None of them touches
+`tests/test_parse.ps1` or asserts the existing PR #44 gate. This
+follow-up is orthogonal: it locks the *already-merged* gates in
+place, and won't conflict with any of those PRs.
+
+**Changed:**
+- `tests/test_parse.ps1` — extended Test 12 from a single
+  `Test-ScriptSyntax` call to syntax + three behavioral
+  assertions, matching the Test 9 / `build_boot_wim.ps1` pattern.
+  Each assertion has an inline comment explaining the safety
+  invariant it guards.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet noting the
+  coverage extension. No version bump (test-only change).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md
+  PowerShell/Releases tarball recipe.
+- Baseline (pre-edit): `tests/test_parse.ps1` → 48 / 0,
+  `tests/test_wim_parser.ps1` → 16 / 0,
+  `tests/test_disk_enumeration.ps1` → 34 / 0.
+- Post-edit: `tests/test_parse.ps1` → 51 / 0 (the +3 are the three
+  new ISO-builder assertions; all PASS against the live script,
+  confirming the gates are still in place). Other two test scripts
+  unchanged at 16 / 0 and 34 / 0.
+- Drift-simulation: mutated the live `build_iso.ps1` content three
+  ways and confirmed each assertion would fail on the mutation it's
+  meant to catch:
+  - renamed the parameter `$ConfirmSilentDestructiveIso` →
+    `$Acknowledged`: assertion 1 fails.
+  - flipped `-not $ConfirmSilentDestructiveIso` to a `-not $false`
+    no-op: assertion 2 fails.
+  - deleted the `-WipeDisks` regex line: assertion 3 fails.
+  So the new tests will surface the regressions they're written for,
+  not just sit in the passing column.
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md — PSGallery network policy blocks `Install-Module
+  Pester` in the sandbox. No Pester logic changed.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change in the local-test harness. No
+  production code, no CI workflow change, no new dependencies.
+  Pattern matches Test 9 exactly (regex assertions on Get-Content
+  -Raw output). PSv5.1 compatible (only `-match` / `-and` / string
+  pipeline).
+- Outstanding backlog candidates I did not take this pass:
+  - **Wire `docs/SCRIPT_REFERENCE.md` into masterize check #1
+    (`grep -q "$ver"`).** Flagged as a follow-up in PR #94's body.
+    Can't be done until PR #94 itself merges — adding the gate
+    against the current main (which still shows `ScriptVersion =
+    '4.6.0'` in the reference doc) would break CI for everyone.
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code — deferred across many entries
+    because the menu render is load-bearing TUI UX.
+  - **Masterize check for the `-Interactive` silent-drop gate**
+    added by PR #113. Same coordination problem as the
+    SCRIPT_REFERENCE one: can't add the CI check until the
+    underlying runtime gate has merged.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
