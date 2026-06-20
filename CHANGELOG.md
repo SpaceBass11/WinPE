@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/SCRIPT_REFERENCE.md` now documents `build_iso.ps1`.** The
+  end-user-ISO packager added in v4.7.0 had no reference section —
+  only a one-example mention in `docs/END_USER_DEPLOY.md`. Added a
+  full `# build_iso.ps1` section with all 15 parameters
+  (mandatory/optional + types verified against the live parameter
+  binder), a build-time safety-gate summary that matches what's
+  actually in main today, sample silent and `-Interactive`
+  `deploy.args` output, the security note linking back to
+  `DEPLOY_ARGS.md`, and four worked examples mirroring the
+  `.EXAMPLE` blocks in the script. Updated the top-of-file scope
+  header to list `build_iso.ps1` and `refresh_usb.ps1` (the latter
+  was already documented in the body but missing from the header).
+  Documentation-only change; no script behavior touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

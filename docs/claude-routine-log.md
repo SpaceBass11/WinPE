@@ -5,6 +5,103 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `docs/SCRIPT_REFERENCE.md` add `build_iso.ps1` section
+
+**Investigated:** open PR queue (50 PRs in flight, with #94 actively
+touching `docs/SCRIPT_REFERENCE.md` to resync the
+`unified_winpe_deploy.ps1` portion with v4.7.0/v4.7.1). Scanned each
+script under `scripts/` against the top-of-file scope statement at
+`docs/SCRIPT_REFERENCE.md:4`, the existing `# build_boot_wim.ps1`,
+`# prepare_wim.ps1`, and `# refresh_usb.ps1` sections, and the
+`grep` of `build_iso` references inside the doc.
+
+**Found:** `scripts/build_iso.ps1` (361 lines, added in PR #35 as
+the single-ISO end-user packager) had no reference section.
+`docs/END_USER_DEPLOY.md` showed one example for IT staff; that
+was the entire user-facing docs for a script with 15 parameters,
+silent-destructive intent gating, and the only place the
+`{DRIVE}` placeholder convention is realized. The top header
+also listed only the three pre-v4.7.0 scripts even though
+`# refresh_usb.ps1` was already documented in the body.
+
+PR #94 only edits the `unified_winpe_deploy.ps1` portion of
+`SCRIPT_REFERENCE.md` (param sections after `-ListOnly`, function
+tables, `$Script:Config` sample, Safety Chain) — none of those
+regions overlap with appending a new section at end-of-file, so
+this can land without a merge conflict.
+
+Initially drafted a "Build-Time Safety Gates" list that pulled in
+guarantees from open PRs #67 / #70 / #73 / #80 / #90 / #113 / #114
+(disk-number collision rejection, PIN charset filter, etc.) — those
+behaviors are NOT in `main` today, so the list was rewritten to
+describe only what the `throw` statements in the current
+`scripts/build_iso.ps1` actually enforce. When those PRs merge,
+each entry can be appended in its own routine pass.
+
+**Changed:**
+- `docs/SCRIPT_REFERENCE.md` — top-of-file scope header at line 4
+  now lists `build_iso.ps1` and `refresh_usb.ps1`. Appended a new
+  `# build_iso.ps1` section after `# refresh_usb.ps1` (~190 lines)
+  covering all 15 parameters (mandatoriness + types verified
+  against the live PSv7 parameter binder via
+  `(Get-Command).Parameters`), a Build-Time Safety Gates list
+  matching current `main`, a What It Produces block showing the
+  silent vs. `-Interactive` `deploy.args` shapes, a Security Note
+  linking back to `DEPLOY_ARGS.md#security-caveat--same-as-cctk`,
+  and four worked examples mirroring the script's own `.EXAMPLE`
+  blocks.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the doc coverage extension.
+
+**Verification:**
+- Installed `/opt/pwsh` (PowerShell 7.4.6) per CLAUDE.md.
+- `./tests/test_parse.ps1`: 48/0 (unchanged).
+- `./tests/test_wim_parser.ps1`: 16/0 (unchanged).
+- `./tests/test_disk_enumeration.ps1`: 34/0 (unchanged).
+- Parameter-type / mandatoriness audit via
+  `(Get-Command './scripts/build_iso.ps1').Parameters[...]` —
+  all 15 entries match the doc rows (`Int32`, `String`,
+  `SwitchParameter`; `WimFile` + `OutputIso` mandatory, rest
+  optional).
+- Build-Time Safety Gates list cross-checked against
+  `grep -n 'throw' scripts/build_iso.ps1` so every claimed
+  rejection corresponds to an actual `throw` statement in main
+  (silent destructive gate, WimFile not found/extension,
+  MediaDir/boot.wim/etfsboot/efisys, UnattendFile, WipeDisks
+  regex, oscdimg locate, robocopy/oscdimg exit-code). Skipped
+  the PR-#94-region of the file entirely so the changes are
+  conflict-free with that PR.
+- All five `.md` link targets exist
+  (`END_USER_DEPLOY.md`, `DEPLOY_ARGS.md`, `UNATTEND.md`, plus the
+  existing `CCTK.md`, `BITLOCKER.md`); `.lychee.toml` has
+  `include_fragments = false` so the
+  `#security-caveat--same-as-cctk` anchor isn't checked by CI,
+  but the GitHub slug math (em-dash → `--` after space-stripping)
+  matches the live `## Security caveat — same as CCTK` heading
+  per the CLAUDE.md anchor rule.
+
+**Risks:** Minimal. Doc-only change. No script behavior, no tests,
+no CI workflow. `SCRIPT_REFERENCE.md` is not on the masterize
+version-consistency grep list (per PR #94's note), so no CI
+version-bump cascade. Worst case is a typo in a parameter
+description — caught by the next reader.
+
+**Next recommended improvement:** when PRs
+#67/#70/#73/#80/#90/#113/#114 land, each one's new
+build-time gate should be appended to the
+`## Build-Time Safety Gates` list (the list was deliberately
+conservative this pass to avoid documenting behavior that
+doesn't exist in `main` yet). Same one-line append per merge,
+no structural rewrite. Other unclaimed candidates: a fixture
+test for `scripts/refresh_usb.ps1` `-BootUsbDrive` format
+validation (currently only validated downstream inside
+`build_boot_wim.ps1` after `prepare_wim` has already run for
+~20 minutes), and the long-standing `Show-ImageList` /
+`Show-ImageSelection` duplication factor-out (deferred
+across multiple routine passes — load-bearing TUI UX).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -1,7 +1,8 @@
 # Script Reference
 
 Complete technical reference for `unified_winpe_deploy.ps1`,
-`scripts/build_boot_wim.ps1`, and `scripts/prepare_wim.ps1`.
+`scripts/build_boot_wim.ps1`, `scripts/prepare_wim.ps1`,
+`scripts/build_iso.ps1`, and `scripts/refresh_usb.ps1`.
 
 > **Drive-letter conventions used in examples:**
 > - `I:\` — IMAGES partition as seen from the admin workstation (matches
@@ -578,4 +579,196 @@ Fails early on:
 The pre-flight for `copype` runs before `prepare_wim.ps1` does, so
 you don't sit through a 20-minute image prep only to discover the
 boot rebuild can't proceed.
+
+---
+
+# build_iso.ps1
+
+Packages a WinPE media tree (from `build_boot_wim.ps1`) and a prepared
+Windows WIM (from `prepare_wim.ps1`) into one self-contained bootable ISO
+for end-user distribution. The end-user flashes the ISO to a USB with
+Rufus and boots the target — no IT knowledge required beyond that. See
+[END_USER_DEPLOY.md](END_USER_DEPLOY.md) for the user-facing instructions
+and [DEPLOY_ARGS.md](DEPLOY_ARGS.md) for the `{DRIVE}` substitution
+written into the embedded `deploy.args`.
+
+Requires `oscdimg.exe` from the Windows ADK Deployment Tools. Run on the
+admin workstation as Administrator.
+
+## Parameters
+
+### -WimFile [string] (Required)
+Path to the prepared `.wim`/`.esd` to embed (output of `prepare_wim.ps1`).
+Must have a `.wim` or `.esd` extension. For silent ISOs (the default),
+this should be a single-index WIM — the deploy script's `-Silent`
+validation aborts on multi-index images at runtime.
+
+### -OutputIso [string] (Required)
+Full path for the output ISO file. Parent directory is created if missing.
+Overwritten if it already exists.
+
+### -MediaDir [string]
+Path to the WinPE media directory built by `build_boot_wim.ps1`. Must
+contain `sources\boot.wim`, `boot\etfsboot.com`, and
+`efi\microsoft\boot\efisys.bin`. Default: `C:\WinPE_Build\media`.
+
+### -UnattendFile [string]
+Optional path to an `unattend.xml` answer file. When given, the file is
+staged at `configs\<basename>` inside the ISO and referenced in the
+embedded `deploy.args` as `{DRIVE}\configs\<basename>` so Windows Setup
+processes it on first boot. See [UNATTEND.md](UNATTEND.md) for the
+template format.
+
+### -TargetDisk [int]
+Disk number the embedded `deploy.args` pins for the silent deploy.
+Default `0`. Ignored when `-Interactive` is set (the operator picks
+the disk via the TUI at deploy time).
+
+### -BitLockerPin [string]
+When set, the embedded `deploy.args` adds `-EnableBitLocker -BitLockerPin
+"<pin>"` so first boot stages TPM+PIN BitLocker on `C:`. PIN content is
+the admin's call — the deploy script enforces only the Windows 6–20
+character window at runtime. The PIN ends up in plaintext on the
+ISO/USB — see the security note below.
+
+### -DataDiskNumber [int]
+Disk number of a secondary internal drive to wipe and format as `D:` on
+the target. Default `-1` (off). Pairs with `-BitLockerPin` for an
+encrypted `C:` + recovery-key / auto-unlock `D:`. Ignored when
+`-Interactive` is set.
+
+### -WipeDisks [string]
+Comma-separated disk numbers to also clean (no repartitioning) alongside
+the primary target on every deploy from this ISO. Validated against
+`^\s*\d+(\s*,\s*\d+)*\s*$` at build time. Ignored when `-Interactive` is
+set.
+
+### -Interactive [switch]
+When set, the embedded `deploy.args` only pre-locates the WIM directory
+via `-ImagePath`. The deploy script's TUI still prompts the operator for
+edition, target disk, and typed confirmations. Useful for lab/testing
+USBs. In this mode the silent-only parameters (`-TargetDisk`,
+`-DataDiskNumber`, `-WipeDisks`, `-BitLockerPin`) are not written into
+`deploy.args` — the operator answers from the TUI instead.
+
+### -ConfirmSilentDestructiveIso [switch]
+Required acknowledgement for the default (non-`-Interactive`) silent
+build. The generated `deploy.args` writes `-Force -Silent -TargetDisk N`,
+so anyone who boots the resulting ISO wipes whichever physical disk
+Windows enumerates as `N` on their hardware with **no operator
+confirmation**. Without this switch the builder throws before any file
+copy.
+
+### -AdkPath [string]
+Override ADK install root. Default:
+`C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit`.
+
+### -Architecture [amd64|x86|arm64]
+Architecture of the ADK tools used to resolve `oscdimg.exe`. Default:
+`amd64`. Must match the architecture of `boot.wim` in `-MediaDir`.
+
+### -VolumeLabel [string]
+ISO volume label. Must match what `startnet.cmd` scans for on boot
+(default `IMAGES`). Change only if you also rebuild `boot.wim` with a
+matching label. Default: `IMAGES`.
+
+### -WorkDir [string]
+Staging directory for ISO assembly. Created if missing.
+Default: `C:\WinPE_ISOBuild`.
+
+### -Clean [switch]
+Delete `WorkDir` before starting for a guaranteed-fresh build.
+
+## Build-Time Safety Gates
+
+The builder rejects the following configurations before any file copy,
+so a bad ISO doesn't ship:
+
+- Silent build (default, no `-Interactive`) without
+  `-ConfirmSilentDestructiveIso` — refuses to produce a fully silent
+  disk-wiping ISO unless the operator explicitly acknowledges the
+  destructive intent.
+- `-WimFile` not found or extension not `.wim`/`.esd`.
+- `-MediaDir` missing `sources\boot.wim`, `boot\etfsboot.com`, or
+  `efi\microsoft\boot\efisys.bin` (catches a wrong path / a media tree
+  that wasn't produced by `build_boot_wim.ps1`).
+- `-UnattendFile` set but the file doesn't exist.
+- `-WipeDisks` set but doesn't match `^\s*\d+(\s*,\s*\d+)*\s*$` (silent
+  path only — ignored when `-Interactive` is set).
+- `oscdimg.exe` not findable under `-AdkPath` (try `-AdkPath` override
+  or install the Windows ADK Deployment Tools).
+
+Failures at the `oscdimg` invocation itself (non-zero exit) and at the
+intermediate `robocopy` of the WinPE media also throw — staging output
+is left in `-WorkDir` for inspection.
+
+## What It Produces
+
+A single `.iso` file that boots into WinPE, locates the embedded
+`IMAGES` partition (the ISO acts as both boot media and data
+partition), reads `deploy.args` from the ISO root, substitutes the
+`{DRIVE}` placeholder with the actual drive letter Windows assigns
+the USB, and launches `unified_winpe_deploy.ps1` with those args.
+
+For the silent path, the embedded `deploy.args` looks like:
+
+```text
+-WimFile "{DRIVE}\images\Win11_Pro_Custom.wim" -TargetDisk 0 -Force -Silent
+```
+
+with `-UnattendFile`, `-WipeDisks`, `-DataDiskNumber`,
+`-EnableBitLocker`, and `-BitLockerPin` appended when the
+corresponding builder parameters are set.
+
+For the interactive path (`-Interactive`):
+
+```text
+-ImagePath "{DRIVE}\images"
+```
+
+so the TUI still scans the embedded `\images` directory and prompts
+the operator from there.
+
+## Security Note
+
+The PIN, the WIM, and any unattend.xml end up in plaintext on the
+ISO — and therefore on every USB flashed from it. Anyone with physical
+access to the USB can read those secrets. The USB is the trust
+boundary; use a unique PIN per ISO and treat the ISO file like a
+secret-bearing artifact. See
+[DEPLOY_ARGS.md](DEPLOY_ARGS.md#security-caveat--same-as-cctk) for the
+same trust model applied to the standalone `deploy.args` file.
+
+## Examples
+
+```powershell
+# Minimal silent build: WinPE + WIM -> single auto-wiping ISO
+.\scripts\build_iso.ps1 `
+    -WimFile   'I:\images\Win11_Pro_Custom.wim' `
+    -OutputIso 'D:\release\Win11_Deploy.iso' `
+    -ConfirmSilentDestructiveIso
+
+# With unattend.xml and BitLocker
+.\scripts\build_iso.ps1 `
+    -WimFile      'I:\images\Win11_Pro_Custom.wim' `
+    -OutputIso    'D:\release\Win11_Deploy.iso' `
+    -UnattendFile 'I:\configs\unattend.xml' `
+    -BitLockerPin 'Acme2025#7' `
+    -ConfirmSilentDestructiveIso
+
+# Interactive ISO: TUI prompts, WIM pre-located for the operator.
+# -ConfirmSilentDestructiveIso not required — the operator sees prompts.
+.\scripts\build_iso.ps1 `
+    -WimFile   'I:\images\Win11_Pro_Custom.wim' `
+    -OutputIso 'D:\release\Win11_Deploy_Interactive.iso' `
+    -Interactive
+
+# Non-default WinPE media dir and ADK path
+.\scripts\build_iso.ps1 `
+    -WimFile   'I:\images\Win11_Pro_Custom.wim' `
+    -OutputIso 'D:\release\Win11_Deploy.iso' `
+    -MediaDir  'E:\MyWinPEBuild\media' `
+    -AdkPath   'D:\ADK' `
+    -ConfirmSilentDestructiveIso
+```
 
