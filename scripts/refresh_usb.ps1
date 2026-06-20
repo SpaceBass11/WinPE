@@ -170,9 +170,18 @@ if ($RebuildBootWim -eq 'Ask') {
     $RebuildBootWim = if ($resp -match '^y') { 'Yes' } else { 'No' }
 }
 
-# Pre-flight the ADK env for the boot rebuild now, so we don't run
-# prepare_wim for 20 minutes and then fail.
+# Pre-flight the ADK env and the boot-USB drive letter for the boot
+# rebuild now, so we don't run prepare_wim for 20 minutes and then fail
+# on something the operator could have fixed in one second. Format +
+# accessibility checks mirror build_boot_wim.ps1's own validation of
+# -UsbDrive so we surface the identical error message one stage earlier.
 if ($RebuildBootWim -eq 'Yes') {
+    if ($BootUsbDrive -notmatch '^[A-Za-z]:$') {
+        throw "-BootUsbDrive must be a drive letter like 'P:' (got '$BootUsbDrive')"
+    }
+    if (-not (Test-Path "$BootUsbDrive\")) {
+        throw "Boot USB drive $BootUsbDrive is not accessible - partition and assign the letter per docs/USB_SETUP.md Step 4 first."
+    }
     if (-not (Get-Command copype -ErrorAction SilentlyContinue)) {
         throw "-RebuildBootWim requires the ADK 'Deployment and Imaging Tools Environment' (copype not on PATH). Open that as Admin and re-run, or pass -RebuildBootWim No."
     }

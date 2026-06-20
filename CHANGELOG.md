@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/refresh_usb.ps1` fails fast on a malformed `-BootUsbDrive`.**
+  Drive-letter format (`^[A-Za-z]:$`) and `Test-Path` accessibility
+  checks now run alongside the existing `copype`-on-PATH pre-flight,
+  before `prepare_wim.ps1` is invoked. Previously a typo like
+  `-BootUsbDrive P` (missing colon) or an unmounted letter only
+  surfaced inside `build_boot_wim.ps1` — after `prepare_wim.ps1` had
+  already burned ~20 minutes. The error strings mirror the downstream
+  `build_boot_wim.ps1 -UsbDrive` validation verbatim so operators see
+  the same guidance no matter which entry point they trip.
+
+### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

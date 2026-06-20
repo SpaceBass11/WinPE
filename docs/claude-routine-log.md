@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `refresh_usb.ps1 -BootUsbDrive` pre-flight format + accessibility check
+
+**Investigated:** all 10 open PRs (#108-#117) + the routine-log backlog.
+The `-BootUsbDrive` upfront validation candidate was explicitly flagged
+in PR #117's "Risks / follow-ups" as unclaimed: *"refresh_usb.ps1
+-BootUsbDrive format validation (currently only checked downstream in
+build_boot_wim.ps1 after prepare_wim has already burned ~20 minutes)."*
+No other open PR touches `scripts/refresh_usb.ps1`, so this is
+non-conflicting work.
+
+**Found:** `scripts/refresh_usb.ps1` (lines 175-179 pre-edit) only
+pre-flights `Get-Command copype` when `-RebuildBootWim Yes` resolves.
+A typo like `-BootUsbDrive P` (missing colon) or an unmounted letter
+like `-BootUsbDrive Z:` falls through, `prepare_wim.ps1` runs for
+~20 minutes, and only then does `build_boot_wim.ps1` line 136-141 throw
+on the format/accessibility violation. The downstream check already
+exists with two well-tuned error messages — moving the check upstream
+costs four lines and saves a 20-minute round-trip on every operator
+typo.
+
+**Changed:**
+- `scripts/refresh_usb.ps1` — extended the `if ($RebuildBootWim -eq 'Yes')`
+  pre-flight block from a single `copype` check to a three-step gate:
+  format regex, `Test-Path "$BootUsbDrive\"`, then the existing copype
+  check. The two new `throw` strings (`"must be a drive letter like 'P:' (got '...')"`
+  and `"is not accessible - partition and assign the letter per docs/USB_SETUP.md Step 4 first."`)
+  are byte-identical to the equivalent throws in
+  `scripts/build_boot_wim.ps1` lines 137 + 140 so operators see the
+  same guidance whether they trip the early or downstream gate. Block
+  comment expanded to explain why the check exists upstream.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at top.
+
+No production code path other than the new throws; no destructive
+operations touched; no parameter or behavior changes for valid inputs.
+
+**Verification:**
+- `pwsh` 7.4.6 installed in-session per the CLAUDE.md tarball recipe.
+- Baseline (pre-edit): `tests/test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0.
+- Post-edit: identical 48/0, 16/0, 34/0 — no test-suite drift.
+- Three-case drift-simulation smoke harness (not committed, dot-invoked
+  the real `refresh_usb.ps1` from Linux with `pwsh` 7.4.6):
+  - `-BootUsbDrive P` (no colon), `-RebuildBootWim Yes` → throws
+    `"must be a drive letter"`. **PASS**
+  - `-BootUsbDrive Z:` (unmounted), `-RebuildBootWim Yes` → throws
+    `"is not accessible"`. **PASS**
+  - `-BootUsbDrive P` (no colon), `-RebuildBootWim No` → drive
+    validation correctly skipped; later step fails on the Linux path
+    (no `C:` drive present) — confirms the gate is properly scoped to
+    `-RebuildBootWim Yes`. **PASS**
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per CLAUDE.md
+  (PSGallery is blocked in this container). The change is in
+  `scripts/`, which the Pester suite doesn't load.
+
+**Risks / follow-ups:**
+- Minimal. Two `throw` strings added to an existing pre-flight block.
+  Same shape as the long-standing downstream check; no new code path,
+  no new dependency, no new parameter, no destructive logic touched.
+  Worst case: a user previously relying on the misleading 20-minute
+  failure now gets the same error 20 minutes earlier.
+- Did **not** extend `tests/test_parse.ps1` Test 11 (`refresh_usb.ps1`)
+  to a behavioral-invariant pattern. PR #116 introduces that pattern
+  for `build_iso.ps1` (Test 12) but hasn't merged yet. Once #116 lands,
+  a future pass can mirror the same `-match` assertions on the two new
+  `BootUsbDrive` throw strings — single-line additions, matching the
+  Test 9 / `build_boot_wim.ps1` invariant style.
+
+**Outstanding routine-backlog candidates I did not take this pass:**
+- `Show-ImageList` / `Show-ImageSelection` ~30-line factor-out —
+  deferred across many entries because the menu render is load-bearing
+  TUI UX.
+- Pester regression guard for the unattend-staging fail-fast from
+  PR #110 (its routine-log entry flags this as the next recommended
+  improvement). Blocked until #110 merges.
+- Masterize CI check for the `-Interactive` silent-drop gate from
+  PR #113 — blocked on #113 merge.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
