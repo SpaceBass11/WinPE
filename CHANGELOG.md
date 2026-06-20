@@ -8,6 +8,17 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/build_iso.ps1 -UnattendFile` now rejects malformed XML at
+  build time.** The deploy script's pre-flight already runs
+  `[xml](Get-Content ...)` against the answer file, but `build_iso.ps1`
+  only checked that the path existed. A malformed unattend.xml would
+  be embedded in the ISO unnoticed, then flashed to USB, then only
+  surface when the deploy script aborted on the target laptop —
+  10-25 minutes of wasted operator round-trip. Matches the deploy
+  script's existing check shape (parse + throw with the same
+  `docs/UNATTEND.md §6` pointer). No destructive code paths touched.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

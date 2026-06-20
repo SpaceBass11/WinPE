@@ -5,6 +5,75 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `build_iso.ps1 -UnattendFile` XML well-formedness parity
+
+**Investigated:** open PRs (#100-#119, all routine-style entries) to
+avoid duplicating in-flight work. Cross-referenced the deploy script's
+`-UnattendFile` pre-flight check (`unified_winpe_deploy.ps1` lines
+1727-1747) against `scripts/build_iso.ps1`'s `-UnattendFile` handling
+(lines 198-203 pre-edit).
+
+**Found:** the deploy script parses the answer file via
+`[xml](Get-Content ...)` before any destructive op and aborts with a
+clear pointer at `docs/UNATTEND.md §6` if the file isn't well-formed.
+`build_iso.ps1` only ran `Test-Path -PathType Leaf` — a malformed
+unattend.xml would get embedded in the ISO, flashed to USB by the
+operator, and only surface when the deploy script aborted on the
+target laptop. That's 10-25 minutes of wasted operator round-trip
+(ISO build + Rufus flash + boot to target + read failure) for an
+error the build host could have caught in milliseconds.
+
+In-flight PRs touching this area:
+- PR #107 covers a Pester test for the *deploy script*'s existing
+  XML gate (different file).
+- PR #110 covers the *post-DISM staging copy* failure path in the
+  deploy script (different code path, different file).
+- PRs #113/#114/#116/#117 touch `build_iso.ps1` for unrelated
+  parameter-set / silent-destructive gates and reference docs.
+None of them close this specific gap.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a `try { [xml](Get-Content ...) }`
+  block inside the existing `if ($UnattendFile)` validation, mirroring
+  the deploy script's check shape. On parse failure, throws with the
+  parser's message and the same `docs/UNATTEND.md §6` pointer the
+  deploy script uses. Happy path unchanged.
+- `CHANGELOG.md` — `### Fixed` bullet under `## Unreleased` describing
+  the gap and the parity fix. No version bump (build-time validation
+  only, no `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- `pwsh` v7.4.6 installed once per CLAUDE.md's Linux-container note.
+- Baseline: `tests/test_parse.ps1` 48/0, `tests/test_wim_parser.ps1`
+  16/0, `tests/test_disk_enumeration.ps1` 34/0.
+- Post-edit: same counts (48/16/34). No regressions.
+- Full AST parse: `[Parser]::ParseFile()` against the edited
+  `build_iso.ps1` returns zero errors.
+- Repro of the check itself: built a `<unattend><unclosed>` fixture
+  and ran the exact `[xml](Get-Content -Raw)` snippet — caught the
+  malformed XML with the same XmlException class the deploy script
+  catches. Then ran a well-formed `<unattend xmlns="..."></unattend>`
+  through it — passed.
+
+**Risks / follow-ups:**
+- Minimal. Build-time validation only. No destructive code path
+  (oscdimg, robocopy, Copy-Item to staging) touched. Worst case is
+  the operator hits an unfamiliar parser-error message; the message
+  embeds the original `[xml]` exception and points at the same docs
+  section the deploy script does.
+- Pester suite (`validation-gates.Tests.ps1`) covers the *deploy
+  script*'s -UnattendFile gate via mocks; a parallel build_iso test
+  would need its own harness (build_iso isn't loaded as a module
+  today). Worth adding only if the gate logic grows beyond a single
+  `[xml]` parse.
+- Outstanding routine-backlog candidates from prior entries that I
+  didn't take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — flagged across
+    many entries; deferred because menu render is load-bearing TUI UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

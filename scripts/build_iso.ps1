@@ -200,6 +200,17 @@ if ($UnattendFile) {
         throw "UnattendFile not found: $UnattendFile"
     }
     $UnattendFile = (Resolve-Path $UnattendFile).Path
+    # Well-formedness check parallels the deploy script's pre-flight gate
+    # (unified_winpe_deploy.ps1 -UnattendFile validation). Windows Setup
+    # silently ignores a malformed unattend.xml and falls through to manual
+    # OOBE — failing here saves the operator from building an ISO, flashing
+    # it to USB, and only discovering the bad XML when the deploy aborts
+    # on the target laptop. See docs/UNATTEND.md section 6.
+    try {
+        [xml](Get-Content -Path $UnattendFile -Raw) | Out-Null
+    } catch {
+        throw "UnattendFile is not well-formed XML: $UnattendFile`n  Parse error: $($_.Exception.Message)`n  Sanity-check manually: [xml](Get-Content '$UnattendFile')  (see docs/UNATTEND.md section 6)"
+    }
 }
 
 if ($BitLockerPin) {
