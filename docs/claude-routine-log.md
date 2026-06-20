@@ -5,6 +5,92 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — Pester coverage for `-DataDiskNumber` / `-WipeDisks` overlap gate
+
+**Investigated:** the open-PR list (30 PRs in flight, #95-#124, all
+routine safety / test / docs work) for unclaimed coverage gaps, the
+existing `Describe "Start-Deployment validation gates"` Pester block
+in `tests/validation-gates.Tests.ps1`, and every collision-style gate
+in `Start-Deployment` between line 1690 and 1834.
+
+**Found:** the gate at `unified_winpe_deploy.ps1` ~line 1829 — which
+rejects `-DataDiskNumber` appearing in the additional-wipe list, since
+the diskpart script would otherwise `clean` the same disk twice and
+end with undefined final state (bare cleaned vs. NTFS-formatted) — had
+zero Pester coverage. The two adjacent gates were tested: PR #114 (in
+flight) covers the `build_iso.ps1` build-time collision check, and the
+existing `It "Rejects -DataDiskNumber equal to -TargetDisk"` covers
+the target-overlap collision. The third collision in the same family
+was the only one not exercised. A regression that flipped the gate to
+permissive (e.g. dropped the `-and` or swapped the `Where-Object` to
+an `unless`) would slip the Pester suite and only surface in hardware
+release validation.
+
+The default `Select-AdditionalWipeDisks` mock returns `,@()` (test file
+line 241), so every other test in the block exits the gate trivially —
+which is why the gate has been invisible to coverage for so long.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — new `It "Rejects -DataDiskNumber
+  appearing in the additional-wipe list ..."` test slotted after the
+  existing `-DataDiskNumber` gate tests. Overrides the
+  `Select-AdditionalWipeDisks` mock to return disk 1, sets both
+  `-DataDiskNumber 1` and `-WipeDisks '1'`, asserts the abort log,
+  and asserts zero invocations of `Invoke-Diskpart` and
+  `Apply-WindowsImage`. The header `.DESCRIPTION` block's covered-
+  invariants list gets one new bullet so the doc and the assertions
+  stay in sync.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the new coverage.
+
+**Verification:**
+- `pwsh` installed once per session per CLAUDE.md (`/opt/pwsh/pwsh`
+  v7.4.6); the network policy allows the GitHub-Releases download.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed (no change; the Pester file isn't in that suite, but the
+  scoping check that the deploy script's structure is unchanged
+  still passes).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` →
+  34/0 unchanged.
+- Pester suite itself can't run locally (PSGallery blocked in the
+  container per CLAUDE.md — `Install-Module Pester` returns "No
+  match was found"), so structurally hand-verified the new test:
+    - Parses cleanly via `[Parser]::ParseFile(...)` (no syntax errors).
+    - `Select-AdditionalWipeDisks` mock matches the default test mock
+      shape (returns a `,@(...)` single-element array of `PSCustomObject`
+      with the same field set: `Number`, `Size`, `Model`,
+      `InterfaceType`, `HasPartitions`, `PartitionInfo`, `IsSystemDisk`).
+    - Disk 1 is `IsSystemDisk=$false` in the default `Get-SystemDisks`
+      mock (line 234-236), so the earlier "valid non-USB internal disk"
+      and "is the system disk" checks pass and we reach line 1829.
+    - The regex `'both -DataDiskNumber and in the additional-wipe list'`
+      is a strict-literal substring of the script's log message at line
+      1831 verbatim, so the match assertion is robust.
+    - `-WipeDisks '1'` matches the silent-mode validator regex
+      `^\s*\d+(\s*,\s*\d+)*\s*$` so we don't trip the earlier WipeDisks
+      format gate.
+- CI's `pester` job on `windows-latest` is the source of truth and
+  will run the new test end-to-end on push.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change, no production code touched. The new test
+  uses the same mock-then-assert pattern as the 11 existing
+  `Start-Deployment validation gates` tests, including the same
+  `Should -Invoke ... -Times 0` shape for the destructive helpers.
+- Outstanding gaps in Pester coverage worth a future pass:
+  - `-Silent` bare-precondition gates: no Pester coverage for
+    `-Silent` without `-WimFile`, without `-TargetDisk`, or without
+    `-Force` (lines 1702-1713). PR #100 covers the `-MinImageSizeMB`
+    parameter-binding edge but not the silent gates themselves.
+  - `-Silent -WipeDisks 'garbage'` malformed-string rejection (line
+    1714-1717) — also no Pester coverage today.
+  - "PIN provided without `-EnableBitLocker`" warning path (line
+    1696-1698) — pure log-only, but the warning rot would be invisible.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

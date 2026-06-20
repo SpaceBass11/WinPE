@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Pester suite now covers the `-DataDiskNumber` / `-WipeDisks` overlap
+  gate.** `Start-Deployment` aborts before any `Invoke-Diskpart` call
+  when the same disk number appears as both `-DataDiskNumber` and in
+  the additional-wipe list (`unified_winpe_deploy.ps1` ~line 1829),
+  since the diskpart script would then issue `clean` against the disk
+  twice with undefined final state (bare cleaned vs. NTFS-formatted).
+  New `It "Rejects -DataDiskNumber appearing in the additional-wipe list ..."`
+  in `tests/validation-gates.Tests.ps1` mocks `Select-AdditionalWipeDisks`
+  to return the colliding disk and asserts both the abort log and the
+  zero invocation count of the destructive helpers. No production code
+  changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

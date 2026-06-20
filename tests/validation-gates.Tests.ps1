@@ -21,6 +21,7 @@
       - Start-Deployment validation gates reject:
           - -DataDiskNumber == -TargetDisk
           - nonexistent / system / USB-only -DataDiskNumber
+          - -DataDiskNumber overlapping the additional-wipe list
           - -EnableBitLocker without -BitLockerPin
           - -EnableBitLocker -BitLockerPin '<5 chars>'
           - -Silent -DataDiskNumber without -Force
@@ -322,6 +323,35 @@ Describe "Start-Deployment validation gates" {
         $result | Should -BeFalse
         $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match 'not a valid non-USB internal disk' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It "Rejects -DataDiskNumber appearing in the additional-wipe list (diskpart would clean it twice)" {
+        # The default Select-AdditionalWipeDisks mock returns @() so the gate
+        # at unified_winpe_deploy.ps1 ~line 1829 never fires in the other
+        # tests. Override it here to put disk 1 on both lists. The gate must
+        # abort BEFORE Invoke-Diskpart, since otherwise the diskpart script
+        # would issue 'clean' against disk 1 twice and end with the wrong
+        # final state (extra-wipe wants bare 'clean', -DataDiskNumber wants
+        # a formatted NTFS partition - the order is undefined).
+        Mock -ModuleName DeployUnderTest -CommandName Select-AdditionalWipeDisks -MockWith {
+            ,@(
+                [PSCustomObject]@{ Number=1; Size=500; Model='Data NVMe'; InterfaceType='SCSI'; HasPartitions=$true; PartitionInfo='Part1:500GB'; IsSystemDisk=$false }
+            )
+        }
+        $result = & $script:DeployModule {
+            $WimFile        = 'I:\images\Win.wim'
+            $TargetDisk     =  0
+            $DataDiskNumber =  1   # also in the (mocked) extra-wipe list
+            $WipeDisks      = '1'
+            $Force          = $true
+            $Silent         = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'both -DataDiskNumber and in the additional-wipe list' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
     }
 
     It "Rejects -EnableBitLocker without -BitLockerPin" {
