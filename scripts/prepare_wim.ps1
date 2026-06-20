@@ -215,6 +215,14 @@ if ($DriverPath) {
     Write-Step "Driver injection: found $infCount .inf file(s) under $DriverPath"
 }
 
+# Reject output extensions the deploy script wouldn't recognize.
+# unified_winpe_deploy.ps1's Find-ImageFiles filters by *.wim/*.esd and
+# its -WimFile gate rejects anything else, so a stray -OutputWim foo.txt
+# here would produce a file no downstream step can pick up.
+if ([IO.Path]::GetExtension($OutputWim) -notin '.wim','.esd') {
+    throw "OutputWim must have a .wim or .esd extension (got: $OutputWim)"
+}
+
 $outputDir = Split-Path -Parent $OutputWim
 if ($outputDir -and -not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null

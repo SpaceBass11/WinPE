@@ -5,6 +5,68 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `prepare_wim.ps1` `-OutputWim` extension validation
+
+**Investigated:** the 30 open Claude routine PRs (#96-#125) to find an
+un-touched validation gap. Most input-parameter gates were already in
+flight (`-SourceIso` extension in PR #99, `-MinImageSizeMB` in PR #100,
+relative `-BitLockerKeyPath` in PR #105, `-WimFile` absolute path in
+PR #124, `build_boot_wim -UsbDrive == SystemDrive` in PR #106). Output
+parameters were unaddressed.
+
+**Found:** `prepare_wim.ps1` validates that `-SourceWim` ends in
+`.wim`/`.esd` (line 201) but performs no extension check on `-OutputWim`.
+A run like `prepare_wim.ps1 -SourceWim install.wim -OutputWim foo.txt`
+succeeds and produces a "WIM file" named `foo.txt` that the deploy
+script's `Find-ImageFiles` auto-discovery filter (`$Script:Config.ImageExtensions
+= @('*.wim','*.esd')`) can never match, and that its explicit `-WimFile`
+gate (line 300, `.ToLowerInvariant() -in @('.wim','.esd')`) rejects with
+"not a supported image type". So the failure surfaces at deploy time —
+after wim prep took 20-40 minutes — instead of at parameter-binding
+time. `build_iso.ps1` has the same gap for `-OutputIso` (not addressed
+in this pass; called out as a follow-up below).
+
+**Changed:**
+- `scripts/prepare_wim.ps1` — added a 3-line `if ([IO.Path]::GetExtension($OutputWim)
+  -notin '.wim','.esd') { throw ... }` block between the DriverPath
+  validation and the output-directory creation. Mirrors the existing
+  `-SourceWim` extension check's pattern verbatim. `-notin` is
+  case-insensitive in PowerShell so `.WIM`/`.ESD` are accepted.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note (PowerShell
+  7.4.6 tarball into `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed /
+  0 failed before edits.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed
+  / 0 failed (no new assertions; this is parameter-binding behavior,
+  not a structural change the parser test would catch).
+- Smoke test with a real (empty) source file:
+  - `-OutputWim foo.txt`       → rejected with the new message ✓
+  - `-OutputWim /tmp/bareName`  → rejected (no extension) ✓
+  - `-OutputWim foo.WIM`        → accepted (case-insensitive) ✓
+  - `-OutputWim foo.esd`        → accepted ✓
+
+**Risks:** Minimal. Pure parameter-validation gate, no I/O, no
+destructive code paths. Only behavior change: a previously
+silently-accepted typo now fails fast with a clear error. No existing
+callers use a non-`.wim`/`.esd` `-OutputWim` (the docs and examples
+all use `.wim`).
+
+**Next recommended improvement:**
+- Mirror the same gate on `build_iso.ps1 -OutputIso` to require an
+  `.iso` extension. Same pattern, same logic — usability rather than
+  correctness, since oscdimg writes the byte stream regardless of
+  extension, but Rufus and Windows' file pickers default-filter by
+  `.iso`. Trivial follow-up PR.
+- The deferred items from prior runs are still open: `Show-ImageList` /
+  `Show-ImageSelection` 30-line factoring (flagged across multiple
+  routine entries; deferred because the menu rendering is load-bearing
+  TUI UX).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`prepare_wim.ps1` rejects `-OutputWim` values that lack a `.wim`
+  or `.esd` extension.** Mirrors the existing `-SourceWim` input
+  gate. Without this, `-OutputWim foo.txt` succeeded and produced a
+  WIM file the deploy script's `Find-ImageFiles` filter (`*.wim`/
+  `*.esd`) could never auto-discover and that its `-WimFile` gate
+  would later reject — a failure surfaced at deploy time, not at
+  WIM-prep time. Now thrown at parameter validation before any work
+  happens.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
