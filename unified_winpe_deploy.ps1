@@ -1145,7 +1145,10 @@ function Apply-WindowsImage {
         # The full lookup table lives in docs/TROUBLESHOOTING.md; this block
         # surfaces the most common one-liners inline so the operator doesn't
         # have to scroll past the trace or open another doc.
-        $dismLog = 'X:\Windows\Logs\DISM\dism.log'
+        # $env:windir resolves to X:\Windows in WinPE and the host's Windows
+        # directory under the CONTINUE ANYWAY path, so the operator-facing
+        # recovery messages below cite a path that actually exists either way.
+        $dismLog = "$env:windir\Logs\DISM\dism.log"
         switch ($process.ExitCode) {
             1 {
                 # ERROR_INVALID_FUNCTION. Almost always means the WIM has damaged

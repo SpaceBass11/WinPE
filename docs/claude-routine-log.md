@@ -5,6 +5,93 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `Apply-WindowsImage` DISM-log path follows `$env:windir`
+
+**Investigated:** routine-log backlog (nothing high-confidence open at
+the time of the 2026-05-24 entry), the 30 open Claude PRs (#85-#114, all
+small safety / docs / Pester additions — none touching the DISM error
+block), and the operator-facing recovery messages in
+`Apply-WindowsImage` (`unified_winpe_deploy.ps1` lines 1117-1208) after
+PR #25 expanded them to cover DISM exit codes 1/2/11/50/87/112/1168/1392.
+
+**Found:** the DISM recovery block hard-codes the log path at line
+1148 as `'X:\Windows\Logs\DISM\dism.log'`. That is correct under the
+intended WinPE environment (where `X:` is the RAM disk and DISM logs
+to `%windir%\Logs\DISM\dism.log` → `X:\Windows\Logs\DISM\dism.log`).
+But four downstream recovery messages (lines 1156, 1175, 1180, 1200)
+cite this path verbatim, and they are reachable under the `CONTINUE
+ANYWAY` non-WinPE path that `Test-WinPEEnvironment` allows. Outside
+WinPE, `X:\Windows` does not exist; the operator gets pointed at a
+path that isn't there. Minor UX issue, not a safety regression — but
+the fix is mechanical and the value is asymmetric: the messages stop
+being misleading in the rare-but-real outside-WinPE flow, with zero
+risk under WinPE since `$env:windir` is already `X:\Windows` there.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — line 1148: replaced the hardcoded
+  `'X:\Windows\Logs\DISM\dism.log'` with `"$env:windir\Logs\DISM\dism.log"`.
+  Added a three-line comment explaining the WinPE / `CONTINUE ANYWAY`
+  rationale so the next reader doesn't "fix" it back. Used string
+  interpolation rather than `Join-Path` because `Join-Path -Path 'X:\Windows'`
+  errors on Linux ("Cannot find drive...") which would break local
+  smoke-testing under `pwsh` even though the line never executes there
+  (it's inside the dism.exe failure handler).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  noting the path change. No version bump (operator-text change, no
+  `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- `pwsh` installed in-session per the CLAUDE.md note (PowerShell 7.4.6
+  Linux tarball into `/opt/pwsh/`); the network policy allows the
+  GitHub-Releases download.
+- Baseline before edit:
+  - `tests/test_parse.ps1` → 48 / 0
+  - `tests/test_wim_parser.ps1` → 16 / 0
+  - `tests/test_disk_enumeration.ps1` → 34 / 0
+- Post-edit: same counts (48 / 16 / 34, all green). No new test added
+  — this is a log-string fix and `test_parse` already exercises the
+  surrounding function via `PSParser::Tokenize`.
+- Cross-check: simulated `$env:windir` = `X:\Windows` and `C:\Windows`
+  on the Linux pwsh and confirmed the resulting `$dismLog` string is
+  `X:\Windows\Logs\DISM\dism.log` and `C:\Windows\Logs\DISM\dism.log`
+  respectively — matches the intent.
+- Greps confirmed no CI masterize check or test asserts the literal
+  `X:\Windows\Logs` string; the only references to `dism.log` are in
+  `docs/TROUBLESHOOTING.md` (which uses the bare filename, no path).
+
+**Risks / follow-ups:**
+- Minimal. Operator-facing-text-only change inside a non-success
+  branch of `Apply-WindowsImage`. No destructive code path touched,
+  no new dependencies, no parameter changes.
+- The `dismLog` improvement does not extend to other WinPE-specific
+  hardcoded paths in the script. Reviewed and intentionally left
+  unchanged: `'X:\cctk\cctk.exe'` (CCTK is only embedded into the
+  WinPE boot.wim so the path *should* be WinPE-specific; outside
+  WinPE the `Test-Path` guard above the call short-circuits),
+  `'X:\Windows\Temp'` / `'X:\Temp'` (used in the `tempCandidates`
+  preference list with `$env:TEMP` first, so non-WinPE hosts pick the
+  right path), and the `($env:SystemDrive -eq 'X:')` WinPE-detection
+  literal (load-bearing for `Test-WinPEEnvironment`'s decision).
+- Open Pester PRs (#98, #102, #107, #108) and safety PRs
+  (#85-#114) do not touch this line and won't conflict.
+
+**Next recommended improvement:** With the 30-PR backlog still
+working through review, the highest-leverage routine pickups are
+either:
+1. A second pass over `Apply-WindowsImage` to check whether any other
+   error message references a path that ages out in the
+   `CONTINUE ANYWAY` flow (none found in this pass, but worth
+   re-checking after PR #102/#107/#108 merge and the script's line
+   numbers shift).
+2. A small fixture test for `Resolve-BitLockerKeyPath`'s third arm
+   (literal `C:\Windows\Setup\BitLockerKeys` fallback when both
+   `-BitLockerKeyPath` and `$env:DEPLOY_IMAGE_DRIVE` are unset).
+   PR #108 covers the LookupMode label assertions; the fallback
+   `Path` and `Source` strings are still untested. Low value if
+   #108 already lands the precedence chain.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

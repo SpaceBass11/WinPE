@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Apply-WindowsImage` DISM-log path is now `$env:windir`-based.**
+  The DISM error-guidance block previously hardcoded
+  `X:\Windows\Logs\DISM\dism.log` in the operator-facing recovery
+  messages. That path is correct under WinPE (where `X:` is the
+  RAM disk) but stale under the `CONTINUE ANYWAY` non-WinPE path
+  where `$env:windir` resolves to the host's real Windows directory.
+  Switched to `"$env:windir\Logs\DISM\dism.log"` so the messages
+  cite a path that actually exists either way. Pure log-text change;
+  no behavior change in the DISM invocation itself.
+
+### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
