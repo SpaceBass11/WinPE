@@ -5,6 +5,83 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `build_iso.ps1 -Interactive` silent-drop guard
+
+**Investigated:** open PRs (#93–#112, 20 in flight) and their stated
+follow-ups, the routine log's outstanding backlog (`Get-SystemDisks`
+fixture test — already landed as PR #50; `Show-ImageList` /
+`Show-ImageSelection` factor-out — load-bearing UX, deferred), and
+`scripts/build_iso.ps1` to look for clear silent-failure paths that
+weren't already covered by an open PR. Cross-checked open PR titles
+and bodies for any mention of `build_iso` or `-Interactive` — none.
+
+**Found:** `scripts/build_iso.ps1 -Interactive` silently drops the
+silent-mode-only params from the generated `deploy.args`. The
+interactive branch (lines 272-276 pre-edit) writes a one-flag args
+line — `-ImagePath "{DRIVE}\images"` — and the else branch (which
+handles `-BitLockerPin`, `-UnattendFile`, `-DataDiskNumber`,
+`-WipeDisks`, `-TargetDisk`) is never reached. Worst case:
+`-UnattendFile` is still copied into the ISO at `configs\` (the
+staging block runs unconditionally), but the deploy script never
+sees it, so first boot falls through to manual OOBE. The build
+summary line `BitLocker: enabled (PIN embedded in deploy.args on
+ISO)` (line 350 pre-edit) actively misled operators about what the
+ISO would do.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added an `-Interactive` silent-drop
+  gate that throws with a clear remediation message before any
+  staging when `-Interactive` is combined with `-BitLockerPin`,
+  `-UnattendFile`, `-DataDiskNumber`, `-WipeDisks`, or an explicitly
+  bound `-TargetDisk`. Uses `$PSBoundParameters.ContainsKey(...)`
+  for `-TargetDisk` / `-DataDiskNumber` so the parameter defaults
+  (`0` / `-1`) don't trip it. Simplified the now-unreachable
+  `-not $Interactive` clause in the existing `BitLockerPin` /
+  `UnattendFile` warning and noted why.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet.
+
+**Verification:**
+- Installed `pwsh` 7.4.6 per the CLAUDE.md tarball recipe.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed both before and after the edit (parse coverage unchanged).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` →
+  unchanged.
+- One-off smoke harness (not committed): dot-sourced `build_iso.ps1`
+  with each silent-drop param combination and asserted the new
+  throw fires with the expected parameter name in the message. All
+  9 cases pass:
+    - 5 individual `-Interactive + <param>` combos throw with
+      `does not honor.*-<param>`
+    - 1 multi-param case lists both names in the message
+    - `-Interactive` alone falls through to the next validation
+      step (`WimFile not found`) — guard does not over-fire
+    - silent + `-ConfirmSilentDestructiveIso` falls through —
+      Interactive guard is correctly gated on `$Interactive`
+    - default-only `-TargetDisk` (param not bound) does not trip
+      the guard — `$PSBoundParameters.ContainsKey` correctly
+      distinguishes default vs. explicit
+- Pester suite (`tests/validation-gates.Tests.ps1`) is CI-only — no
+  change needed; the guard lives in a `scripts/` file the Pester
+  suite doesn't load.
+
+**Risks / follow-ups:**
+- Minimal. New code is a guard that throws before any filesystem
+  write or `oscdimg` call. No change to the silent / interactive
+  args-line generation, no change to the deploy script. Worst case
+  is breaking a scripted user who was relying on silently-dropped
+  flags — but the prior behavior was producing wrong ISOs, so the
+  throw is the corrected behavior.
+- Outstanding backlog candidates I did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code — deferred across many entries
+    because the menu render is load-bearing TUI UX.
+  - **CI masterize check for the `-Interactive` silent-drop
+    guard** would lock the throw in place. Small follow-up;
+    not added here to keep the diff scoped to the runtime fix.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

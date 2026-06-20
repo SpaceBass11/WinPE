@@ -172,6 +172,33 @@ confirmation. To proceed, re-run with one of:
 "@
 }
 
+# --- Interactive-mode silent-drop gate ---
+# In -Interactive mode the generated deploy.args only pre-sets -ImagePath;
+# the silent-mode-only params below were being silently dropped (or, for
+# -UnattendFile, copied into the ISO but never referenced in deploy.args),
+# so the build would succeed and even claim "BitLocker: enabled" while
+# producing an ISO that did nothing of the sort. Fail loud instead.
+if ($Interactive) {
+    $silentlyDropped = @()
+    if ($PSBoundParameters.ContainsKey('TargetDisk'))     { $silentlyDropped += '-TargetDisk' }
+    if ($PSBoundParameters.ContainsKey('DataDiskNumber')) { $silentlyDropped += '-DataDiskNumber' }
+    if ($BitLockerPin)                                    { $silentlyDropped += '-BitLockerPin' }
+    if ($UnattendFile)                                    { $silentlyDropped += '-UnattendFile' }
+    if ($WipeDisks)                                       { $silentlyDropped += '-WipeDisks' }
+    if ($silentlyDropped.Count -gt 0) {
+        throw @"
+-Interactive mode does not honor the following parameter(s):
+  $($silentlyDropped -join ', ')
+The interactive deploy.args only sets -ImagePath so the TUI can find the
+WIM; everything else is the operator's choice at the target. Re-run with
+either:
+  - drop the listed parameter(s) and run interactively, OR
+  - drop -Interactive and pass -ConfirmSilentDestructiveIso for a silent
+    ISO that honors -TargetDisk / -BitLockerPin / -UnattendFile / etc.
+"@
+    }
+}
+
 # --- Input validation ---
 
 if (-not (Test-Path $WimFile -PathType Leaf)) {
@@ -202,10 +229,10 @@ if ($UnattendFile) {
     $UnattendFile = (Resolve-Path $UnattendFile).Path
 }
 
-if ($BitLockerPin) {
-    if (-not $UnattendFile -and -not $Interactive) {
-        Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
-    }
+if ($BitLockerPin -and -not $UnattendFile) {
+    # -Interactive + -BitLockerPin already threw above, so this branch only
+    # fires for silent ISOs that enable BitLocker without an unattend.
+    Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
 }
 
 # Resolve output directory

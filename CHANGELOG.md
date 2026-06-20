@@ -8,6 +8,20 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/build_iso.ps1 -Interactive` no longer silently drops
+  silent-mode-only parameters.** Combining `-Interactive` with
+  `-BitLockerPin`, `-UnattendFile`, `-DataDiskNumber`, `-WipeDisks`,
+  or an explicit `-TargetDisk` used to succeed, omit those values
+  from the interactive `deploy.args` (only `-ImagePath` is set in
+  TUI mode), and the build summary even claimed `BitLocker: enabled`
+  for an ISO that did nothing of the sort. The script now throws
+  with a clear remediation hint (drop the flag, or switch to silent
+  + `-ConfirmSilentDestructiveIso`) before any staging happens.
+  The throw fires off `$PSBoundParameters` for `-TargetDisk` /
+  `-DataDiskNumber` so the parameter's default value alone does not
+  trigger it.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
