@@ -5,6 +5,132 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — masterize CI check #1 pins the `.VERSION` block too
+
+**Investigated:** 35 open Claude PRs (#54-#121) and the routine-log
+backlog, then the actual surface area of masterize check #1 in
+`.github/workflows/ci.yml` against the four touchpoints CLAUDE.md
+("Version field lives in four places that must all match — masterize
+CI check #1 enforces this") commits the check to enforcing.
+Specifically inventoried: `$Script:Config.ScriptVersion` (source of
+truth at line 135), the `.VERSION` block in the script's header
+(line 80-94), `CLAUDE.md` line 5, `CHANGELOG.md`, `README.md` footer.
+
+**Found:** masterize CI check #1 extracts `$ver` from
+`$Script:Config.ScriptVersion` and loops over `CHANGELOG.md`
+`CLAUDE.md` `README.md` with `grep -q "$ver" "$f"`. It does NOT
+inspect the `.VERSION` block in `unified_winpe_deploy.ps1` itself
+— a plain `grep -q "$ver" unified_winpe_deploy.ps1` would always
+pass because the script contains the very `ScriptVersion = '4.7.1'`
+assignment that produced `$ver`. So the source-of-truth assignment
+silently satisfies any check on that file. Net: a PR that bumps
+`$Script:Config.ScriptVersion` without adding a `.VERSION` line —
+or that just lets the block drift across releases — passes CI and
+ships an in-script changelog that disagrees with the running
+version. Operators get the stale one via `Get-Help
+unified_winpe_deploy.ps1`. CLAUDE.md commits the masterize job to
+catching this; the job didn't.
+
+The two failure modes the new check catches:
+1. **Stale block:** `$Script:Config.ScriptVersion = '4.7.1'` but the
+   first version listed under `.VERSION` is still `4.7.0` from the
+   previous release. Plausible drift — easy to forget to add a new
+   `.VERSION` line when bumping the assignment.
+2. **Missing block:** a refactor removes `.VERSION` entirely (e.g.
+   trims the comment-help header). Leaves `Get-Help` with no
+   version field at all.
+
+The 35 open PRs were spot-checked for overlap. PR #68 also touches
+`.github/workflows/ci.yml` but only widens check #24's regex; no
+file-level collision with the check #1 edit. PR #119 adds a new
+`syntax`-job step but doesn't touch the `masterize` job. No version
+bumps in any open PR, so the new check won't introduce a spurious
+fail on the in-flight set.
+
+**Changed:**
+- `.github/workflows/ci.yml` — masterize Phase 1A check #1 now
+  follows its existing `for f in CHANGELOG.md CLAUDE.md README.md`
+  loop with a separate awk-based extraction: read the line
+  immediately after `^\.VERSION`, pull the first `X.Y.Z` it
+  contains, compare to `$ver`. Empty `ver_block` (missing block)
+  fails the same way as a mismatch. Comment block above the new
+  lines explains why a generic `grep -q "$ver" unified_winpe_deploy.ps1`
+  wouldn't work and points at the `Get-Help` surface that motivates
+  the check.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the CI-only widening. No version bump (CI change, no
+  `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- `pwsh` 7.4.6 installed in-session per the CLAUDE.md note (network
+  policy allows the GitHub-Releases tarball download).
+- YAML parse: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"`
+  loads the workflow clean.
+- Inlined the new awk pipeline against three states on the real
+  script file:
+  1. **Live (consistent):** `ver=4.7.1`, `ver_block=4.7.1` →
+     "OK: .VERSION block ... leads with 4.7.1". CI passes today,
+     no spurious fail introduced.
+  2. **Stale block (regression):** simulated by `sed` replacing
+     the live `4.7.1 - BitLocker recovery-key escrow` line with
+     `4.7.0 - stale`. Output: "FAIL: .VERSION block leads with
+     '4.7.0', expected '4.7.1'". Regression caught.
+  3. **Missing block:** simulated by stripping the `.VERSION`
+     header and the version lines below it. Output:
+     "FAIL: .VERSION block leads with '', expected '4.7.1'".
+     Missing-block case caught with no awk/grep crash on empty.
+- Baselines green pre- and post-edit (the edit only touches CI
+  workflow YAML, so this is just a sanity check that nothing else
+  drifted):
+  - `tests/test_parse.ps1` → 48 / 0
+  - `tests/test_wim_parser.ps1` → 16 / 0
+  - `tests/test_disk_enumeration.ps1` → 34 / 0
+- The Pester suite (`tests/validation-gates.Tests.ps1`) cannot run
+  in this container because PSGallery is blocked by the network
+  policy; no Pester changes were made so this isn't a regression
+  risk. CI's `pester` job is the source of truth on Windows.
+- `actionlint` not installed in the container; CI's own
+  `actionlint` job will validate the workflow syntax on push.
+
+**Risks / follow-ups:**
+- Minimal. CI-only addition inside an existing Phase 1A check;
+  no production code, no PowerShell, no destructive code paths,
+  no Pester surface touched. Worst case is the awk pipeline
+  producing an unexpected result on a future `.VERSION` block
+  format change — surfaces as a self-diagnosing "leads with 'X',
+  expected 'Y'" message on the first push.
+- The new check assumes the `.VERSION` block lists the current
+  version on the first content line after `.VERSION`. The header
+  has consistently used that ordering across every release
+  visible in git history (4.4.0 → 4.7.1). If a future release
+  reorders the block to put a "Coming soon" placeholder first,
+  the check would fail loud and the operator would notice — that
+  IS the regression case worth catching.
+- Open PRs spot-checked: #68 (also touches `ci.yml`) only widens
+  check #24's regex, no overlap. Other open PRs don't touch the
+  workflow file. No version bumps in flight, so the new check
+  won't introduce a spurious red on any in-flight PR.
+
+**Next recommended improvement:**
+- `Show-ImageList` / `Show-ImageSelection` in the deploy script
+  share ~30 lines of listing-render code that could be factored
+  out — flagged across many prior routine entries and PR #56
+  takes a refactor pass at this. If #56 doesn't land, a parallel
+  attempt that only extracts the format string (the safe part)
+  would still close some of the duplication without touching
+  the menu UX.
+- The masterize CI check #1 loop currently does
+  `grep -q "$ver" "$f"` against `CLAUDE.md`, which is a
+  substring match. A doc that mentions an old version anywhere
+  (e.g. "v4.7.0 introduced ...") would pass even if the
+  Project Overview lede still said `(v4.7.0)`. Tighter
+  anchoring (e.g. `grep -q "(v$ver)"` against CLAUDE.md, the
+  exact form the Project Overview uses) would catch that more
+  precisely. Deferred — narrower failure mode than the
+  `.VERSION` block gap closed here.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -144,6 +144,21 @@ jobs:
           for f in CHANGELOG.md CLAUDE.md README.md; do
             if grep -q "$ver" "$f"; then echo "OK: $f"; else echo "FAIL: $f missing $ver"; fail=1; fi
           done
+          # The .VERSION block in unified_winpe_deploy.ps1's comment-help
+          # header is what PowerShell's Get-Help surfaces to operators, so a
+          # stale entry there silently mis-reports the running version even
+          # when the rest of the docs are correct. CLAUDE.md lists it as one
+          # of the version touchpoints that must stay in sync; without this
+          # sub-check the loop above can't see it (a plain `grep -q "$ver"
+          # unified_winpe_deploy.ps1` would always pass on the ScriptVersion
+          # assignment itself and miss a stale block).
+          ver_block=$(awk '/^\.VERSION/{f=1; next} f{print; exit}' unified_winpe_deploy.ps1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ "$ver_block" = "$ver" ]; then
+            echo "OK: .VERSION block in unified_winpe_deploy.ps1 leads with $ver"
+          else
+            echo "FAIL: .VERSION block leads with '$ver_block', expected '$ver'"
+            fail=1
+          fi
 
           echo ""
           echo "=== 2. Cross-doc script coverage ==="

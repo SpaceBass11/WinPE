@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Masterize CI check #1 now also pins the `.VERSION` block in
+  `unified_winpe_deploy.ps1`.** The existing loop verifies the
+  current `$Script:Config.ScriptVersion` is mentioned in
+  `CHANGELOG.md`, `CLAUDE.md`, and `README.md`, but it never
+  inspected the script's own comment-help `.VERSION` block —
+  `grep -q "$ver" unified_winpe_deploy.ps1` would always pass on
+  the `ScriptVersion` assignment itself and miss a stale
+  changelog header. The block is what `Get-Help
+  unified_winpe_deploy.ps1` surfaces to operators, so a stale
+  entry silently mis-reports the running version. A new sub-check
+  awks the line right after `^\.VERSION` and asserts the first
+  `X.Y.Z` it contains matches `$ver`. CI-only change; no
+  production code touched, no script version bump.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
