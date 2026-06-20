@@ -8,6 +8,21 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/unattend.example.xml` comment about `FirstLogonCommands`
+  scope corrected.** Since the file was introduced in PR #21,
+  `scripts/first-login.ps1` has applied its tweaks to **both** the
+  AutoLogon user's live HKCU hive **and** the Default User hive
+  (`C:\Users\Default\NTUSER.DAT`), so any account created later
+  inherits the same settings. The block-level comment in the
+  example unattend.xml still said the script was current-user only
+  and that Default User coverage "would need to be added; ask if
+  you want that." Operators reading the example would assume
+  TechL0/L1/L2 accounts wouldn't get the tweaks. Comment rewritten
+  to describe the actual two-target pass and point at the
+  script's `.DESCRIPTION` for the mechanics. No code changes; XML
+  structure unchanged.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

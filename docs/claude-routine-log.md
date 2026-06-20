@@ -5,6 +5,86 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — `configs/unattend.example.xml` Default User hive comment fix
+
+**Investigated:** open PRs (30 open, scanned for any touching the
+unattend example or first-login.ps1 — none) and the
+`first-login.ps1` / `unattend.example.xml` pairing. PR #110
+(already open from earlier today) covers a separate concern
+(post-DISM-apply staging copy failure); no overlap with this fix.
+Cross-checked the comment block in the example against the
+actual script behavior, the script's `.DESCRIPTION`, and the
+git history (commit `ada844f` added both files in PR #21).
+
+**Found:** `configs/unattend.example.xml` lines 191-200 has a
+stale block-level comment above `<FirstLogonCommands>` that says
+the script "applies HKCU tweaks to that account's profile [only]"
+and that to make TechL0/L1/L2 inherit the same tweaks "the
+script would need to also edit the Default User hive
+(`C:\Users\Default\NTUSER.DAT`); ask if you want that added."
+The script HAS done that since the day it shipped — its
+`.DESCRIPTION` (`scripts/first-login.ps1` lines 16-27) plainly
+lists the Default User hive as target #2, and lines 117-148
+load/edit/unload the hive with `reg.exe load|unload` exactly as
+the comment said would need to be added. Both files landed in
+the same commit (PR #21), so this looks like an authoring slip
+that survived because the example file is end-user docs nobody
+re-reads after dropping into their USB.
+
+The drift means operators reading the example would assume new
+accounts created by the unattend would NOT inherit the tweaks
+applied to the AutoLogon user, and would either skip
+`-DisableExtraBloat` (losing the policy debloat too) or add
+some duplicate per-user mechanism they don't need. Pure docs
+fix; no code path changes.
+
+**Changed:**
+- `configs/unattend.example.xml` — rewrote the block-level
+  comment above `<FirstLogonCommands>` to describe the actual
+  two-target pass (current HKCU + Default User hive) and point
+  readers at the script's own `.DESCRIPTION` for the
+  load/unload mechanics. Same approximate length, no XML
+  structure change.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing
+  the comment correction and why operators were being misled.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per CLAUDE.md note.
+- Baseline before edit: `tests/test_parse.ps1` 48/0,
+  `test_wim_parser.ps1` 16/0, `test_disk_enumeration.ps1` 34/0.
+- Post-edit: `tests/test_parse.ps1` 48/0 (unchanged — the edit
+  touches only a comment block in an XML file, and the test
+  parses `.ps1` files, not XML).
+- XML well-formedness: `[xml](Get-Content
+  configs/unattend.example.xml -Raw)` parses without error.
+  Same gate that `docs/UNATTEND.md` §6 instructs operators to
+  run, and that `unified_winpe_deploy.ps1` runs at pre-flight.
+- Visual diff inspected: only the one comment block changed;
+  surrounding `<UserAccounts>`, `<AutoLogon>`, and
+  `<FirstLogonCommands>` elements are untouched.
+
+**Risks / follow-ups:**
+- Zero deployment risk. Comment-only change inside an XML
+  comment node; Windows Setup never reads the comment, the deploy
+  script never reads it, and the staged unattend.xml on target
+  C:\Windows\Panther is the operator's edited copy of this file,
+  not the example itself.
+- Outstanding routine-backlog candidates from prior entries I
+  did not take this pass:
+  - **Pester regression guard for the unattend-staging
+    fail-fast** introduced by PR #110 (its routine entry flags
+    this as the next-recommended improvement).
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code — deferred across many entries
+    because the menu render is load-bearing TUI UX.
+
+**Next recommended improvement:** the Pester regression guard
+flagged by PR #110 — once that PR merges, add an `It` that mocks
+`Copy-Item` to throw and asserts `Start-Deployment` returns
+`$false` and that `Set-BootConfiguration` was never invoked.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
