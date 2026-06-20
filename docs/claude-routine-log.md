@@ -5,6 +5,119 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-20 — Fixture test for `Invoke-CctkConfig` selection precedence
+
+**Investigated:** open PRs (#89-#118 all in flight, many touching
+parameter validation, BitLocker, build_iso safety, and various
+fixture-test additions); the routine-log backlog of follow-ups;
+the actual test surface of `unified_winpe_deploy.ps1`'s parser /
+selection functions. Specifically inventoried which "pick exactly
+one of these candidates" functions in the deploy script lack
+fixture-test coverage.
+
+**Found:** `Invoke-CctkConfig` (lines 1269-1373 of
+`unified_winpe_deploy.ps1`) picks one `.ini` file from
+`<IMAGES>\cctk\` via a documented precedence —
+`<SERVICETAG>.ini` → `<MODEL>.ini` → `default.ini` → skip —
+then runs `cctk.exe --infile=<picked>` against it. A
+non-zero CCTK exit aborts the deploy. The model lookup
+key is derived via `$rawModel -replace '[^A-Za-z0-9]', ''`
+which strips spaces, hyphens, underscores, parens, etc.
+
+A regression that flipped the precedence (e.g. always picked
+`default.ini` even when a service-tag file existed) or changed
+the normalization regex (e.g. used `_` instead of stripping)
+would silently apply the wrong BIOS settings to every machine
+in a Dell fleet — exactly the failure mode the per-machine /
+per-model file naming was added to prevent. The masterize CI
+grep #13 only enforces that `Invoke-CctkConfig` runs *before*
+disk selection; it does not check which file gets picked.
+`tests/test_parse.ps1` and `tests/validation-gates.Tests.ps1`
+only reference the function name (definition / mock target).
+Net: the selection logic has zero behavioral coverage today.
+
+The same fixture-test pattern was used for the WIM parser
+(PR #24) and disk enumeration (PR #50). CCTK is the third
+"silently-mis-attribute on regression" candidate flagged
+across multiple previous routine entries and was the last
+untested selection function in the deploy script.
+
+**Changed:**
+- `tests/test_cctk_selection.ps1` — new fixture test (27
+  cases). Writes throwaway `.ini` files into a temp
+  directory (`[IO.Path]::GetTempPath()`), runs them
+  through a `Get-CctkConfigPick` helper that mirrors the
+  inline logic from `Invoke-CctkConfig`, and asserts both
+  the picked path and the human-readable `Reason`. Covers:
+  - Precedence: all 8 presence permutations of the 3 .ini
+    files (servicetag/model/default and combinations), plus
+    "empty cctk dir → null path".
+  - Identifier edge cases: null tag → falls through to model;
+    empty tag → same; whitespace-only tag → trimmed away;
+    both null → falls through to default; null model →
+    `NormalizedModel` stays null (no crash).
+  - Model normalization: 7 real-world Dell strings (OptiPlex
+    7090, Inspiron 15-3000, Latitude_E7440, XPS 15 (9520),
+    Latitude 7400, already-clean OptiPlex7090, pure-symbol
+    "!!!---" → empty → falls through to default).
+  - Drift guard: 7 grep checks that the safety-critical code
+    shapes still live verbatim in `unified_winpe_deploy.ps1`
+    (`Join-Path \$cctkDir "\$serviceTag.ini"`, `\$model.ini`,
+    literal `'default.ini'`, the `-replace '[^A-Za-z0-9]'`
+    pattern, and the source-order invariant that service-tag
+    block precedes model block precedes default block).
+  - Per-scenario cleanup so a previous scenario's `.ini`
+    files can't bleed into the next.
+- `.github/workflows/ci.yml` — wired into the `syntax` job
+  as a follow-on step after the disk-enumeration test (same
+  pattern PRs #46 and #50 used).
+- `CLAUDE.md` — Running Checks table grew a row for the new
+  test; prose "three test files" became "four test files"
+  (will become "five" after PR #112 lands which adds the
+  disk-enumeration row); local runner snippet adds the new
+  `pwsh -NoProfile -File ./tests/test_cctk_selection.ps1`
+  line.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet added.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md note.
+- Baseline (pre-edit):
+  - `tests/test_parse.ps1` → 48/0 passed
+  - `tests/test_wim_parser.ps1` → 16/0 passed
+  - `tests/test_disk_enumeration.ps1` → 34/0 passed
+- Post-edit:
+  - All three baselines unchanged.
+  - `tests/test_cctk_selection.ps1` → 27/0 passed.
+- Pre-checked that the live regex in `unified_winpe_deploy.ps1`
+  line 1314 matches the drift-guard's escaped literal
+  `-replace '[^A-Za-z0-9]', ''` exactly (the test would
+  fail-loud on first push if it didn't).
+- The Pester suite cannot run in this environment (PSGallery
+  outbound blocked); no Pester changes were made so this is
+  not a regression risk.
+
+**Risks / follow-ups:**
+- Test-only addition. No production code touched. No new
+  dependencies. No CI workflow changes other than the new
+  step. Pattern matches PRs #24 / #46 / #50 exactly. PSv5.1
+  compatible (only `Join-Path`, `Test-Path`, `Set-Content`,
+  `Remove-Item`, `Get-Content`, basic regex — all PSv5.1-safe).
+- Mild merge risk with PR #112 (which also bumps the
+  Running Checks "three test files" prose and the runner
+  snippet). Conflict resolution is trivial: both PRs add
+  a row, both bump the count; resolved by keeping both rows
+  and setting the count to "five".
+- Outstanding routine-backlog candidates not addressed this
+  pass:
+  - `Show-ImageList` / `Show-ImageSelection` shared listing-
+    render code factor — repeatedly deferred because the
+    menu render is load-bearing TUI UX.
+  - No fixture test yet covers `Resolve-BitLockerKeyPath`
+    last-resort fallback path beyond what PR #108 will add
+    via Pester.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

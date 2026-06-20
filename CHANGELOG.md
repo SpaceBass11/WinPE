@@ -9,6 +9,23 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Invoke-CctkConfig` selection precedence now has fixture-test
+  coverage.** New `tests/test_cctk_selection.ps1` exercises the
+  documented `<SERVICETAG>.ini` → `<MODEL>.ini` → `default.ini`
+  precedence with all 8 presence permutations (every combination
+  with/without each of the three .ini files), the identifier
+  edge cases that Win32_BIOS / Win32_ComputerSystem can return
+  (null, empty, whitespace-only, both null), and the model
+  normalization regex (`[^A-Za-z0-9]` stripped, never replaced
+  with `_`/` `) against real-world Dell model strings (OptiPlex
+  7090, Inspiron 15-3000, Latitude_E7440, XPS 15 (9520), pure-
+  symbol input). Includes a drift guard that fails if the
+  service-tag / model / default code shapes — or their source-
+  order — move in `unified_winpe_deploy.ps1`. Closes the last
+  untested selection function in the deploy script (the
+  masterize CI check only enforces CCTK runs *before* disk
+  selection, not which config gets picked). Wired into the CI
+  `syntax` job. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
