@@ -8,6 +8,17 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/refresh_usb.ps1 -OutputName` no longer produces double
+  extensions.** The script appended `.wim` to whatever the operator
+  passed, so `-OutputName 'Win11.wim'` produced `Win11.wim.wim` on the
+  IMAGES partition. The docstring said "no extension" but didn't
+  enforce. Now a trailing `.wim` or `.esd` (any case) is stripped
+  before the `.wim` suffix is appended, with a `[refresh]` log line
+  noting the rewrite, so both `-OutputName 'Win11.wim'` and
+  `-OutputName 'Win11'` end up at `<images>\Win11.wim`. Doc strings
+  updated to match the new lenient behavior.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

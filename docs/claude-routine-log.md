@@ -5,6 +5,58 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `refresh_usb.ps1 -OutputName` double-extension fix
+
+**Investigated:** The open routine PR backlog (#105-#134, ~30 PRs in
+flight) to avoid duplicating. PR #128's routine-log update flagged
+this exact issue as a "Minor UX, low-risk fix" follow-up candidate:
+`scripts/refresh_usb.ps1` was appending `.wim` to whatever
+`-OutputName` the operator passed, so `-OutputName 'Win11.wim'`
+produced `Win11.wim.wim` on the IMAGES partition. The docstring said
+"no extension" but didn't enforce. No open PR addresses it (PRs #126
+and #127 reject missing extensions for `prepare_wim -OutputWim` and
+`build_iso -OutputIso`; this is the opposite problem on the wrapper).
+
+**Changed:**
+- `scripts/refresh_usb.ps1` — added a `-replace '\.(wim|esd)$', ''`
+  pass over `$OutputName` after the source-derived default fires.
+  PowerShell `-replace` is case-insensitive by default, so `Win11.WIM`,
+  `Win11.wim`, and `Win11.esd` all collapse to `Win11`; `Win11.iso`
+  and `Win11_24H2.wim.bak` are untouched. A `[refresh]` log line
+  prints when the rewrite happens so the operator sees the
+  normalization. The docstring switches from "no extension" to
+  describing the new lenient behavior.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet at the top.
+  No version bump (single-script UX fix, no
+  `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed both before and after the edit (PowerShell 7.4.6 installed
+  per CLAUDE.md). Refresh_usb.ps1's syntax check stays green.
+- Regex behavior smoke-tested at the shell against six inputs
+  ('Win11', 'Win11.wim', 'Win11.WIM', 'Win11.esd', 'Win11.iso',
+  'Win11_24H2.wim.bak') — only the three trailing-`.wim`/`.esd`
+  cases get stripped, exactly as documented.
+- Pester suite covers different surfaces (deploy-script validation
+  gates) — not exercised, and there's nothing relevant to add there.
+
+**Risks / follow-ups:**
+- Minimal. Single-file UX fix on a workflow wrapper. No destructive
+  behavior touched, no new dependency. The regex only strips a literal
+  trailing `.wim` or `.esd` token, so an operator who deliberately
+  wants `Win11.wim.something` as a basename still gets it (and
+  `Win11.iso` as a basename — which `refresh_usb` would have produced
+  `Win11.iso.wim` for before this fix — is left alone, matching the
+  unchanged auto-derive behavior when `-SourceIso` is given).
+- Outstanding backlog from prior entries that I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — flagged across
+    seven prior routine entries, still deferred because the menu
+    render is load-bearing UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

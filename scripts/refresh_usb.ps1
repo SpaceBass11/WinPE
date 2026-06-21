@@ -40,9 +40,12 @@
     script is 'Windows 11 Enterprise'.
 
 .PARAMETER OutputName
-    Basename for the resulting WIM (no extension, no path). Defaults
-    to the source filename minus its extension, e.g.
-    'Win11_24H2_English_x64.iso' becomes 'Win11_24H2_English_x64.wim'.
+    Basename for the resulting WIM (no path). Defaults to the source
+    filename minus its extension, e.g. 'Win11_24H2_English_x64.iso'
+    becomes 'Win11_24H2_English_x64.wim'. Trailing '.wim' or '.esd'
+    is stripped before the '.wim' suffix is appended — so
+    -OutputName 'Win11.wim' and -OutputName 'Win11' both produce
+    'Win11.wim'.
 
 .PARAMETER ImagesPath
     Directory where the resulting WIM is placed. Default: 'I:\images'.
@@ -155,6 +158,13 @@ if (-not (Test-Path $ImagesPath)) {
 if (-not $OutputName) {
     $OutputName = [System.IO.Path]::GetFileNameWithoutExtension($sourcePath)
     Write-Step "Output name derived from $sourceKind`: $OutputName"
+}
+# Strip a trailing .wim/.esd if the operator typed one — the doc says
+# "no extension" but we'd rather DWIM than produce 'Win11.wim.wim'
+$strippedOutputName = $OutputName -replace '\.(wim|esd)$', ''
+if ($strippedOutputName -ne $OutputName) {
+    Write-Step "Stripping extension from -OutputName: '$OutputName' -> '$strippedOutputName'"
+    $OutputName = $strippedOutputName
 }
 $outputWim = Join-Path $ImagesPath "$OutputName.wim"
 Write-Step "Output WIM: $outputWim"
