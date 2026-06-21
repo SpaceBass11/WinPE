@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/refresh_usb.ps1` post-refresh summary now lists `.esd`
+  files in addition to `.wim`.** The summary block at the end of the
+  script previously did `Get-ChildItem $ImagesPath -Filter '*.wim'`,
+  so any `.esd` files on the IMAGES partition (e.g. `install.esd`
+  copied straight from a stock Windows ISO, or older artefacts) were
+  invisible — even though the deploy script's `Find-ImageFiles`
+  accepts both extensions via `$Script:Config.ImageExtensions =
+  @('*.wim', '*.esd')`. The summary now mirrors the deploy script's
+  filter so the operator sees the same image inventory the runtime
+  will see. Case-insensitive (PowerShell `-in` default), and
+  non-image files are still excluded.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

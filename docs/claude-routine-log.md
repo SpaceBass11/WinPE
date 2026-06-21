@@ -5,6 +5,82 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `refresh_usb.ps1` post-refresh summary covers `.esd`
+
+**Investigated:** the 30 open Claude routine PRs (#113-#142) to avoid
+duplicating in-flight work. Greps for `refresh_usb`, `esd`, and
+`summary` across PR titles/bodies found four refresh_usb PRs
+(#77, #93, #118, #135) but none touching the post-refresh summary
+block at the bottom of the script.
+
+**Found:** `scripts/refresh_usb.ps1` line 221 (pre-edit) called
+`Get-ChildItem $ImagesPath -Filter '*.wim'`, so `.esd` files on the
+IMAGES partition were silently absent from the post-refresh summary.
+The deploy script itself accepts both extensions —
+`$Script:Config.ImageExtensions = @('*.wim', '*.esd')` in
+`unified_winpe_deploy.ps1` and `Find-ImageFiles` enumerates both —
+and an operator dropping an `install.esd` lifted straight from a
+Windows ISO onto the IMAGES partition would have a perfectly valid
+deploy target that the summary hid. The mismatch was harmless at
+runtime (deploy still works), but misleading at admin-host level
+(operator thinks the partition has fewer images than it does).
+
+**Changed:**
+- `scripts/refresh_usb.ps1` — summary block now uses
+  `Get-ChildItem $ImagesPath -File | Where-Object Extension -in
+  '.wim', '.esd'` instead of the single-pattern `-Filter '*.wim'`.
+  Block comment names the reason (deploy-script parity) so a
+  future agent doesn't re-narrow the filter. Variable renamed
+  `$wims` → `$images` to match the new scope. Non-image files
+  (`.txt`, `.inf`, `.bak`) still excluded. Case-insensitive (`-in`
+  default) so `.WIM` / `.ESD` are listed the same as lowercase.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing
+  the gap and the deploy-script parity rationale.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per CLAUDE.md note.
+- `tests/test_parse.ps1` → 48 passed / 0 failed (same as baseline).
+- Behavioural fixture (`/tmp/test_refresh_listing.ps1`, not
+  committed): 7-file mix of `.wim`/`.esd` (mixed case) plus
+  `.txt`/`.inf`/`.wim.bak` distractors against a temp IMAGES
+  dir. The new filter listed all four image files (including
+  `Win11_ARM.WIM` and `install.ESD`) and excluded all three
+  non-image files. The pre-edit filter would have missed
+  `Win10_LTSC.esd` and `install.ESD`.
+- Visual diff: only the summary block changed; no destructive
+  paths, no admin-host orchestration, no parameter or behaviour
+  change for the path that produces the image (which is still
+  `Join-Path $ImagesPath "$OutputName.wim"` at line 159 — the
+  script itself still only *produces* `.wim`, the change is purely
+  about *displaying* what's already there).
+
+**Risks / follow-ups:**
+- Minimal. Single-file display-only fix on a workflow wrapper. No
+  destructive logic, no new parameter, no new dependency. The
+  rename `$wims` → `$images` is contained inside the seven-line
+  summary block.
+- The wrapper still hardcodes `.wim` for its own *output* path
+  (line 159). That's a separate concern — `prepare_wim.ps1`
+  always re-exports via `Export-WindowsImage -CompressionType Max`
+  which is WIM-style compression regardless of extension, so
+  producing a `foo.esd` from this wrapper would be misleading. PR
+  #126 (still open) is the right place to formalise that.
+- Outstanding routine-backlog candidates from prior entries I
+  did not take this pass:
+  - **Mirror the CR/LF transport-safety guard from `build_iso.ps1`
+    (PR #141) into `unified_winpe_deploy.ps1`'s `Start-Deployment`
+    `-BitLockerPin` validation.** Gated on PR #132 landing first to
+    avoid same-function conflicts.
+  - **`Show-ImageList` / `Show-ImageSelection`** dedup — PR #56
+    already targets this; no need to duplicate.
+
+**Next recommended improvement:** once #132 merges, take the
+`Start-Deployment` CR/LF guard PR #141 flagged. Until then, the
+remaining gaps are either covered by open PRs (#113-#142) or
+deferred for the same reason this pass deferred them.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
