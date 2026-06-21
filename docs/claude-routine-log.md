@@ -5,6 +5,83 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `build_iso.ps1` `-OutputIso` extension validation
+
+**Investigated:** the 30 open Claude routine PRs (#94-#126) to find an
+unclaimed gap. Most input-parameter gates are already in flight:
+`-SourceIso` extension (#99), `-MinImageSizeMB` (#100), relative
+`-BitLockerKeyPath` (#105), `-WimFile` absolute path (#124),
+`-OutputWim` extension on `prepare_wim.ps1` (#126), `build_boot_wim
+-UsbDrive == SystemDrive` (#106), `refresh_usb -BootUsbDrive` format
+(#118). Output extensions on the ISO packager were not.
+
+**Found:** `scripts/build_iso.ps1` validates `-WimFile` existence and
+`.wim`/`.esd` extension (lines 177-181) but performs no extension
+check on `-OutputIso`. `oscdimg` writes the byte stream regardless of
+the file name, so `-OutputIso foo.txt` produces a perfectly bootable
+artifact that:
+- Rufus' default file picker filters out (it shows `*.iso` only),
+- Windows Explorer's Open dialog filters out by extension,
+- and `Mount-DiskImage` on PSv7 throws `Image type is unrecognized`
+  on the typo'd name.
+
+PR #126's body explicitly called out the symmetric gate on
+`-OutputIso` as a follow-up; no other open PR claims it.
+PRs #113/#114/#120 touch `build_iso.ps1` but in unrelated regions
+(silent-mode collision rejection, `-Interactive` flag drop, unattend
+XML well-formedness) — no conflict expected.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a 3-line `if (
+  [IO.Path]::GetExtension($OutputIso) -ne '.iso') { throw ... }`
+  block immediately after the `WimFile` extension check. Uses `-ne`
+  (case-insensitive in PowerShell) rather than `-notin '.iso'`
+  because there's only one accepted extension here, unlike WimFile's
+  `.wim`/`.esd`. Inline comment explains the Rufus / file-picker
+  rationale.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell 7.4.6 tarball into `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed (no new assertions; this is parameter-binding
+  behavior, not a structural change the parser test catches —
+  matches PR #126's verification pattern).
+- Smoke tested the new gate directly in `pwsh`:
+  - `[IO.Path]::GetExtension('foo.txt') -ne '.iso'` → `True` (rejected) ✓
+  - `[IO.Path]::GetExtension('foo.ISO') -ne '.iso'` → `False` (accepted, case-insensitive) ✓
+  - `[IO.Path]::GetExtension('foo')     -ne '.iso'` → `True` (rejected) ✓
+  - `[IO.Path]::GetExtension('foo.iso') -ne '.iso'` → `False` (accepted) ✓
+- Confirmed the new block sits inside the existing top-level
+  parameter-validation region (between WimFile and MediaDir checks)
+  so it fires before any I/O, robocopy, or oscdimg work.
+
+**Risks:** Minimal. Pure parameter-validation gate, no I/O, no
+destructive code paths. Only behavior change: a previously
+silently-accepted typo now fails fast with a clear error. None of
+the in-repo `.EXAMPLE` blocks, README snippets, or
+`docs/END_USER_DEPLOY.md` instructions use a non-`.iso`
+`-OutputIso`. The new check is invisible to existing callers.
+
+**Next recommended improvement:**
+- **Wire `docs/SCRIPT_REFERENCE.md` into masterize check #1**
+  (`grep -q "$ver"`) — flagged as a follow-up by PR #94. Blocked
+  until PR #94 itself merges (current main still has `4.6.0` in
+  that doc, so the CI gate would fail immediately).
+- **Masterize check for the `-OutputIso` extension gate** — same
+  pattern as check #19/#20 (typed-confirmation strings, opt-in
+  defaults). Once this PR is in main, a masterize line like
+  `grep -qE "OutputIso.*-ne\s+'\.iso'" scripts/build_iso.ps1`
+  would catch a regression.
+- **`Show-ImageList` / `Show-ImageSelection` factoring** — still
+  unclaimed; deferred across multiple routine entries because the
+  menu render is load-bearing TUI UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

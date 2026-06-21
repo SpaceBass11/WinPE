@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`build_iso.ps1` rejects `-OutputIso` values that lack a `.iso`
+  extension.** Mirrors the `-WimFile` and (per the sibling
+  `prepare_wim.ps1 -OutputWim` follow-up) `-OutputWim` gates.
+  `oscdimg` happily produces a bootable file regardless of name, but a
+  `-OutputIso deploy.txt` typo results in an artifact Rufus and
+  Windows' file pickers won't filter in by default — surfacing as a
+  "where did my ISO go?" report instead of a parameter error. Now
+  thrown at parameter validation before the ~10-minute media stage and
+  `oscdimg` run.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

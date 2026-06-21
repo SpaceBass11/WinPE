@@ -182,6 +182,15 @@ if ([IO.Path]::GetExtension($WimFile) -notin '.wim','.esd') {
 }
 $WimFile = (Resolve-Path $WimFile).Path
 
+# Reject output extensions Rufus and Windows' file pickers won't filter
+# in by default. oscdimg writes the byte stream regardless of name, but a
+# stray -OutputIso foo.txt produces a perfectly bootable file the
+# end-user can't find in their Rufus drop-down. Same gate as -WimFile,
+# same error shape.
+if ([IO.Path]::GetExtension($OutputIso) -ne '.iso') {
+    throw "OutputIso must have a .iso extension (got: $OutputIso)"
+}
+
 if (-not (Test-Path $MediaDir -PathType Container)) {
     throw "MediaDir not found: $MediaDir`nRun build_boot_wim.ps1 first (default output: C:\WinPE_Build\media)."
 }
