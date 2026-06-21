@@ -5,6 +5,106 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `-UnattendFile` resolves to absolute path in `Start-Deployment`
+
+**Investigated:** the open Claude routine PR backlog (~80 PRs, #54-#132)
+for overlap with candidate improvements. Greps for `unattend`:
+- PR #110 (open) — wraps the post-DISM `Copy-Item` in try/catch +
+  Test-Path verification. Touches lines 1932-1939.
+- PR #107 (open) — Pester test for the XML well-formedness gate.
+- PR #79 (open) — surfaces unattend.xml staging failures (older
+  variant of #110).
+- PR #120 (open) — build_iso.ps1 build-time XML well-formedness.
+
+None of these resolve `-UnattendFile` to an absolute path. PR #124's
+own routine-log entry (merged) explicitly named this as the next
+recommended improvement: *"After PR #110 lands, apply the same
+Resolve-Path normalization to -UnattendFile so the post-DISM
+Copy-Item -Path call is robust to working-directory changes."*
+
+**Found:** `Start-Deployment`'s pre-flight block
+(`unified_winpe_deploy.ps1` lines 1732-1747) validates `-UnattendFile`
+existence and XML well-formedness but keeps the operator-supplied
+value verbatim through to the post-DISM staging block at line 1937:
+`Copy-Item -Path $UnattendFile -Destination "$pantherDir\unattend.xml" -Force`.
+
+If `-UnattendFile` is passed as a relative path (e.g. via a
+`deploy.args` file that uses `unattend.xml` without a drive prefix,
+or an operator who `cd`'d into a configs directory and ran the script
+with `-UnattendFile unattend.xml`), the pre-flight `Test-Path` and
+`[xml]Get-Content` calls correctly resolve against the CWD at script
+start. The post-DISM `Copy-Item` runs after diskpart + DISM apply.
+The CWD typically doesn't change, but it is not guaranteed across
+all WinPE builds and PnP mount transitions — and even when it
+doesn't, the success log line at line 1746 reports the unresolved
+relative path back to the operator, which is confusing.
+
+Companion scripts all already follow the absolute-path pattern:
+`build_iso.ps1` line 183 (`$WimFile = (Resolve-Path $WimFile).Path`),
+build_iso.ps1 line 202 (UnattendFile, in the builder), prepare_wim.ps1
+line 195 (SourceIso), prepare_wim.ps1 line 210 (DriverPath),
+build_boot_wim.ps1 line 117 (DeployScript), build_boot_wim.ps1
+line 150 (CctkSource). The deploy script's `-UnattendFile` was the
+last operator-supplied path to lack this normalization.
+
+PR #110 is orthogonal (different lines, different concern: copy-time
+failure handling vs path normalization). They land independently.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Start-Deployment` pre-flight block:
+  added `$UnattendFile = (Resolve-Path $UnattendFile).Path` immediately
+  after the XML well-formedness `try/catch`, before the success log
+  line. The log line now reports the resolved absolute path. Five-line
+  comment explains the rationale and links the pattern back to PR #124.
+- `CHANGELOG.md` — `### Fixed` bullet under `## Unreleased` describing
+  the gap. No version bump (defensive normalization; happy-path
+  unchanged for absolute-path callers).
+
+**Verification:**
+- `pwsh` v7.4.6 installed in-session per CLAUDE.md note (PowerShell
+  GitHub release tarball into `/opt/pwsh/`; network policy allows
+  the download).
+- Baseline before edit: `tests/test_parse.ps1` 48/0,
+  `tests/test_wim_parser.ps1` 16/0,
+  `tests/test_disk_enumeration.ps1` 34/0.
+- Post-edit: same counts (48/0, 16/0, 34/0). No new test added —
+  the change is a one-line `Resolve-Path` substitution inside an
+  existing branch already exercised by `PSParser::Tokenize` via
+  `test_parse.ps1`.
+- Structural balance: 397 `{` / 397 `}` (unchanged), 10 `#region` /
+  10 `#endregion` (unchanged), `PSParser::Tokenize` parse errors = 0.
+- Linux pwsh behavior probe of the substituted expression:
+  `Set-Location /tmp; (Resolve-Path 'foo.xml').Path` → `/tmp/foo.xml`
+  (relative input → absolute output). Same Resolve-Path API on
+  Windows yields drive-qualified absolute paths.
+
+**Risks / follow-ups:**
+- Minimal. Pure defensive normalization. The absolute-path case
+  (overwhelmingly the common one — `build_iso.ps1` always writes
+  `{DRIVE}\configs\<filename>` into the generated `deploy.args`,
+  and the canonical `configs/deploy.args.example` uses absolute
+  paths) is byte-for-byte unchanged. Only the relative-path case
+  is affected, and the effect is to make the post-DISM staging
+  path resolution unambiguous.
+- No interaction with PR #110 (different lines: pre-flight vs
+  post-DISM staging). The PRs are complementary; both should land.
+- Pester `validation-gates.Tests.ps1` leaves `$UnattendFile = $null`
+  in its `BeforeEach` reset, so the changed branch isn't reached by
+  any current Pester test — no regression risk.
+
+**Next recommended improvement:**
+- A Pester regression guard for `-UnattendFile` absolute-path
+  normalization (assert `Test-Path` is called with an absolute path,
+  or assert the post-XML-check log message contains a drive
+  qualifier). Skipped this pass to keep the change minimal and
+  to avoid colliding with PR #107's separate XML-gate Pester test.
+- `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+  listing-render code that could be factored out — flagged across
+  many prior routine entries; deferred again because the menu
+  render is load-bearing TUI UX (PR #56 already targets this).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

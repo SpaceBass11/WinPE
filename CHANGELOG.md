@@ -8,6 +8,23 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`-UnattendFile` is now resolved to its absolute path before downstream
+  use.** `Start-Deployment`'s pre-flight block validated existence and
+  XML well-formedness but kept the operator-supplied parameter value
+  verbatim. The post-DISM `Copy-Item -Path $UnattendFile -Destination
+  C:\Windows\Panther\unattend.xml` (run after diskpart + DISM apply)
+  would then re-resolve a relative path against whatever CWD held at
+  that point — typically fine, but not guaranteed across all WinPE
+  builds and PnP mount transitions. The script now calls
+  `(Resolve-Path $UnattendFile).Path` immediately after the
+  well-formedness check, mirroring the pattern already applied in
+  `Find-ImageFiles` for `-WimFile` and across the companion scripts
+  (`build_iso.ps1`, `prepare_wim.ps1`, `build_boot_wim.ps1`). The
+  log line also reports the resolved path so the operator sees what
+  was actually staged. Pure defensive normalization; absolute-path
+  callers are unchanged.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
