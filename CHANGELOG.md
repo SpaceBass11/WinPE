@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Pester suite now covers `Test-FinalWipeConfirmation`.** The typed
+  confirmation parser shared by the interactive and `-TargetDisk`
+  wipe paths previously had no behavioral coverage — only an
+  existence check in `tests/test_parse.ps1`. New `Describe
+  "Test-FinalWipeConfirmation safety parser"` in
+  `tests/validation-gates.Tests.ps1` asserts the documented accept
+  set (`ERASE`, `DELETE ALL DATA`, case-insensitive, whitespace-
+  trimmed) and reject set (empty, `$null`, truncated `ERAS`,
+  suffixed `ERASE NOW`, partial `DELETE`, bare `Y` / `YES`, and the
+  cross-gate `DESTROY SYSTEM` literal). PR #137's routine log
+  explicitly flagged this gap. Test-only change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

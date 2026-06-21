@@ -17,6 +17,10 @@
       - BitLockerPin default $null
       - Resolve-BitLockerKeyPath precedence (param > IMAGES > fallback,
         never D:\BitLocker)
+      - Test-FinalWipeConfirmation accepts only the documented
+        'ERASE' / 'DELETE ALL DATA' phrases (case-insensitive,
+        whitespace-trimmed); rejects empty, $null, partial matches,
+        suffixed variants, and bare YesNo answers
       - New-DiskpartScript refuses to mountvol /d the WIM source drive
       - Start-Deployment validation gates reject:
           - -DataDiskNumber == -TargetDisk
@@ -97,6 +101,78 @@ Describe "v4.7.0 default configuration (must stay opt-in)" {
         $val | Should -BeNullOrEmpty
     }
 
+}
+
+Describe "Test-FinalWipeConfirmation safety parser" {
+
+    # Test-FinalWipeConfirmation is the typed-confirmation parser shared by
+    # both interactive and -TargetDisk-driven wipe paths. A regression here
+    # would either accept too much (e.g. an empty Read-Host answer becoming a
+    # confirmed wipe) or too little (e.g. rejecting valid lowercase input
+    # mid-deploy, leaving the operator at a re-prompt they don't expect).
+    # The parser is tiny but safety-critical, so each documented accept /
+    # reject case gets its own assertion. PR #137's routine log explicitly
+    # flagged this gap.
+
+    It "Accepts the documented 'ERASE' literal" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE' }
+        $r | Should -BeTrue
+    }
+
+    It "Accepts the documented 'DELETE ALL DATA' literal" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE ALL DATA' }
+        $r | Should -BeTrue
+    }
+
+    It "Accepts lowercase 'erase' (case-insensitive)" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'erase' }
+        $r | Should -BeTrue
+    }
+
+    It "Accepts mixed-case 'Delete All Data' with surrounding whitespace" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText "`t Delete All Data `t" }
+        $r | Should -BeTrue
+    }
+
+    It "Rejects the empty string" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects `$null without throwing" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText $null }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects partial match 'ERAS' (truncated)" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERAS' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects suffixed 'ERASE NOW'" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE NOW' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects partial 'DELETE' (missing 'ALL DATA')" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects bare 'Y' / 'YES' (must not collapse into a yes/no prompt)" {
+        $y   = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'Y'   }
+        $yes = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'YES' }
+        $y   | Should -BeFalse
+        $yes | Should -BeFalse
+    }
+
+    It "Rejects 'DESTROY SYSTEM' (that string is for a different gate)" {
+        # DESTROY SYSTEM is the system-disk override; Test-FinalWipeConfirmation
+        # is the post-confirmation gate for the wipe itself. Crossing the two
+        # would let DESTROY SYSTEM also approve the wipe with no second prompt.
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DESTROY SYSTEM' }
+        $r | Should -BeFalse
+    }
 }
 
 Describe "Resolve-BitLockerKeyPath escrow precedence" {

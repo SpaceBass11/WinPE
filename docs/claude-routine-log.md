@@ -5,6 +5,102 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — Pester coverage for `Test-FinalWipeConfirmation`
+
+**Investigated:** 30 open routine PRs (#112-#141). Walked their bodies
+plus the `## Unreleased` section of CHANGELOG to find a verifiable
+test gap not in flight. PR #137's routine-log entry explicitly listed
+`Test-FinalWipeConfirmation` exact-match behavior under "Outstanding
+Pester gaps not picked up this pass" — labelled lower priority but
+unclaimed by any open PR.
+
+**Found:** `Test-FinalWipeConfirmation` (lines 712-717 of
+`unified_winpe_deploy.ps1`) is the typed-confirmation parser shared
+by the interactive disk-select path and the `-TargetDisk` non-`-Force`
+path. It returns `$true` for `'ERASE'` and `'DELETE ALL DATA'` after
+`Trim().ToUpperInvariant()`. The function had only an existence-check
+assertion in `tests/test_parse.ps1` (line 99 required-function list)
+and no behavioral test anywhere. A regression that:
+
+  - dropped the `.Trim()` (operator types `'ERASE '` with trailing
+    space → fail at the typed prompt mid-deploy);
+  - dropped the `.ToUpperInvariant()` (operator types `'erase'`
+    lowercase → fail);
+  - added `'Y'` / `'YES'` / `'OK'` to the accept list (collapses the
+    typed confirmation into a yes/no prompt — the entire reason this
+    parser exists, per CLAUDE.md's "multi-step disk destruction
+    confirmations are critical" rule);
+  - flipped `-in` to `-match` (now `'ERASE NOW'` slips through as a
+    substring match);
+  - returned `$true` on `$null` / empty (Read-Host returns `''` when
+    the operator just presses Enter, which would then approve the
+    wipe);
+
+would slip every existing test (existence check + Start-Deployment
+mocks) and only surface in hardware release validation.
+
+**Changed:**
+
+- `tests/validation-gates.Tests.ps1` — new `Describe
+  "Test-FinalWipeConfirmation safety parser"` block slotted between
+  the `v4.7.0 default configuration` describe and the
+  `Resolve-BitLockerKeyPath escrow precedence` describe. Eleven `It`
+  blocks cover the four documented accepts (`'ERASE'`,
+  `'DELETE ALL DATA'`, lowercase variant, mixed-case +
+  whitespace-padded variant) and seven rejects (empty, `$null`,
+  truncated `'ERAS'`, suffixed `'ERASE NOW'`, partial `'DELETE'`,
+  bare `'Y'`/`'YES'`, and the cross-gate `'DESTROY SYSTEM'`
+  literal). Header `.DESCRIPTION` covered-invariants list gains one
+  bullet so the doc stays in sync with the assertions.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the coverage extension. No version bump (test-only
+  change, no `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+
+- `pwsh` reused from prior session install (`/opt/pwsh/pwsh`,
+  PSv7.4.6) per the CLAUDE.md note.
+- File parses cleanly:
+  `[System.Management.Automation.Language.Parser]::ParseFile(...)` →
+  0 errors. `It`-block count went from 18 → 29 (+11, matching the
+  new tests). `Describe`-block count went from 4 → 5 (+1).
+- Pester suite cannot run locally (PSGallery blocked by the
+  container network policy — confirmed with a fresh
+  `Install-Module Pester` that returned "No match was found").
+  Instead, validated each assertion off-tree by loading the deploy
+  script as a `New-Module` (same `Substring(0, IndexOf('# Execute
+  main process'))` seam used by `BeforeAll`), then calling
+  `Test-FinalWipeConfirmation` via `& $mod { ... }` with each of the
+  14 inputs the new `It` blocks use. Result: 14 / 14 matched the
+  expected return value, including the `$null` case (no throw, just
+  `$false`).
+- Baselines green: `tests/test_parse.ps1` 48/0,
+  `tests/test_wim_parser.ps1` 16/0,
+  `tests/test_disk_enumeration.ps1` 34/0 — unchanged pre- and
+  post-edit (the edited file isn't in any of those three test
+  lists, but the sanity check confirms no cross-file drift).
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only change. No production code touched. No new
+  parameters. Pattern matches the existing `Resolve-BitLockerKeyPath`
+  describe block (pure-function tests via `& $script:DeployModule
+  { ... }`, no Mock surface). PSv5.1-safe syntax throughout.
+- Placement at the top of the file (between describes 1 and 2)
+  rather than the end of the `Start-Deployment validation gates`
+  describe avoids merge conflicts with PRs #137, #125, #123, which
+  all append new `It` blocks inside that describe.
+- Outstanding routine-backlog candidates not taken this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** ~30-line render
+    de-dup — load-bearing TUI, deferred across many entries.
+  - **`Set-BootConfiguration` BCDBoot exit-code → recovery-message
+    table.** Today only the generic diagnostic block fires; a
+    `switch` analogous to the DISM exit-code block in
+    `Apply-WindowsImage` would mirror the same operator-facing
+    parity. Mentioned in earlier routine entries.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
