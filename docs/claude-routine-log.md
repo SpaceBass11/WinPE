@@ -5,6 +5,98 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `docs/BITLOCKER.md` stale "placeholder PIN refused" row
+
+**Investigated:** 30 open routine PRs already covering most safety
+gates, doc cleanups, and test gaps (paths, silent mode, BitLocker,
+build_iso safety, refresh_usb validation, test_parse coverage,
+SCRIPT_REFERENCE catch-ups). Cross-referenced PR #134
+(`docs(readme): drop stale "placeholder PINs rejected" claim from
+-BitLockerPin row`) against every doc file that mentions
+`placeholder`, `ChangeMe`, or `ForbiddenBitLockerPins`. PR #134's
+diff only touches `README.md`, `CHANGELOG.md`, and the routine log.
+
+**Found:** `docs/BITLOCKER.md` line 54 carries the same stale claim
+in its "Confirmation chain" table:
+
+```
+| `-EnableBitLocker` with placeholder PIN | (refused outright) | No |
+```
+
+That refusal was the `ForbiddenBitLockerPins` content policy that
+PR #49 (commit 1fd1937) removed (along with its Pester rows and
+masterize CI check #21). The deploy script no longer carries any
+PIN-content check — `grep ForbiddenBitLockerPins`,
+`grep 'placeholder PIN'`, and `grep ChangeMe123` over
+`unified_winpe_deploy.ps1` and `scripts/build_iso.ps1` return
+only the historical `.VERSION` block at line 94 of the deploy
+script (which describes what v4.7.0 once did, kept as version
+history). The only thing the script still enforces is the
+Windows-mandated 6-20 character length window, validated at
+`Start-Deployment` lines 1691-1695.
+
+A reader trusting the BITLOCKER.md table would conclude that
+`-EnableBitLocker -BitLockerPin 'password'` would fail at deploy
+time. It does not. The deploy proceeds; first boot accepts the
+PIN; the entire fleet ends up with the same weak PIN that the
+table promised would be refused. Pure docs drift, but the kind
+that hurts.
+
+**Changed:**
+
+- `docs/BITLOCKER.md` — rewrote the stale row to describe the
+  one PIN check that actually still runs (length window 6-20).
+  Kept the row in the table rather than deleting it so the
+  surrounding `WIPE DATA` / system-disk / silent-mode rows still
+  scan cleanly as a "what does the script gate" reference.
+- `CHANGELOG.md` — added a `### Changed` bullet at the top of
+  the `## Unreleased` section calling out the parallel-to-PR-#134
+  fix and linking back to the `### Removed` bullet that
+  documented the underlying policy removal.
+
+**Verification:**
+- `pwsh` installed per CLAUDE.md instructions (PowerShell 7.4.6
+  tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0 passed
+  (no script touched; expected unchanged).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  passed (unchanged).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` →
+  34/0 passed (unchanged).
+- Read-pass of the rewritten table row against the actual
+  validation at `unified_winpe_deploy.ps1:1691-1695` — the row
+  now matches the code one-to-one (Length < 6 or Length > 20
+  returns `$false`, no `-Force` override anywhere in the gate).
+- Re-`grep` of all `.md` files for `placeholder PIN`,
+  `ChangeMe123`, `ForbiddenBitLockerPins` after the edit — only
+  the historical `.VERSION` block reference remains, plus the
+  `### Removed` CHANGELOG bullet that documents the historical
+  removal. No other doc claims the gate still exists.
+
+**Risks / follow-ups:**
+- Minimal. Pure docs change. No code touched. No CI behavior
+  change. No new claims added — the new row describes a gate
+  that's been in the code since v4.7.0 (length window) and is
+  already covered by `validation-gates.Tests.ps1` "Rejects
+  -EnableBitLocker -BitLockerPin five-char value below length
+  floor".
+- Open routine PRs largely cover the remaining low-hanging
+  safety, test, and docs gaps. Future passes worth considering:
+  - **`-WipeDisks` is silently ignored in non-silent mode**
+    (line 1389 of the deploy script: the silent branch reads
+    `$WipeDisks`, the interactive branch prompts via
+    `Read-Host`). Operators who pass `-WipeDisks "1,2"` without
+    `-Silent` would see the value disappear without a warning.
+    Either honor it as a preselection in interactive mode or
+    log a "ignored without -Silent" warning at startup. Behavior
+    change either way; not a bug fix.
+  - **`-MinImageSizeMB` accepts negative values.** No
+    `[ValidateRange(0, [int]::MaxValue)]`. Negative values would
+    let through 0-byte files. Tiny safety fix; behavior change
+    from "silently broken" to "rejects with parameter error."
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
