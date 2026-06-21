@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — Docs catch up to `tests/test_disk_enumeration.ps1`
+
+**Investigated:** The 20 currently open Claude routine PRs (#118-#137)
+to avoid duplicating in-flight work. Then `grep -rn` for the three
+fixture-test filenames across `CLAUDE.md`, `AGENTS.md`, `README.md`,
+`CONTRIBUTING.md`, and `.github/workflows/ci.yml` to find every place
+the test inventory is documented.
+
+**Found:** `tests/test_disk_enumeration.ps1` was added by PR #50 (merged
+65d71e8) and is wired into the CI `syntax` job in
+`.github/workflows/ci.yml:34`, but the agent-facing docs were never
+updated to mention it:
+
+- `CLAUDE.md` Running Checks section opens with "The repo has **three**
+  test files" — there are four. The table lists `test_parse.ps1`,
+  `test_wim_parser.ps1`, and the Pester suite but not
+  `test_disk_enumeration.ps1`. The bash block at line 119 only invokes
+  the first two.
+- `CLAUDE.md` Key Files table lists `test_parse.ps1` but not the two
+  fixture tests.
+- `AGENTS.md` "Required validation before pushing" block lists
+  `test_parse.ps1` and `test_wim_parser.ps1` only.
+- `README.md` Key Files table lists `test_parse.ps1` only.
+
+Net effect: a coding agent following AGENTS.md or CLAUDE.md verbatim
+runs fewer tests locally than CI runs on push. Same documentation-drift
+class as the 2026-05-24 `build_iso.ps1` / `first-login.ps1` entry —
+new test files in the repo, doc inventory not updated.
+
+Cross-checked the 20 open PRs: PRs #134 and #136 are docs fixes but
+both narrowly target the BitLocker PIN section. None of #118-#137
+touches the test-inventory documentation.
+
+**Changed:**
+- `CLAUDE.md` — Key Files table now lists `test_wim_parser.ps1` and
+  `test_disk_enumeration.ps1`. Running Checks section opens with
+  "four test files", the table gains a `test_disk_enumeration.ps1`
+  row, and the bash block invokes all three local-runnable tests.
+- `AGENTS.md` — Required-validation block adds the
+  `test_disk_enumeration.ps1` `pwsh` invocation.
+- `README.md` — Key Files table at line 413 gains rows for
+  `test_wim_parser.ps1` and `test_disk_enumeration.ps1`.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet at the top
+  describing the doc catch-up. No version bump (docs-only).
+
+`CONTRIBUTING.md` was intentionally NOT touched — `CLAUDE.md`'s
+"Stable Files (Skip by Default)" section lists it as
+do-not-modify-without-explicit-request, and its existing line 22
+phrasing ("Syntax parse") already reads as a quick-start example
+rather than a complete test inventory.
+
+**Verification:**
+- Docs-only change; no PowerShell touched. Files edited:
+  `CLAUDE.md`, `AGENTS.md`, `README.md`, `CHANGELOG.md`,
+  `docs/claude-routine-log.md`.
+- Confirmed the new `pwsh` invocations in CLAUDE.md and AGENTS.md
+  exactly match `.github/workflows/ci.yml:34`
+  (`./tests/test_disk_enumeration.ps1`).
+- Masterize CI version-fence (Phase 1A check #1) unaffected —
+  `$Script:Config.ScriptVersion`, the `.VERSION` block, the CLAUDE.md
+  `(v4.X.Y)` field, CHANGELOG, and the README footer all stay on
+  `4.7.1`.
+- Anchor / link integrity: no new internal anchors or links added;
+  table-row additions only.
+
+**Risks / follow-ups:**
+- Minimal. Pure documentation drift fix. No production code, no
+  test code, no CI workflow changed.
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — flagged across
+    every recent routine entry; deferred again because the menu
+    render is load-bearing TUI UX.
+
+**Next recommended improvement:** When PR #128
+(`docs(reference): catch SCRIPT_REFERENCE.md up with v4.7.x
+BitLocker / data-disk`) merges, check whether
+`docs/SCRIPT_REFERENCE.md` mentions the new fixture tests in its
+"Running Checks" prose — if not, propagate the same catch-up there.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

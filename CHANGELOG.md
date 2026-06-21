@@ -8,6 +8,16 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Docs now list every locally-runnable test.** `tests/test_disk_enumeration.ps1`
+  was added by PR #50 but never propagated into the agent-facing
+  documentation. `CLAUDE.md` (Key Files + Running Checks tables and
+  the `pwsh` invocation block), `AGENTS.md` (required-validation
+  snippet), and `README.md` (Key Files table) now list all three
+  fixture tests so a coding agent following the docs runs the same
+  suite that CI runs. Same drift class as the earlier
+  build_iso/first-login update on 2026-05-24. Docs-only.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
