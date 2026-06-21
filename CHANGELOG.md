@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` and `scripts/build_boot_wim.ps1`
+  `-Clean` now refuses a drive- or UNC-share-root `-WorkDir`.**
+  Both scripts run `Remove-Item $WorkDir -Recurse -Force` when
+  `-Clean` is set. Previously, a typo like `-WorkDir C: -Clean`
+  (missing subdirectory, accidental drive root) would attempt to
+  wipe the whole drive before any other work. Now both scripts
+  throw early on `^[A-Za-z]:[\\/]?$` or `^\\server\share[\]?$`
+  patterns and exit before any destructive call, matching the
+  deploy script's `$env:SystemDrive` guard pattern on `mountvol /d`.
+  `tests/test_parse.ps1` gains one invariant assertion per script
+  so a regression that drops either guard fails the syntax suite
+  immediately. Default `-WorkDir` values (`C:\WinPE_Build`,
+  `C:\WinPE_ISOBuild`) and any nested operator path are unaffected.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

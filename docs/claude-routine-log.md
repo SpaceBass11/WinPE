@@ -5,6 +5,104 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `build_iso.ps1` / `build_boot_wim.ps1` `-Clean` WorkDir root guard
+
+**Investigated:** open PRs (#99-#128, ~30 routine increments covering
+build_iso safety, prepare_wim extension checks, BitLocker docs,
+masterize CI invariants, Pester coverage, deploy.args drop-in fix).
+Cross-referenced PR #106 (which added `$env:SystemDrive` protection to
+`build_boot_wim.ps1 -UsbDrive`) against the rest of each builder's
+destructive operations to find the next gap with the same shape.
+
+**Found:** both `scripts/build_iso.ps1` (line 232) and
+`scripts/build_boot_wim.ps1` (line 181) run
+
+    Remove-Item $WorkDir -Recurse -Force
+
+when `-Clean` is set. The validation blocks at the top of each script
+do not reject a drive- or UNC-share-root `-WorkDir`. A typo like
+`-WorkDir C: -Clean` (intending `-WorkDir C:\WinPE_Build`) would
+attempt to wipe the whole C: drive — same blast-radius class as the
+PR #106 `-UsbDrive C:` case, but on a wider parameter that defaults
+to a different value per builder and that operators can plausibly
+typo when running both scripts back-to-back. Likelihood is lower than
+the `-UsbDrive` case (default WorkDir is safe; user must explicitly
+override AND pass `-Clean`), but the blast radius is higher (whole
+drive, not just WinPE boot files).
+
+No open PR covers this. PR #106 covered the same shape for
+`-UsbDrive` only and didn't extend to `-WorkDir`. The deploy
+script's `mountvol /d` already guards `$env:SystemDrive` per
+CLAUDE.md mandate; this brings the builders' destructive paths to
+parity.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a single `if ($Clean -and ...)`
+  guard in the input-validation block (before any file copy or
+  Remove-Item) that throws when `-WorkDir` matches a literal drive
+  root (`^[A-Za-z]:[\\/]?$`) or UNC share root
+  (`^\\\\[^\\]+\\[^\\]+\\?$`). Catches `C:`, `C:\`, `c:/`, `D:\`,
+  `\\server\share`, `\\server\share\` — all the dominant typo
+  patterns.
+- `scripts/build_boot_wim.ps1` — identical guard added just before
+  the existing `if ($Clean -and (Test-Path $WorkDir))` destructive
+  block. Same regex, same throw message shape.
+- `tests/test_parse.ps1` Test 9 (builder) and Test 12 (ISO builder)
+  — added one invariant assertion each that matches the literal
+  guard expression (`\$Clean\s+-and\s+\(\$WorkDir\s+-match.*\^\[A-Za-z\]:`)
+  so a refactor that drops either guard fails the syntax suite
+  locally and in CI's `syntax` job.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the safety hardening. No version bump (additive validation, no
+  behavior change on the supported path).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md bootstrap
+  recipe (GitHub-Releases tarball into `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed before edits.
+- Post-edit: 50 passed / 0 failed (+1 builder invariant, +1 ISO
+  builder invariant; both new assertions land in the [PASS] column).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged (no contamination).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged.
+- Direct semantic regex test (11 cases, `/tmp/test_regex.ps1`):
+  catches `C:`, `C:\`, `C:/`, `c:\`, `D:\`, `\\server\share`,
+  `\\server\share\`; does not catch `C:\WinPE_Build`,
+  `C:\WinPE_Build\sub`, `C:\Windows`, `\\server\share\sub`.
+  Behavior is exactly the intended drive-root recognizer with no
+  false positives on supported configurations.
+- Pester suite skipped — CI-only per CLAUDE.md, and the change
+  touches no module body or Pester fixture. No validation-gates
+  invariant is at risk.
+
+**Risks / follow-ups:**
+- Minimal. Single-line additive validation in each builder's
+  parameter-checking section. Default `-WorkDir` values
+  (`C:\WinPE_Build`, `C:\WinPE_ISOBuild`) and any nested operator
+  path are unaffected.
+- Doesn't catch every dangerous case: `-WorkDir C:\Windows -Clean`
+  would still attempt to wipe the live system directory (most files
+  locked, but damage possible). Considered also rejecting
+  `$env:SystemRoot`, but that risks false-positives on hosts where
+  `SystemRoot` is unusual and the dominant typo is the drive root.
+  Could be a follow-up if a real incident report justifies it.
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **Defense-in-depth `::` skip in `startnet.cmd`** — flagged in
+    the 2026-06-20 entry (PR #109's follow-up). Lower priority now
+    that the example file fix is in flight, but still worth doing
+    to tolerate operators who edit `deploy.args` without removing
+    a banner comment. Would touch `build_boot_wim.ps1` startnet
+    block and masterize check #24.
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code that could be factored out
+    (deferred across many entries because the menu render is
+    load-bearing TUI UX).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

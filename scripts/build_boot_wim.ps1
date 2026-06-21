@@ -169,6 +169,14 @@ if ($CctkSource) {
     }
 }
 
+# Refuse -Clean against a drive or UNC share root. The Remove-Item below
+# runs with -Recurse -Force; a typo like -WorkDir C: combined with -Clean
+# would attempt to wipe the entire drive. Caught before any work, matching
+# the deploy script's $env:SystemDrive guard pattern on mountvol /d.
+if ($Clean -and ($WorkDir -match '^[A-Za-z]:[\\/]?$' -or $WorkDir -match '^\\\\[^\\]+\\[^\\]+\\?$')) {
+    throw "-WorkDir '$WorkDir' is a drive or UNC share root - refuse to -Clean (Remove-Item would wipe the entire drive/share)."
+}
+
 # Fresh build if requested
 if ($Clean -and (Test-Path $WorkDir)) {
     Write-Step "Removing existing workspace $WorkDir"

@@ -136,6 +136,13 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # -Clean must refuse to Remove-Item a drive or UNC share root. Without
+    # this guard, a typo like '-WorkDir C: -Clean' would attempt to wipe
+    # the whole drive. Matches the deploy script's $env:SystemDrive guard
+    # pattern on mountvol /d.
+    Write-Result -Test 'Builder: -Clean guarded against drive/UNC root WorkDir' `
+        -Pass ($bc -match '\$Clean\s+-and\s+\(\$WorkDir\s+-match.*\^\[A-Za-z\]:')
 }
 
 # Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)
@@ -146,9 +153,16 @@ Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 
-# Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
+# Test 12: build_iso.ps1 — syntax + WorkDir root guard
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
+$isoOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($isoOk) {
+    $ic = Get-Content $buildIsoPath -Raw
+    # -Clean must refuse to Remove-Item a drive or UNC share root. Without
+    # this guard, '-WorkDir C: -Clean' would attempt to wipe the whole drive.
+    Write-Result -Test 'ISO builder: -Clean guarded against drive/UNC root WorkDir' `
+        -Pass ($ic -match '\$Clean\s+-and\s+\(\$WorkDir\s+-match.*\^\[A-Za-z\]:')
+}
 
 # Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan
