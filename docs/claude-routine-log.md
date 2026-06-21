@@ -5,6 +5,100 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `-BitLockerKeyPath` absolute-path validation
+
+**Investigated:** the open Claude routine PR backlog (~30 PRs,
+#109-#138) for overlap with candidate improvements. Greps for
+`BitLockerKeyPath`, `KeyPath`, and `Resolve-Path` confirmed nothing
+in flight on the override-path format. PR #133 (`-UnattendFile`
+absolute path) and PR #124 (`-WimFile` absolute path) already
+applied the same defensive-normalization pattern to the other two
+operator-supplied paths in the deploy script, leaving
+`-BitLockerKeyPath` as the last one without a guard. Crucially, the
+BitLockerKeyPath case is *worse* than the other two: the value isn't
+just consumed by the deploy script — it is embedded literally into
+`bitlocker-setup.ps1`, which runs on the *deployed* machine at first
+boot. `Resolve-Path` at deploy time would resolve against the WinPE
+CWD, which is the wrong machine entirely. So the right fix is
+format validation, not path resolution.
+
+**Found:** `Resolve-BitLockerKeyPath` (lines 1471-1499 of
+`unified_winpe_deploy.ps1`) returns `Path = $BitLockerKeyPath` verbatim
+whenever the operator supplies the override. That value flows into
+`Initialize-BitLockerSetup` (line 1508), is escaped against `'`
+collisions only (line 1532), and then baked into a here-string at
+line 1556: `$recoveryDir = '<path>'`. The staged script at first
+boot then calls `Add-BitLockerKeyProtector -RecoveryKeyPath
+$recoveryDir`. If the operator passed `-BitLockerKeyPath "keys"`
+(or `.\keys`, or `C:keys` which is drive-relative on Windows), the
+first-boot script would either fail with an opaque error or write
+to an unpredictable directory — and the operator wouldn't know
+until they tried to recover the volume. The docs already named the
+two correct forms ("a UNC share … or a fixed-disk path"), so this
+was a documented contract the script wasn't enforcing.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Start-Deployment` pre-flight: after
+  the existing BitLockerPin validation block, added a gate that
+  rejects `-BitLockerKeyPath` unless it matches `^([A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])`
+  (drive-qualified or UNC). Inactive when `-EnableBitLocker` is off
+  or `-BitLockerKeyPath` is unset. Five-line comment explains why
+  Resolve-Path is not the right fix here. Parameter doc string
+  updated to spell out the absolute-path requirement and call out
+  the silent-misplacement risk.
+- `tests/validation-gates.Tests.ps1` — four new Pester cases:
+  rejection of plain relative (`keys`), rejection of drive-relative
+  (`C:keys`), acceptance of UNC (`\\fileserver\BitLockerKeys`), and
+  acceptance of drive-qualified (`C:\BitLockerKeys`). Each case
+  pivots on the existing `BeforeEach` mocks; the accept cases
+  short-circuit through the mocks and confirm the gate doesn't
+  trip on a well-formed value.
+- `CHANGELOG.md` — `### Changed (safety)` bullet at the top of
+  `## Unreleased` describing the gate, the rationale, and the test
+  coverage. No version bump (defensive validation; happy-path
+  callers — UNC or `C:\…` — see no behavior change).
+
+**Verification:**
+- `pwsh` v7.4.6 installed in-session per CLAUDE.md note (network
+  policy allows the PowerShell/Releases tarball download).
+- Baseline before edits: `test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0.
+- Post-edit: same counts (48/0, 16/0, 34/0). The new gate sits
+  inside an existing branch, so `test_parse.ps1`'s tokenize +
+  function-presence checks cover it without new assertions.
+- Regex probe: ran the literal pattern through 10 inputs (positive
+  and negative) on the Linux pwsh; all matched the expected accept
+  / reject outcome.
+- End-to-end probe: loaded `unified_winpe_deploy.ps1` as a dynamic
+  module (the same `# Execute main process` marker trick the Pester
+  suite uses), redefined `Test-Administrator` / `Initialize-SystemPaths`
+  / `Write-Log` inside the module scope, then ran `Start-Deployment`
+  with two key-path inputs. `keys` → `result=$false` with the
+  expected `BitLockerKeyPath must be an absolute` log line.
+  `\\fs\share\keys` → `result=$true`, no gate-trip log line.
+- Pester suite itself runs in CI only (PSGallery is blocked from
+  the web container) — the new Pester cases follow the existing
+  pattern in the file and parse clean under `PSParser::Tokenize`.
+
+**Risks / follow-ups:**
+- Minimal. The accepted forms cover both documented use cases
+  (UNC + drive-qualified). The gate is inactive when
+  `-EnableBitLocker` is off (the default), so existing non-BitLocker
+  flows are byte-for-byte unchanged.
+- No interaction with the open PRs that touch BitLocker docs or
+  PIN behavior (#121, #128, #132, #134, #136, #137); they don't
+  touch this code path.
+- Follow-up candidates from prior routine entries still open:
+  - **`Show-ImageList` / `Show-ImageSelection`** code factoring
+    (~30 lines of duplicate listing-render code, deferred again
+    for UX risk).
+  - **`Test-FinalWipeConfirmation`** parser test paralleling the
+    `Get-WimImageInfo` and `Get-SystemDisks` fixtures — the only
+    typed-confirmation parser without a regression guard, though
+    much simpler so the risk is lower.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

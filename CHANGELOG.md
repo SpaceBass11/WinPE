@@ -8,6 +8,22 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Changed (safety)
+- **`-BitLockerKeyPath` now rejects relative and drive-relative paths
+  pre-flight.** The override is embedded verbatim into the staged
+  `bitlocker-setup.ps1` that runs on the deployed machine at first
+  boot, where it must resolve unambiguously without relying on CWD.
+  Previously the value was passed straight through, so a relative
+  input (`keys`, `.\keys`, `C:keys`) would silently land somewhere
+  unintended at first boot and the recovery key would be unrecoverable.
+  `Start-Deployment` now requires the value to match either a
+  drive-qualified prefix (`C:\` or `C:/`) or a UNC prefix (`\\host\share\`);
+  anything else hard-fails before any destructive op runs. Doc string
+  for the parameter updated to spell out the requirement. New Pester
+  cases in `tests/validation-gates.Tests.ps1` cover the relative-path
+  rejection, the drive-relative `C:keys` rejection, and the UNC +
+  drive-qualified accept paths.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

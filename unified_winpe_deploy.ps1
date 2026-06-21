@@ -68,7 +68,11 @@
 .PARAMETER BitLockerKeyPath
     Override the default IMAGES-partition escrow path for recovery keys.
     Use a UNC share (e.g. \\fileserver\BitLockerKeys) or a fixed-disk
-    path on the deployed machine for centralized escrow.
+    path on the deployed machine (e.g. C:\BitLockerKeys) for centralized
+    escrow. The value is embedded verbatim into the staged first-boot
+    setup script and must be absolute (drive-qualified or UNC) - a
+    relative path would resolve against the first-boot CWD and silently
+    land somewhere unintended, so the script rejects it pre-flight.
 
     Default behavior: the staged first-boot script looks up the IMAGES
     partition by volume label (Get-Volume -FileSystemLabel 'IMAGES')
@@ -1695,6 +1699,21 @@ function Start-Deployment {
     }
     if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
         Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
+    }
+
+    # Validate -BitLockerKeyPath format. The value is embedded verbatim into
+    # the staged bitlocker-setup.ps1 that runs on the deployed machine at
+    # first boot, where it has to resolve unambiguously without depending on
+    # CWD. Accept drive-qualified (e.g. C:\BitLockerKeys, C:/BitLockerKeys)
+    # or UNC (e.g. \\fileserver\BitLockerKeys) paths only; reject relative
+    # paths and drive-relative forms like 'C:' or 'C:keys' that would
+    # silently land somewhere the operator did not intend.
+    if ($Script:Config.EnableBitLocker -and $BitLockerKeyPath -and
+        $BitLockerKeyPath -notmatch '^([A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])') {
+        Write-Log "-BitLockerKeyPath must be an absolute path: drive-qualified (e.g. C:\BitLockerKeys) or UNC (e.g. \\fileserver\BitLockerKeys)" -Level Error
+        Write-Log "  Got: '$BitLockerKeyPath'" -Level Error
+        Write-Log "  The value is embedded into the first-boot setup script and must resolve without relying on CWD" -Level Info
+        return $false
     }
 
     # Silent mode is intended for unattended runs and must not trigger prompts

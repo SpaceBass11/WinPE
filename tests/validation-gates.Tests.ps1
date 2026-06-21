@@ -354,6 +354,77 @@ Describe "Start-Deployment validation gates" {
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
     }
 
+    It "Rejects -EnableBitLocker -BitLockerKeyPath with a relative path" {
+        # The override is embedded literally into the staged first-boot script.
+        # A relative value would resolve against the deployed OS's CWD and
+        # silently land somewhere unintended - reject pre-flight.
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $true
+            $BitLockerPin     = 'goodpin42'
+            $BitLockerKeyPath = 'keys'    # relative - the gate
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerKeyPath must be an absolute' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+    }
+
+    It "Rejects -EnableBitLocker -BitLockerKeyPath with a drive-relative form (C:keys)" {
+        # 'C:keys' is drive-relative on Windows - resolves against the CWD of
+        # C: at first boot. Same silent-misplacement footgun as a fully
+        # relative path.
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $true
+            $BitLockerPin     = 'goodpin42'
+            $BitLockerKeyPath = 'C:keys'
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerKeyPath must be an absolute' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It "Accepts -EnableBitLocker -BitLockerKeyPath with a UNC path" {
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $true
+            $BitLockerPin     = 'goodpin42'
+            $BitLockerKeyPath = '\\fileserver\BitLockerKeys'
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerKeyPath must be an absolute' }) | Should -BeNullOrEmpty
+    }
+
+    It "Accepts -EnableBitLocker -BitLockerKeyPath with a drive-qualified path" {
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $true
+            $BitLockerPin     = 'goodpin42'
+            $BitLockerKeyPath = 'C:\BitLockerKeys'
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerKeyPath must be an absolute' }) | Should -BeNullOrEmpty
+    }
+
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
         $result = & $script:DeployModule {
             $WimFile        = 'I:\images\Win.wim'
