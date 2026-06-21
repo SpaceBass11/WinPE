@@ -146,9 +146,22 @@ Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 
-# Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
+# Test 12: build_iso.ps1 — syntax + console-redaction invariant
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
+$buildIsoOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($buildIsoOk) {
+    $ic = Get-Content $buildIsoPath -Raw
+
+    # The deploy.args echo to the build console must redact -BitLockerPin so
+    # the PIN does not leak into terminal scrollback, CI logs, or screenshots.
+    # Parallels PR #42 (WinPE-side startnet redaction). The deploy.args file
+    # itself still holds the real PIN - the USB/ISO is the trust boundary.
+    Write-Result -Test 'ISO builder: deploy.args console echo redacts BitLockerPin' `
+        -Pass ($ic -match '-BitLockerPin\\s\+"\)\[\^"\]\*\(".*\*\*\*REDACTED\*\*\*' -or
+               $ic -match 'BitLockerPin.*REDACTED')
+    Write-Result -Test 'ISO builder: console echo uses $argsLineDisplay (not raw $argsLine)' `
+        -Pass ($ic -match 'Write-Host\s+"\s*\$argsLineDisplay')
+}
 
 # Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan

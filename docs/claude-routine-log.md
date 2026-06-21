@@ -5,6 +5,78 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `build_iso.ps1` redact `-BitLockerPin` in build-console echo
+
+**Investigated:** the 30 in-flight Claude routine PRs (#101-#130) to
+find a gap none of them was filling, then walked the deploy + build
+pipeline looking for places a BitLocker PIN could leak. The deploy
+side already documents the USB/ISO as the trust boundary (the PIN
+ends up plaintext in `deploy.args` and downstream in
+`bitlocker-setup.ps1` on C:), and PR #42 already redacted the
+WinPE-side `startnet.cmd` console echo of `deploy.args` so the PIN
+does not land in WinPE terminal scrollback.
+
+**Found:** the build-side parallel was missing.
+`scripts/build_iso.ps1` line 306 echoed the entire generated
+`$argsLine` (including `-BitLockerPin "..."`) to the build
+operator's console under `[DarkGray]` after writing the file. That
+puts the PIN into terminal scrollback, CI logs, build screenshots,
+and any operator transcript — beyond the documented USB trust
+boundary. None of the 30 open PRs touched this; the closest
+neighbours (#127 `.iso` ext, #120 unattend XML, #117/#128 docs,
+#116/#114/#113 silent-mode gates) all hit other concerns.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added an `$argsLineDisplay` computed
+  immediately before the `Write-Host`. When `$BitLockerPin` is set,
+  the displayed copy substitutes `***REDACTED***` for the value
+  inside the `-BitLockerPin "..."` segment via a regex that handles
+  the only quoting shape the generator emits. The file written to
+  the ISO is unchanged.
+- `tests/test_parse.ps1` — Test 12 now pins two invariants on
+  `build_iso.ps1`: that the redaction marker / regex is present,
+  and that the `Write-Host` echo references `$argsLineDisplay`
+  rather than the raw `$argsLine`. Catches a future regression
+  locally instead of waiting on operator scrollback.
+- `CHANGELOG.md` — `## Unreleased / ### Security` bullet describing
+  the change and explicitly noting that the file itself still
+  contains the real PIN (so the USB/trust-boundary framing in
+  `docs/DEPLOY_ARGS.md` is not undermined).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per CLAUDE.md.
+- Baseline pre-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1`
+  → 48 passed / 0 failed.
+- Post-edit: 50 passed / 0 failed (the +2 are the two new
+  redaction invariants on Test 12). `tests/test_wim_parser.ps1`
+  unchanged at 16 / 0.
+- Behaviour spot-check in a real `pwsh` session against four
+  shapes of `$argsLine`: a normal PIN, a PIN with regex special
+  chars (`\$#.`), an empty-string PIN (cannot happen in practice
+  but verifies the regex doesn't crash), and an args line with
+  no `-BitLockerPin` at all. All four redact (or pass through)
+  cleanly.
+
+**Risks / follow-ups:**
+- Minimal. No destructive code paths touched; the deploy.args
+  file on disk is identical; only the build operator's console
+  output changes. The PIN itself is still plaintext on the USB
+  per documented design.
+- The deploy script's `Read-Host` PIN prompt at line 1684 is
+  intentionally **not** `-AsSecureString` (the function-level
+  comment at 1675-1681 explains why) — out of scope.
+- Open backlog from prior entries that I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` ~30 lines of shared
+    listing code that could factor out — deferred again because
+    the menu render is load-bearing TUI UX and gives no testable
+    win.
+  - `Set-BootConfiguration` exit-code recovery table parity with
+    `Apply-WindowsImage` was largely done in the 2026-05-17
+    BCDBoot diagnostics pass; revisit only if a real BCDBoot
+    failure surfaces a new code.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

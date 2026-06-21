@@ -8,6 +8,16 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Security
+- **`scripts/build_iso.ps1` redacts `-BitLockerPin` in the build-console
+  echo of the generated `deploy.args`.** Parallels PR #42, which
+  redacted the WinPE-side startnet echo. The file written to the ISO
+  still contains the real PIN — the USB/ISO is the trust boundary —
+  but the build operator's terminal scrollback, CI logs, and any
+  screenshots of the build no longer carry the PIN. New parse-test
+  invariants in `tests/test_parse.ps1` pin the redaction in place so
+  a future edit can't silently regress it.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

@@ -303,7 +303,15 @@ if ($Interactive) {
 
 Set-Content -Path $deployArgsPath -Value $argsLine -Encoding ASCII -Force
 Write-Ok "deploy.args written"
-Write-Host "  $argsLine" -ForegroundColor DarkGray
+# Console echo: redact secrets so the PIN does not land in terminal scrollback,
+# CI logs, or build screenshots. The file written above still contains the real
+# value - the USB/ISO remains the trust boundary, per docs/DEPLOY_ARGS.md.
+# Parallels PR #42 (WinPE-side startnet redaction).
+$argsLineDisplay = $argsLine
+if ($BitLockerPin) {
+    $argsLineDisplay = $argsLineDisplay -replace '(-BitLockerPin\s+")[^"]*(")', '${1}***REDACTED***${2}'
+}
+Write-Host "  $argsLineDisplay" -ForegroundColor DarkGray
 
 # --- Run oscdimg ---
 
