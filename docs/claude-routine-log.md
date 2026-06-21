@@ -5,6 +5,79 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `docs/SCRIPT_REFERENCE.md` v4.7.x doc-drift cleanup
+
+**Investigated:** The open routine PR backlog (#98-#127, ~30 PRs) to
+avoid duplicating in-flight work, then went hunting for high-value
+gaps not already covered. `grep -nE
+"DataDiskNumber|EnableBitLocker|BitLockerPin|BitLockerKeyPath"
+docs/SCRIPT_REFERENCE.md` returned nothing, despite all four being
+v4.7.0 public parameters listed in the README parameter table since
+PR #34. The Configuration code block still had `ScriptVersion = '4.6.0'`
+baked in. The Functions tables were missing `Test-FinalWipeConfirmation`
+(v4.7.0), `Resolve-BitLockerKeyPath` (v4.7.0/v4.7.1), and
+`Initialize-BitLockerSetup` (v4.7.0). The Safety Chain diagram
+described pre-v4.7 behavior (no `-DataDiskNumber` validation step, no
+`WIPE DATA` gate, no BitLocker staging step, no silent-mode argument
+validation gates). PR #117 adds a `build_iso.ps1` section but doesn't
+touch any of these; PR #104 fixes a stale BitLocker doc row in a
+different doc; PRs #103/#111 touch CCTK / UNATTEND docs respectively.
+None overlap.
+
+The "Complete technical reference" claim in the doc lede was actively
+misleading — an admin reading SCRIPT_REFERENCE.md to learn how to
+enable BitLocker would not know any of the relevant flags existed.
+
+**Changed:**
+- `docs/SCRIPT_REFERENCE.md`:
+  - Lede rewritten to reference all `scripts/` companions instead of
+    naming three (would drift again the next time a script is added).
+  - Added Parameters subsections for `-DataDiskNumber`,
+    `-EnableBitLocker`, `-BitLockerPin`, `-BitLockerKeyPath` with the
+    same precedence/validation context the script enforces at runtime.
+  - Updated the Configuration code block to v4.7.1 with all four
+    BitLocker / data-disk fields included.
+  - Added `Test-FinalWipeConfirmation` row to Disk Management.
+  - Added a new "BitLocker / Data Disk Staging" function section with
+    `Resolve-BitLockerKeyPath` and `Initialize-BitLockerSetup`.
+  - Updated the Safety Chain diagram to include silent-mode validation,
+    BitLocker PIN length window, `-DataDiskNumber` validation,
+    `WIPE DATA` confirmation, the `D:` data-disk format pass, the
+    `New-DiskpartScript` WIM-source-drive protection, and the
+    BitLocker first-boot staging step.
+  - Refreshed the `New-DiskpartScript` row to mention `D:` letter
+    freeing and the source-drive guard.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing the
+  doc-drift cleanup. No version bump (doc-only, no
+  `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell/Releases v7.4.6 Linux tarball into `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed
+  / 0 failed before and after edits. (Doc-only change shouldn't move
+  the count — and didn't.)
+- The new parameter / function / chain text describes behavior the
+  v4.7.1 script already implements; grep-verified every claim against
+  `unified_winpe_deploy.ps1` and the Pester suite at
+  `tests/validation-gates.Tests.ps1` before writing it. No drift
+  manufactured between docs and code.
+
+**Risks / follow-ups:**
+- Minimal. Doc-only. No `.ps1` touched. No new dependencies.
+- Outstanding routine-backlog candidates worth picking up in future
+  passes (after the in-flight PR queue drains):
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — flagged across
+    six prior routine entries but deferred because the menu render is
+    load-bearing UX.
+  - `refresh_usb.ps1` `-OutputName` doesn't strip `.wim`/`.esd` from
+    the user-supplied basename, so `-OutputName 'Win11.wim'` produces
+    `Win11.wim.wim`. Minor UX, low-risk fix; the doc says "no
+    extension" but doesn't enforce it.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

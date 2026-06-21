@@ -9,6 +9,20 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/SCRIPT_REFERENCE.md` caught up with v4.7.x.** The Configuration
+  block had `ScriptVersion = '4.6.0'` baked in and was missing the four
+  BitLocker / data-disk fields (`BitLockerPin`, `BitLockerKeyDir`,
+  `DataDiskNumber`, `EnableBitLocker`). The Parameters section was
+  missing all four v4.7.0 CLI flags (`-DataDiskNumber`,
+  `-EnableBitLocker`, `-BitLockerPin`, `-BitLockerKeyPath`). The
+  Functions tables were missing the three v4.6/4.7 functions
+  (`Test-FinalWipeConfirmation`, `Resolve-BitLockerKeyPath`,
+  `Initialize-BitLockerSetup`). The Safety Chain diagram was missing
+  the silent-mode validation gates, the `-DataDiskNumber` validation
+  step, the WIPE DATA confirmation, the `D:` data-disk format pass,
+  and the BitLocker first-boot staging step. Doc-only — no code
+  touched. The README parameter table already covered the BitLocker
+  flags; SCRIPT_REFERENCE.md just hadn't been updated since v4.6.0.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
