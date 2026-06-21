@@ -5,6 +5,66 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — README BitLocker PIN row: drop stale "placeholder rejected" claim
+
+**Investigated:** 30 open Claude routine PRs (#104-#133) and what
+each touches, to avoid duplicate work. Then a `grep -rn` for
+"placeholder PIN" and "ChangeMe123" across the repo to find every
+spot still claiming the deploy script rejects forbidden PIN values
+— a policy that PR #49 (already merged) removed in favor of just
+the 6-20 character Windows window.
+
+**Found:** Three stale references, two of which are already in
+flight:
+- `docs/BITLOCKER.md:54` — covered by open PR #104.
+- `unified_winpe_deploy.ps1:94` — sits inside the `.VERSION` block,
+  describes what v4.7.0 *historically* added. The statement was
+  true when v4.7.0 was released, so leaving it as a versioned
+  historical note (rather than rewriting history) is the
+  conservative call.
+- `README.md:359` — the `-BitLockerPin` row in the Parameters
+  table still asserts "Placeholder PINs are rejected at runtime."
+  **No open PR touches the README.** PR #128 covers
+  `SCRIPT_REFERENCE.md`, PR #104 covers `docs/BITLOCKER.md`, but
+  the user-facing README at the repo root is independently stale.
+  The same README's BitLocker guardrails section (line 397)
+  already explains current behavior correctly ("PIN content is
+  the admin's call"), so the table row directly contradicts the
+  prose two screens down — easy to ship a confusing user message.
+
+**Changed:**
+- `README.md` — Parameters table `-BitLockerPin` row rewritten to
+  mirror the guardrails-section prose and link down to it via
+  `[BitLocker guardrails](#bitlocker-guardrails)`. Anchor slug
+  verified against GitHub's algorithm: "BitLocker guardrails" →
+  `bitlocker-guardrails`.
+- `CHANGELOG.md` — new `### Fixed` bullet under `## Unreleased`
+  describing the doc fix and pointing at the existing Removed
+  entry that explains why the policy was dropped.
+
+**Verification:**
+- `pwsh` installed once per CLAUDE.md (PSv7.4.6 tarball).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed /
+  0 failed (unchanged — docs-only edit).
+- `grep -nE 'placeholder PIN|placeholder.*rejected|ChangeMe123|forbidden|Forbidden' README.md`
+  now returns only the rewritten row, which says "no forbidden
+  list is enforced".
+- Anchor link target confirmed (`### BitLocker guardrails`
+  exists at line 395; resolves to `#bitlocker-guardrails`).
+- Masterize Phase 1A check #1 unaffected — version is still
+  `4.7.1` in all four required places.
+
+**Risks / follow-ups:**
+- Minimal. Markdown-only change; no executable code, no test,
+  no destructive path touched.
+- The `.VERSION` block in `unified_winpe_deploy.ps1` at line 94
+  still describes the v4.7.0 historical policy. Future maintainers
+  could decide whether to add an entry to that block noting the
+  later removal, but it isn't strictly wrong as written (it's
+  describing what v4.7.0 added, which is accurate history).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

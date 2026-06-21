@@ -8,6 +8,16 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **README BitLocker PIN parameter row no longer claims placeholder
+  PINs are rejected.** The `-BitLockerPin` row in the README Parameters
+  table still asserted "Placeholder PINs are rejected at runtime" after
+  the PIN-content policy was removed (see Removed entry below). The
+  same README's `BitLocker guardrails` section already explained
+  current behavior ("PIN content is the admin's call — the script
+  enforces only Windows' 6-20 character window"); the table row now
+  points operators at that section. No code changes.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
