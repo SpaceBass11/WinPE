@@ -5,6 +5,67 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `startnet.cmd` behavioral invariants in `tests/test_parse.ps1`
+
+**Investigated:** open PRs #110-#139 (30 in flight) to avoid duplicating
+work, the recently-merged `test: build_boot_wim.ps1 behavioral invariants`
+(PR #52, ef8fc2b), and the `$startnet` here-string template in
+`scripts/build_boot_wim.ps1` (lines 273-310). The merged builder test
+covers the DCH API DLL guard and the CCTK copy block, but the
+`startnet.cmd` template — which runs unattended at boot on real
+hardware — has no regression guard at all.
+
+**Found:** The boot script handles four load-bearing things: IMAGES-label
+drive detection, `deploy.args` reading, `{DRIVE}` placeholder substitution,
+and the PowerShell launch. It also has one security-critical *negative*
+invariant: PR #42 explicitly replaced `echo Loaded deploy args: %DEPLOYARGS%`
+with a redacted "Parameters loaded. Secrets, if present, are not displayed."
+line so a BitLocker PIN in `deploy.args` doesn't get echoed to the WinPE
+console / KVM / over-the-shoulder view. A future refactor that re-added
+the raw echo would only surface as the operator noticing the leak on a
+hardware run. Same goes for accidentally changing `find /i "IMAGES"` to a
+different label, dropping the `{DRIVE}` rewrite, or pointing the launch at
+a different script — all silent regressions until hardware boot.
+
+**Changed:**
+- `tests/test_parse.ps1` — five assertions appended to the existing
+  `Test 9` builder block (after the DCH/CCTK checks). Positive:
+  `find /i "IMAGES"`, `set /p DEPLOYARGS=<"%DEPLOY_IMAGE_DRIVE%\deploy.args"`,
+  `{DRIVE}=%DEPLOY_IMAGE_DRIVE%`, and `unified_winpe_deploy.ps1 !DEPLOYARGS!`
+  literals. Negative: regex `(?im)^\s*echo[^\r\n]*[%!]DEPLOYARGS[%!]`
+  asserted to NOT match (the PR #42 redaction guard). Five lines of
+  comment explain each invariant and which PR/feature it pins.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`).
+- Baseline: `tests/test_parse.ps1` → 48 passed / 0 failed before edits.
+- Post-edit: `tests/test_parse.ps1` → 53 passed / 0 failed (the +5 are
+  the new invariants, all green against current `build_boot_wim.ps1`).
+- Sanity: `tests/test_wim_parser.ps1` → 16/0 and
+  `tests/test_disk_enumeration.ps1` → 34/0 unchanged (no contamination).
+- Each new invariant individually verified to fail when its respective
+  literal is broken (simulated `IMAGES → DATA`, `{DRIVE} → <DRIVE>`,
+  and `echo Parameters... → echo Loaded args: %DEPLOYARGS%`). Each
+  produced exactly one `[FAIL]` line; baseline restored after each.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change. No production code touched. No new
+  network dependencies. All five literals are stable enough that
+  benign refactors of `build_boot_wim.ps1` won't trip the assertions
+  — the patterns match the actual emitted text, not surrounding
+  PowerShell scaffolding.
+- Outstanding routine-backlog candidates still deferred:
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines of
+    listing-render code that could be factored out — cleanup-only,
+    repeatedly deferred because TUI menu rendering is load-bearing UX.
+  - **`prepare_wim.ps1` parameter-set validation test** (called out in
+    the 2026-05-16 entry) — small fixture would catch future
+    regressions in the `-SourceWim` vs `-SourceIso` branch logic.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

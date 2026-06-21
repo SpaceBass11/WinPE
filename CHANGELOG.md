@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`tests/test_parse.ps1` now pins boot-critical `startnet.cmd`
+  invariants in `build_boot_wim.ps1`.** The here-string that ends up
+  as the WinPE `startnet.cmd` runs unattended on real hardware, so
+  regressions only surface at boot. Five new assertions: IMAGES-label
+  drive lookup is present, `deploy.args` is read via `set /p`, the
+  `{DRIVE}` placeholder is substituted, `unified_winpe_deploy.ps1` is
+  launched with `!DEPLOYARGS!`, and — critically — no `echo` line
+  expands `%DEPLOYARGS%` / `!DEPLOYARGS!` (regression guard for the
+  PR #42 redaction that keeps BitLocker PINs out of the WinPE console
+  and any over-the-shoulder view). Each invariant verified to fail
+  loudly when broken. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -136,6 +136,22 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # startnet.cmd template — boot-critical and security-sensitive. The here-string is
+    # emitted into the WinPE image and runs unattended at boot, so silent regressions
+    # here only surface on real hardware. Pin the load-bearing literals:
+    #   - IMAGES label lookup (skips full-disk scan in the deploy script)
+    #   - deploy.args plumbing (per-USB override file; see docs/DEPLOY_ARGS.md)
+    #   - {DRIVE} placeholder substitution (ISO workflow paths)
+    #   - launches unified_winpe_deploy.ps1
+    #   - NEGATIVE: must not echo the DEPLOYARGS value (PR #42 redaction; a regression
+    #     here leaks BitLocker PINs to the WinPE console + any over-the-shoulder view)
+    Write-Result -Test 'Builder: startnet looks up IMAGES label' -Pass ($bc -match 'find /i "IMAGES"')
+    Write-Result -Test 'Builder: startnet reads deploy.args' -Pass ($bc -match 'set /p DEPLOYARGS=<"%DEPLOY_IMAGE_DRIVE%\\deploy\.args"')
+    Write-Result -Test 'Builder: startnet substitutes {DRIVE} placeholder' -Pass ($bc -match '\{DRIVE\}=%DEPLOY_IMAGE_DRIVE%')
+    Write-Result -Test 'Builder: startnet launches unified_winpe_deploy.ps1' -Pass ($bc -match 'unified_winpe_deploy\.ps1\s+!DEPLOYARGS!')
+    $echoesArgs = $bc -match '(?im)^\s*echo[^\r\n]*[%!]DEPLOYARGS[%!]'
+    Write-Result -Test 'Builder: startnet does NOT echo %DEPLOYARGS% (PR #42 redaction)' -Pass (-not $echoesArgs)
 }
 
 # Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)
