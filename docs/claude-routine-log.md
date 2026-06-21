@@ -5,6 +5,80 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `first-login.ps1` Default User hive invariants in `tests/test_parse.ps1`
+
+**Investigated:** the 30 open Claude routine PRs (#100–#129), the
+routine log's standing follow-ups, and the actual behavioral coverage
+of each script in `tests/test_parse.ps1`. Test 9 (build_boot_wim.ps1)
+got behavioral invariants in PR #52; Test 12 (build_iso.ps1) is in
+flight via PR #116. Tests 10 (prepare_wim.ps1), 11 (refresh_usb.ps1),
+and 13 (first-login.ps1) are still syntax-only. Tests 10 and 11
+overlap with open PRs #118 / #126 (which add new safety gates to
+those scripts), so extending them now would create rebase risk.
+Test 13 has no overlap — no open PR touches `scripts/first-login.ps1`
+itself (PR #111 is docs-only).
+
+**Found:** `scripts/first-login.ps1` mounts the Default User hive via
+`reg.exe load`, applies registry tweaks inside a `try`/`finally`
+block, and unloads via `reg.exe unload` in the `finally` after
+`[gc]::Collect()` + `[gc]::WaitForPendingFinalizers()`. The GC pass
+is load-bearing: PowerShell holds registry handles past the last
+property write, so `reg.exe unload` silently fails ("the process
+cannot access the file") without it. A regression that drops the
+unload, drops the GC pass, or moves the unload outside the finally
+would leak NTUSER.DAT mounts on every first boot — silently, since
+the script suppresses reg.exe stderr and only logs the exit code.
+The bug surfaces only when something tries to write to NTUSER.DAT
+(future logins, Windows Setup), at which point the target machine
+has already shipped.
+
+**Changed:**
+- `tests/test_parse.ps1` — extended Test 13 from a single
+  `Test-ScriptSyntax` call to syntax + four behavioral assertions,
+  following the same shape as Test 9 (build_boot_wim DCH DLL
+  invariants from PR #52). Each assertion has an inline comment
+  naming the silent failure mode it guards against.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top.
+  No version bump (test-only change, no `$Script:Config.ScriptVersion`
+  touch).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md tarball
+  recipe.
+- Baseline: `tests/test_parse.ps1` → 48 / 0 before edits.
+- Post-edit: `tests/test_parse.ps1` → 52 / 0 (the +4 are
+  `exists` + `syntax valid` + 4 new behavioral assertions, all PASS
+  against the live script; the prior single-line Test 13 only added
+  2 assertions, the new block adds 4 on top of `Test-ScriptSyntax`).
+- Sibling tests unchanged: `tests/test_wim_parser.ps1` → 16 / 0;
+  `tests/test_disk_enumeration.ps1` → 34 / 0.
+- Drift simulation against the live script:
+  - mutating `reg.exe unload` → `echo skip-unload`: assertion 2 fails.
+  - mutating `} finally {` → `} catch {`: assertion 3 fails.
+  - removing `[gc]::WaitForPendingFinalizers()`: assertion 4 fails.
+  So each assertion would surface the regression it's written for,
+  not just sit in the passing column.
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md — PSGallery is blocked in this container. The new
+  invariants live in the local-test harness, not in Pester.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change in `tests/test_parse.ps1`. No production
+  code touched, no new dependencies, no CI workflow modified. The
+  four new assertions are pure substring / index lookups (PSv5.1
+  compatible — no PSv7-only operators).
+- Outstanding routine-backlog candidates I did not take this pass:
+  - **`tests/test_parse.ps1` behavioral invariants for `prepare_wim.ps1`
+    and `refresh_usb.ps1`** (Tests 10 and 11 still syntax-only).
+    Deferred because open PRs #118 and #126 modify both scripts and
+    extending the tests now would create rebase friction.
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30 lines
+    of listing-render code that could be factored out (cleanup-only,
+    deferred across many entries because the menu render is
+    load-bearing TUI UX).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

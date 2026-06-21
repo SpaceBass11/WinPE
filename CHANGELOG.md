@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`tests/test_parse.ps1` now guards `first-login.ps1`'s Default User
+  hive handling.** Extended Test 13 (previously syntax-only) with four
+  behavioral invariants: `reg.exe load` and `reg.exe unload` are both
+  present, the unload sits in a `finally` after the load (so a tweak
+  failure between them still releases the hive mount), and
+  `[gc]::WaitForPendingFinalizers()` runs before the unload (PowerShell
+  holds registry handles past the last property write, so reg.exe
+  unload silently fails without the GC pass). Pattern matches the
+  Test 9 / `build_boot_wim.ps1` and Test 12 / `build_iso.ps1`
+  behavioral-invariant blocks. Test-only change; no production code
+  touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

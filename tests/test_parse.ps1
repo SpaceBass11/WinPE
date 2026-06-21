@@ -150,9 +150,38 @@ Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
 
-# Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
+# Test 13: first-login.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $firstLoginPath -Label "First-login tweaks" | Out-Null
+$firstLoginOk = Test-ScriptSyntax -Path $firstLoginPath -Label "First-login tweaks"
+if ($firstLoginOk) {
+    $fl = Get-Content $firstLoginPath -Raw
+
+    # Default User hive must be both loaded AND unloaded. A dropped unload
+    # leaves NTUSER.DAT locked - Windows Setup can't open it and future
+    # logins inherit a stale template. Silent failure mode on a target the
+    # operator has already left.
+    Write-Result -Test "First-login: reg.exe load present"   -Pass ($fl -match 'reg\.exe\s+load')
+    Write-Result -Test "First-login: reg.exe unload present" -Pass ($fl -match 'reg\.exe\s+unload')
+
+    # The unload must sit inside a finally block after the load, so a tweak
+    # failure between them still releases the hive mount.
+    $loadIdx    = $fl.IndexOf('reg.exe load')
+    $finallyIdx = if ($loadIdx -ge 0) { $fl.IndexOf('finally', $loadIdx) } else { -1 }
+    $unloadIdx  = $fl.IndexOf('reg.exe unload')
+    Write-Result -Test "First-login: reg unload sits in a finally after reg load" -Pass (
+        $loadIdx -ge 0 -and $finallyIdx -gt $loadIdx -and $unloadIdx -gt $finallyIdx
+    )
+
+    # GC must run before reg.exe unload. PowerShell holds registry handles
+    # past the last property write, and reg.exe refuses to unload while
+    # those handles are open. Dropping the WaitForPendingFinalizers call
+    # turns every first-login run into a leaked Default User hive mount
+    # that only surfaces when something tries to write to NTUSER.DAT.
+    $gcIdx = $fl.IndexOf('WaitForPendingFinalizers')
+    Write-Result -Test "First-login: gc WaitForPendingFinalizers before reg unload" -Pass (
+        $gcIdx -ge 0 -and $unloadIdx -gt $gcIdx
+    )
+}
 
 # Summary
 Write-Host "`n=== Results ===" -ForegroundColor Cyan
