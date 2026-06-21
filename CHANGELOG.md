@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Pester coverage extended to the silent-mode bare-precondition
+  gates.** Five new `It` blocks in
+  `tests/validation-gates.Tests.ps1` assert that `Start-Deployment`
+  aborts before any destructive op when `-Silent` is set without
+  `-WimFile`, without `-TargetDisk`, without `-Force`, or with a
+  malformed `-WipeDisks` string (e.g. `'1,sda,2'`), and that the
+  `-BitLockerPin` without `-EnableBitLocker` warning fires
+  (logged, deploy proceeds) instead of silently ignoring an
+  operator typo. PR #125's body flagged these as the next-untested
+  gates; no other open PR touches them. Test-only change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

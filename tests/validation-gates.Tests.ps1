@@ -24,6 +24,11 @@
           - -EnableBitLocker without -BitLockerPin
           - -EnableBitLocker -BitLockerPin '<5 chars>'
           - -Silent -DataDiskNumber without -Force
+          - -Silent without -WimFile / -TargetDisk / -Force
+          - -Silent with malformed -WipeDisks (non-decimal token)
+      - Start-Deployment warns but proceeds when -BitLockerPin is
+        provided without -EnableBitLocker (the only surface telling
+        the operator their PIN did nothing).
       - Start-Deployment validation passes with -Silent -Force
         -DataDiskNumber explicit (mocks short-circuit before any
         destructive op runs).
@@ -415,5 +420,103 @@ Describe "Start-Deployment validation gates" {
         }
         $val = & $script:DeployModule { $Script:Config.BitLockerPin }
         $val | Should -Be 'goodpin42'
+    }
+
+    # -------------------------------------------------------------------
+    # Silent-mode bare-precondition gates (lines 1701-1717 in the script).
+    # PR #125's body called these out as the next-untested Pester gaps:
+    # an unattended run with any of -WimFile / -TargetDisk / -Force
+    # missing — or with a malformed -WipeDisks string — must abort BEFORE
+    # the first destructive op (Invoke-Diskpart). A regression that
+    # swapped any of these guards would let a misconfigured CI/build
+    # pipeline run to disk-wipe with operator-required inputs unmet.
+    # -------------------------------------------------------------------
+
+    It "Rejects -Silent without -WimFile" {
+        $result = & $script:DeployModule {
+            $WimFile    = $null   # missing
+            $TargetDisk =  0
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'Silent mode requires -WimFile' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects -Silent without -TargetDisk" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk = -1      # missing (default sentinel)
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'Silent mode requires -TargetDisk' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects -Silent without -Force" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $Force      = $false  # the gate
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'Silent mode requires -Force' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects -Silent with malformed -WipeDisks string" {
+        # Anything other than comma-separated decimals trips the regex gate
+        # at line 1714 in Start-Deployment. A typo'd entry like 'sda1' would
+        # silently fall through to Select-AdditionalWipeDisks's [int] cast
+        # if this gate ever regressed.
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1,sda,2'  # not '^\s*\d+(\s*,\s*\d+)*\s*$'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'must be comma-separated disk numbers' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Warns when -BitLockerPin is provided without -EnableBitLocker, but does not abort" {
+        # Line 1696-1698 in the script: a stray PIN with no encryption switch
+        # is operator error (or stale args), but it's not fatal — the PIN is
+        # logged as ignored and the deploy proceeds. The warning is the only
+        # surface telling the operator "your PIN did nothing" — losing it
+        # silently would let an operator believe BitLocker was on when it
+        # wasn't.
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $false       # off
+            $BitLockerPin    = 'goodpin42'  # set anyway
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        $warn = $logs | Where-Object { $_.Message -match 'PIN ignored' -and $_.Level -eq 'Warning' }
+        $warn | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 1
     }
 }

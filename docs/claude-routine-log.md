@@ -5,6 +5,94 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — Pester coverage for `-Silent` bare-precondition gates
+
+**Investigated:** open PRs (~30, #107–#136), grouping by topic to find
+gaps. PR #125's body explicitly listed three Pester gates as the
+next-untested set, with the explicit note "none of the 30 open routine
+PRs touch these":
+
+- `-Silent` without `-WimFile` / `-TargetDisk` / `-Force`
+  (lines 1702-1713 of `unified_winpe_deploy.ps1`)
+- `-Silent -WipeDisks 'garbage'` malformed-string rejection
+  (line 1714-1717)
+- "PIN provided without `-EnableBitLocker`" warning path
+  (line 1696-1698)
+
+These are the very first safety gates that fire in `Start-Deployment`
+during an unattended run. A regression that flipped any of them to
+permissive would let a misconfigured CI/build pipeline reach
+`Invoke-Diskpart` with required inputs missing. The existing 18 `It`
+blocks in `tests/validation-gates.Tests.ps1` exercise data-disk and
+BitLocker gates but skip the silent bare-precondition gates entirely,
+because the default `Mock` setup hands those gates a valid
+`-WimFile` / `-TargetDisk` / `-Force` set.
+
+**Changed:**
+
+- `tests/validation-gates.Tests.ps1` — five new `It` blocks appended
+  to the `Start-Deployment validation gates` Describe block, all
+  following the existing pattern (mock-then-assert via
+  `& $script:DeployModule { ... }`, log capture via
+  `$Global:CapturedLogs`, and `Should -Invoke -Times 0` for the
+  destructive helpers). Header `.DESCRIPTION` covered-invariants list
+  gains two bullets describing the new gates.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the coverage extension. Kept short; no version bump
+  (test-only change, no `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+
+- `pwsh` reused from prior session install (`/opt/pwsh/pwsh`,
+  PSv7.4.6) per the CLAUDE.md note.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed (unchanged).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged.
+- Pester suite cannot run locally per the CLAUDE.md PSGallery note
+  (`Install-Module Pester` returns "No match was found" in the
+  network-restricted container). Instead, verified each gate by
+  hand-running an off-tree smoke harness: loaded the deploy script
+  as a `New-Module`, replaced the function definitions Pester would
+  have `Mock`'d, and called `Start-Deployment` with each test's
+  parameter shape:
+    - `-Silent` + missing `-WimFile` → returned `$false` and logged
+      `Silent mode requires -WimFile to avoid interactive image
+      selection` at `Error` level. ✓
+    - `-Silent` + `-WipeDisks '1,sda,2'` → returned `$false` and
+      logged `must be comma-separated disk numbers (e.g. '1,2') -
+      got '1,sda,2'` at `Error` level. ✓
+    - `-BitLockerPin 'goodpin42'` without `-EnableBitLocker` →
+      returned `$true` (deploy proceeded) and logged
+      `-BitLockerPin provided without -EnableBitLocker - PIN
+      ignored` at `Warning` level, with `Apply-WindowsImage`
+      invoked once. ✓
+  This validates that the `Should -Match` assertions and the
+  `Where-Object { $_.Level -eq 'Warning' }` filter in the new tests
+  see the exact text the script writes.
+- File parses cleanly via
+  `[System.Management.Automation.Language.Parser]::ParseInput`,
+  118 / 118 brace balance (was 113 / 113).
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only change. No production code touched. No new
+  parameters. Pattern matches the existing 18 `It` blocks exactly,
+  including PSv5.1-safe syntax (no PSv7-only operators, no `??=`,
+  no `?:`). The new tests share `BeforeEach` mock setup with the
+  rest of the Describe block; they override only the script-scope
+  param variables they're testing.
+- Outstanding Pester gaps not picked up this pass:
+  - `Test-FinalWipeConfirmation` exact-match behavior (typo'd
+    `'erase'` lowercase vs. `'ERASE'`). Lower priority — the
+    confirmation parser is small and PSSA-stable.
+  - `Resolve-BitLockerKeyPath` `LookupMode` field already in flight
+    in PR #108.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
