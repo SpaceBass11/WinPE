@@ -1574,6 +1574,13 @@ if (-not (Test-Path `$recoveryDir)) {
     catch { Write-BL "WARN: could not create `$recoveryDir : `$(`$_.Exception.Message)" }
 }
 
+# Wrap PIN handling and Enable-BitLocker calls in try/catch/finally so the
+# staged script (which embeds the plaintext PIN in `$pin's string literal) is
+# ALWAYS self-deleted on exit, even if Enable-BitLocker fails. Without this,
+# the prior `exit 1` on C: failure left the plaintext PIN at
+# C:\Windows\Setup\Scripts\bitlocker-setup.ps1 indefinitely.
+`$bitlockerSucceeded = `$false
+try {
 `$pin = ConvertTo-SecureString '$escapedPin' -AsPlainText -Force
 
 # C: — TPM + Enhanced PIN primary protector
@@ -1582,7 +1589,7 @@ try {
     Write-BL 'C: TPM+PIN protector set'
 } catch {
     Write-BL "ERROR enabling C: BitLocker: `$(`$_.Exception.Message)"
-    exit 1
+    throw
 }
 
 # C: — recovery key backup protector (escrowed off-volume)
@@ -1619,18 +1626,31 @@ try {
     $bitlockerScript += @"
 
 
-# Delete this script and the staged SetupComplete.cmd so the plaintext PIN
-# doesn't linger on disk after the encryption that consumed it.
-try {
-    Remove-Item -Path 'C:\Windows\Setup\Scripts\bitlocker-setup.ps1' -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path 'C:\Windows\Setup\Scripts\SetupComplete.cmd'   -Force -ErrorAction SilentlyContinue
-    Write-BL 'Self-deleted staging scripts'
+`$bitlockerSucceeded = `$true
 } catch {
-    Write-BL "WARNING: could not self-delete staging scripts: `$(`$_.Exception.Message)"
+    # C: BitLocker enable threw - log once at top level; the finally below
+    # still wipes the plaintext PIN off disk before we exit non-zero.
+    Write-BL "BitLocker setup aborted: `$(`$_.Exception.Message)"
+} finally {
+    # Delete the staged script (with embedded plaintext PIN) and the
+    # SetupComplete.cmd that launched it. Runs on BOTH success and failure -
+    # the PIN must never linger on disk past this script's execution.
+    try {
+        Remove-Item -Path 'C:\Windows\Setup\Scripts\bitlocker-setup.ps1' -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path 'C:\Windows\Setup\Scripts\SetupComplete.cmd'   -Force -ErrorAction SilentlyContinue
+        Write-BL 'Self-deleted staging scripts'
+    } catch {
+        Write-BL "WARNING: could not self-delete staging scripts: `$(`$_.Exception.Message)"
+    }
 }
 
-Write-BL 'BitLocker setup complete - rebooting'
-shutdown.exe /r /t 15 /c 'BitLocker configured. Rebooting to finalise...'
+if (`$bitlockerSucceeded) {
+    Write-BL 'BitLocker setup complete - rebooting'
+    shutdown.exe /r /t 15 /c 'BitLocker configured. Rebooting to finalise...'
+} else {
+    Write-BL 'BitLocker setup failed - staging scripts removed (no plaintext PIN left on disk). Re-deploy or run Enable-BitLocker manually.'
+    exit 1
+}
 "@
 
     $setupCompleteCmd = @"

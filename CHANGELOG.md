@@ -8,6 +8,20 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Security
+- **First-boot BitLocker staging script now wipes the plaintext PIN
+  even when `Enable-BitLocker` on `C:` fails.** The staged
+  `C:\Windows\Setup\Scripts\bitlocker-setup.ps1` embeds the operator
+  PIN as a string literal before calling `ConvertTo-SecureString`. The
+  previous C: failure path did `exit 1` immediately, skipping the
+  self-delete block below it and leaving the plaintext PIN on disk
+  indefinitely. Reworked to `try { ... } catch { ... } finally { ... }`
+  so the staged scripts (`bitlocker-setup.ps1` + `SetupComplete.cmd`)
+  are removed on both success and failure paths. The reboot is now
+  gated on a `$bitlockerSucceeded` flag — failures log loudly and
+  exit non-zero instead of rebooting into a half-encrypted state.
+  No change to the success path's encryption behavior.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

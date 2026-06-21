@@ -5,6 +5,91 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — BitLocker staging: PIN leak on C: encryption failure
+
+**Investigated:** The 30+ open Claude routine PRs (#102-#131) for
+duplication, then `Initialize-BitLockerSetup` in
+`unified_winpe_deploy.ps1` line 1501-1651. The function bakes a
+plaintext PIN into the staged `C:\Windows\Setup\Scripts\bitlocker-setup.ps1`
+that runs on first boot. Looked at the staged script's failure paths
+to see what happens when `Enable-BitLocker -MountPoint 'C:'` throws.
+
+**Found:** Real security gap, untouched by any open PR. The C: catch
+block was:
+```powershell
+} catch {
+    Write-BL "ERROR enabling C: BitLocker: ..."
+    exit 1
+}
+```
+`exit 1` terminates the runspace immediately and skips the self-delete
+block 40 lines below it. Net effect: if the very first
+`Enable-BitLocker` call fails (TPM not present, TPM owned but not
+cleared, BitLocker service disabled, GP-managed PIN policy mismatch,
+etc.), the plaintext PIN at
+`C:\Windows\Setup\Scripts\bitlocker-setup.ps1` stays on the
+unencrypted volume indefinitely. SetupComplete.cmd only runs once,
+but the file persists across reboots until manual cleanup. Forensic
+recovery from `C:\` is trivial because nothing got encrypted.
+
+The 30+ open PRs cover redaction in `build_iso.ps1` (#131), PIN length
+boundary tests (#123), `Resolve-BitLockerKeyPath` tests (#108),
+relative key-path rejection (#105), etc., but none touch the staged
+script's PIN-lifetime invariant.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Initialize-BitLockerSetup`: wrapped
+  the C: + D: encryption block in `try { ... } catch { ... } finally
+  { ... }`. The C: catch now `throw`s instead of `exit 1`-ing. The
+  outer catch logs once at top level so the failure isn't silent. The
+  finally block runs the self-delete of `bitlocker-setup.ps1` +
+  `SetupComplete.cmd` on BOTH paths. The reboot is now gated on a
+  `$bitlockerSucceeded` flag — failures log "staging scripts removed
+  (no plaintext PIN left on disk)" and `exit 1` without queuing a
+  reboot.
+- `CHANGELOG.md` — `## Unreleased / ### Security` bullet describing
+  the fix.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per CLAUDE.md note.
+- Baseline (pre-edit): `tests/test_parse.ps1` → 48 passed / 0 failed;
+  `tests/test_wim_parser.ps1` → 16/0; `tests/test_disk_enumeration.ps1`
+  → 34/0. Post-edit: identical 48/16/34, no regressions.
+- Synthesized the staged script body across all 4 code paths
+  (`StageDataDisk` × `LookupMode = ImagesLabel|Literal`) via
+  `PSParser::Tokenize` — all 4 parse cleanly. Structure counts:
+  with DataDisk staged, 7 `try`s + 6 `catch`es + 1 `finally`; without,
+  5 + 4 + 1. Matches the intended nesting.
+- End-to-end harness: invoked the actual deploy script's
+  `Initialize-BitLockerSetup` with mocked `Set-Content` / `Test-Path` /
+  `New-Item` / `Write-Log`, captured the generated
+  `bitlocker-setup.ps1` content for all 4 path combinations, and
+  asserted: outer try/finally present, self-delete in finally,
+  C: catch uses `throw` not `exit 1`, reboot gated on
+  `$bitlockerSucceeded`. All 4 variants pass.
+- The change is structural (wrap + flag), not behavioral on the
+  success path. Encryption still happens the same way; only the
+  failure path changed.
+
+**Risks / follow-ups:**
+- The change touches BitLocker first-boot staging, which is
+  load-bearing for any deploy that opts into `-EnableBitLocker`. CI's
+  Pester suite (`tests/validation-gates.Tests.ps1`) covers
+  `Resolve-BitLockerKeyPath` precedence; the staged-script content
+  invariants are not currently asserted by Pester. Follow-up: a
+  Pester test that runs `Initialize-BitLockerSetup` against mocks and
+  asserts the four invariants exercised by my local harness (outer
+  try/finally, self-delete in finally, throw not exit, reboot
+  gating). Would also catch future regressions if someone reorders
+  the here-string blocks.
+- Outstanding routine-backlog items (still untaken):
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — deferred across
+    every routine entry because the menu render is load-bearing TUI
+    UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
