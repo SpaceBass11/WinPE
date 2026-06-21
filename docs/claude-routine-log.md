@@ -5,6 +5,77 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-21 — `docs/USB_SETUP.md` "Manual alternative" `startnet.cmd` resync
+
+**Investigated:** the open-PR backlog (≈30 open routine PRs covering
+BitLocker tests, `build_iso.ps1` safety gates, path resolution, doc
+freshness, refresh_usb tweaks). Looking for an improvement none of
+them touch. Did a grep across all docs and the README for
+`startnet.cmd` references, then diffed each fenced-cmd block against
+the here-string that `scripts/build_boot_wim.ps1` actually writes.
+
+**Found:** the "Manual alternative" snippet at `docs/USB_SETUP.md`
+lines 88-107 ends at the original v4.6 `:launch` block —
+`powershell.exe ... unified_winpe_deploy.ps1` with no args. The
+real builder's startnet.cmd (lines 273-310 in
+`scripts/build_boot_wim.ps1`) has grown three things since then
+that the doc snippet never picked up:
+
+  1. The optional `set /p DEPLOYARGS=<%DEPLOY_IMAGE_DRIVE%\deploy.args`
+     block from v4.7.0 (PR #34) that reads a per-USB args file.
+  2. The PR #42 secret-redaction echo
+     (`Parameters loaded. Secrets, if present, are not displayed.`)
+     — without it, BitLocker PINs in `deploy.args` could land on the
+     WinPE console.
+  3. The `{DRIVE}` -> `%DEPLOY_IMAGE_DRIVE%` substitution that
+     `build_iso.ps1` relies on so the single-ISO end-user flow works
+     regardless of the letter Windows assigns the USB.
+
+An operator who hand-built `boot.wim` from the doc snippet got a
+USB that silently ignored `deploy.args`, broke the `build_iso.ps1`
+output, and didn't redact the PIN echo even if they later edited in
+the load-line. `grep -c 'deploy.args' docs/USB_SETUP.md` was 0
+before this change; `grep -c 'deploy.args' scripts/build_boot_wim.ps1`
+was 4. Cross-doc drift between source-of-truth code and the
+"here's how to do it without the script" walkthrough — exactly the
+class of fix this routine is for.
+
+**Changed:**
+- `docs/USB_SETUP.md` — replaced the truncated snippet with a
+  verbatim copy of `$startnet` from `scripts/build_boot_wim.ps1`,
+  plus a one-line intro pointing at `scripts/build_boot_wim.ps1`
+  as the source of truth so a future drift fails closed (the
+  reader knows where to re-sync from).
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet explaining
+  what broke for manual builders and what the doc now ships.
+
+**Verification:**
+- Round-trip diff: extracted the builder's `@'…'@` here-string with a
+  Python regex and the doc's first fenced cmd block under
+  "Manual alternative", string-equality check returns `True`. Any
+  future drift in either direction (someone bumps the builder
+  without updating the doc, or vice versa) flips this back to
+  `False`.
+- `grep -c 'deploy.args' docs/USB_SETUP.md` post-edit: 1 (was 0).
+- No `.ps1` files touched. CI's PSSA/test jobs see no diff in code;
+  `lychee` is the only markdown-affecting job and the snippet adds
+  no new links.
+- The `pwsh` install snippet from CLAUDE.md is unnecessary here
+  (docs-only change, no PowerShell to parse).
+
+**Risks / follow-ups:**
+- Zero behavior change. Pure docs. The fix is a no-op for any USB
+  built by the actual builder (which already had the right
+  startnet.cmd). It only changes the recipe operators see if they
+  go off-script.
+- The other startnet.cmd snippets I checked (`TROUBLESHOOTING.md`
+  line 11-15, `DEPLOY_ARGS.md` line 26-39, README's snippet) are
+  intentionally trimmed examples or partial blocks — they correctly
+  illustrate one piece each rather than promising completeness, so
+  leaving them as-is matches their stated scope.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

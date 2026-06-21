@@ -8,6 +8,17 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`docs/USB_SETUP.md` "Manual alternative" `startnet.cmd` snippet now
+  matches the builder's output.** The snippet was last updated before
+  v4.7.0's per-USB `deploy.args` support (PR #34) and PR #42's secret-
+  redaction echo. An operator who built `boot.wim` by hand from that
+  snippet ended up with a `startnet.cmd` that ignored `deploy.args`
+  entirely and didn't substitute the `{DRIVE}` placeholder, breaking
+  both per-USB args and the `build_iso.ps1` single-ISO flow on those
+  manually-built sticks. The snippet is now a verbatim copy of the
+  here-string in `scripts/build_boot_wim.ps1`.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
