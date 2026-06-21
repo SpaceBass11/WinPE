@@ -8,6 +8,22 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Security
+- **`build_iso.ps1` now rejects `-BitLockerPin` values that contain
+  characters the deploy.args round-trip can't preserve.** The PIN is
+  embedded into `deploy.args` as `-BitLockerPin "<PIN>"`, read back by
+  cmd's `set /p` (single line only), and re-passed as an argv via
+  startnet.cmd's `!DEPLOYARGS!` delayed expansion. A `"` in the PIN
+  silently truncates argv parsing (operator types one PIN, first boot
+  encrypts under a different one - lockout). A CR/LF in the PIN
+  terminates `set /p` after the first line, dropping both the PIN tail
+  AND trailing flags like `-Force -Silent` (a "silent destructive" ISO
+  falls back to interactive prompts that never get answered on a kiosk
+  machine). The builder now throws up front with a clear message
+  pointing at the offending characters; PIN *content* policy (forbidden
+  lists, complexity classes) is still intentionally NOT enforced per
+  CLAUDE.md - this guard is purely about lossless transport.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

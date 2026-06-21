@@ -203,6 +203,25 @@ if ($UnattendFile) {
 }
 
 if ($BitLockerPin) {
+    # Reject characters that the deploy.args -> startnet.cmd -> powershell.exe
+    # round-trip can't preserve. The PIN is embedded into deploy.args as
+    # `-BitLockerPin "<PIN>"`, read back by cmd's `set /p` (single line only),
+    # and re-passed as an argv via `!DEPLOYARGS!` delayed expansion. The
+    # corrupting characters are:
+    #   "     - closes the double-quote framing early; argv parsing
+    #           silently truncates the PIN (operator types one PIN,
+    #           first boot encrypts under a different one -> lockout)
+    #   CR/LF - terminates `set /p` after the first line, dropping the
+    #           PIN tail AND any trailing flags (-Force -Silent), so a
+    #           "silent destructive" ISO falls back to interactive
+    #           prompts that never get answered on a kiosk machine
+    # PIN *content* policy (forbidden lists, complexity classes) is
+    # intentionally NOT enforced here per CLAUDE.md - this guard is
+    # purely about lossless transport so the operator's input matches
+    # what first-boot encrypts under.
+    if ($BitLockerPin -match '["\r\n]') {
+        throw "BitLockerPin contains characters that cannot round-trip through deploy.args / startnet.cmd (`",CR,LF). These would silently truncate the PIN or drop trailing flags at first boot, locking the deployed machine out. Pick a PIN without these characters."
+    }
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
     }
