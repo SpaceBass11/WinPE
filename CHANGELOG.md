@@ -9,6 +9,21 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/SCRIPT_REFERENCE.md` resynced to v4.7.1.** The doc was still
+  on `ScriptVersion = '4.6.0'` and was missing the four v4.7.0
+  BitLocker / data-disk parameters (`-DataDiskNumber`,
+  `-EnableBitLocker`, `-BitLockerPin`, `-BitLockerKeyPath`), the three
+  BitLocker / confirmation helper functions
+  (`Test-FinalWipeConfirmation`, `Resolve-BitLockerKeyPath`,
+  `Initialize-BitLockerSetup`), and the BitLocker / data-disk entries
+  in the `$Script:Config` block. The Safety Chain diagram and
+  Partition Layout snippet now describe the BitLocker staging step and
+  the optional `D:` data volume. `-UnattendFile` description picked up
+  the XML well-formedness pre-flight added in 2026-05-17. `-Silent`
+  description now lists the two extra preconditions (`-Force` when
+  `-DataDiskNumber` is set; `-BitLockerPin` when `-EnableBitLocker` is
+  set). `-Force` description and intro updated to point at
+  `refresh_usb.ps1` and `build_iso.ps1`. Docs-only.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

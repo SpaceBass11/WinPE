@@ -5,6 +5,90 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `docs/SCRIPT_REFERENCE.md` resync to v4.7.1
+
+**Investigated:** open PR backlog (30 PRs #133-#162), `docs/`
+contents, and the deploy script's current parameter/function surface.
+Was looking for a high-value, low-risk improvement not already in
+flight.
+
+**Found:** `docs/SCRIPT_REFERENCE.md` is significantly behind v4.7.1:
+- Header lists only three scripts; the doc actually documents four
+  (`refresh_usb.ps1` is documented later but not in the intro), and
+  `build_iso.ps1` isn't linked at all.
+- `$Script:Config` block shows `ScriptVersion = '4.6.0'` and is
+  missing the four BitLocker / data-disk entries
+  (`BitLockerPin`, `BitLockerKeyDir`, `DataDiskNumber`,
+  `EnableBitLocker`) that have been in `$Script:Config` since v4.7.0.
+- The Parameters section is missing four v4.7.0 parameters:
+  `-DataDiskNumber`, `-EnableBitLocker`, `-BitLockerPin`,
+  `-BitLockerKeyPath`.
+- The function tables are missing `Test-FinalWipeConfirmation`,
+  `Resolve-BitLockerKeyPath`, and `Initialize-BitLockerSetup`.
+- `-UnattendFile` doesn't mention the XML well-formedness pre-flight
+  (added 2026-05-17, see prior log entry).
+- `-Silent` doesn't list its two new preconditions (`-Force` when
+  `-DataDiskNumber` is set; `-BitLockerPin` when `-EnableBitLocker`
+  is set).
+- Safety Chain diagram skips the BitLocker param-validation block
+  and the BitLocker staging step.
+- Partition Layout snippet doesn't show the optional `D:` data
+  volume that `-DataDiskNumber` formats.
+
+None of the 30 open PRs touch this doc. The masterize CI's version
+consistency check (#1) only verifies CHANGELOG / CLAUDE / README, so
+SCRIPT_REFERENCE.md drifted silently for two releases.
+
+**Changed:**
+- `docs/SCRIPT_REFERENCE.md`:
+  - Intro updated to list four documented scripts + cross-link
+    `build_iso.ps1`'s walkthrough.
+  - `$Script:Config` block now shows v4.7.1 and the four BitLocker
+    / data-disk entries (with comment that they're off by default).
+  - Added four new Parameters subsections matching the script header.
+  - Added a new "BitLocker Staging" function table.
+  - Added `Test-FinalWipeConfirmation` to the Disk Management table.
+  - `-UnattendFile` description now mentions XML pre-flight.
+  - `-Silent` description now lists the two extra preconditions.
+  - Safety Chain rewritten to cover BitLocker param validation,
+    silent-mode preconditions, the `-DataDiskNumber` gate, the
+    overlap-with-extra-wipe check, the WIM-source protection in
+    `New-DiskpartScript`, DISM `/CheckIntegrity`, and BitLocker
+    staging.
+  - Partition Layout snippet adds the optional `D:` block.
+  - Apply-WindowsImage and Set-BootConfiguration row text updated
+    to mention the DISM-exit-code recovery table and BCDBoot
+    diagnostics block.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the doc resync. No version bump (docs-only).
+
+**Verification:**
+- `pwsh` installed once per the CLAUDE.md note (PowerShell 7.4.6
+  tarball under `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed.
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0.
+- No production code touched, so the Pester suite
+  (`validation-gates.Tests.ps1`, CI-only per CLAUDE.md) is
+  unaffected by definition.
+- Masterize CI check #1 unchanged (version still matches across
+  CHANGELOG / CLAUDE.md / README.md — SCRIPT_REFERENCE.md isn't in
+  that list, but is now in sync as a side effect).
+
+**Risks / follow-ups:**
+- Minimal. Documentation-only change.
+- Outstanding from prior entries that I didn't take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` shared listing-render
+    extraction — repeatedly deferred because the menu is load-bearing
+    TUI UX.
+  - Adding a `build_iso.ps1` reference section to
+    `SCRIPT_REFERENCE.md` (the intro now links to its walkthrough,
+    but the doc has no parameter table for that script). Scoped out
+    of this pass to keep the diff focused.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
