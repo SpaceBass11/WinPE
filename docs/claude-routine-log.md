@@ -5,6 +5,83 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `-BitLockerKeyPath`-ignored warning (parity with PIN)
+
+**Investigated:** open PRs (#123-152, all routine maintenance work in
+flight) plus the deploy script's BitLocker validation block at
+`unified_winpe_deploy.ps1:1696-1698`. Looking for a small,
+non-overlapping, pre-flight-only improvement.
+
+**Found:** the existing PIN-ignored warning is asymmetric:
+
+```powershell
+if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
+    Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
+}
+```
+
+`-BitLockerKeyPath` has no companion warning. `Initialize-BitLockerSetup`
+short-circuits at line 1502 (`if (-not $Script:Config.EnableBitLocker) { return $true }`),
+so `Resolve-BitLockerKeyPath` never runs when EnableBitLocker is off —
+the key-path parameter is silently discarded. PR #139 covers the
+absolute-path check, but only fires when `-EnableBitLocker` IS set
+(line 1701 gate after this change). Neither catches the "operator
+points escrow at a UNC share but forgets the EnableBitLocker switch"
+case, which is a real UX trap (operator believes recovery keys will
+land on `\\fileserver\BitLockerKeys`; in fact no BitLocker is
+configured at all and the parameter is dropped on the floor).
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — added a three-line warning block right
+  after the existing PIN-ignored warning. Same pattern, same level,
+  same shape. Reads `$BitLockerKeyPath` directly (parent-scope param,
+  same way `Resolve-BitLockerKeyPath` at line 1478 reads it) since
+  `$Script:Config` doesn't store the key-path value.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the additive warning. Kept short; no version bump
+  (pre-flight log line only, no behavior change on the success path).
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (`/opt/pwsh/pwsh`, v7.4.6 tarball into `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed
+  / 0 failed before edits.
+- Post-edit: 48 passed / 0 failed. No regressions; the existing
+  Test 5 ("Required functions exist") and Test 6 ("Version
+  consistency") still pass — additive lines inside `Start-Deployment`
+  don't change either signal.
+- Brace balance inspection: net `+0` open / `+0` close (the `if`
+  block is `if (...) { ... }` — balanced).
+- Region balance: unchanged (no `#region`/`#endregion` lines touched).
+- The new branch is gated on `-not $Script:Config.EnableBitLocker -and
+  $BitLockerKeyPath` — exactly the inverse of PR #139's check (which
+  gates on `$Script:Config.EnableBitLocker -and $BitLockerKeyPath`),
+  so the two are non-overlapping by construction.
+
+**Risks / follow-ups:**
+- Minimal. Pure additive logging at pre-flight, before any destructive
+  op. Matches the well-tested PIN-ignored warning pattern. No new
+  parameters, no behavior change when both `-EnableBitLocker` and
+  `-BitLockerKeyPath` are set together (or when both are absent).
+- A natural test follow-up would be a Pester gate analogous to PR
+  #137's `-BitLockerPin`-ignored-warning case, but the Pester suite
+  is CI-only in this container (PSGallery is blocked), so deferring
+  test addition to a separate PR after this one merges keeps each
+  change small and independently verifiable.
+
+**Next recommended improvement:**
+- `-WipeDisks` provided without `-Silent` is silently ignored (the
+  interactive `Select-AdditionalWipeDisks` flow doesn't seed itself
+  from the parameter). Symmetrical "ignored in interactive mode"
+  warning would close that UX trap too. Slightly larger scope because
+  `-WipeDisks` has documented silent-mode validation but no
+  documented behavior outside silent — the warning's wording needs
+  care.
+- A Pester case asserting the new `-BitLockerKeyPath`-ignored
+  warning fires (parallel to PR #137's PIN-ignored coverage).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,12 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-BitLockerKeyPath` now warns when given without `-EnableBitLocker`.**
+  Mirrors the existing `-BitLockerPin`-without-`-EnableBitLocker`
+  warning. Previously the path was silently ignored, leaving the
+  operator to believe escrow had been redirected when the entire
+  BitLocker setup path was skipped. Pre-flight only — no destructive
+  behavior change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
