@@ -35,6 +35,11 @@ if defined DEPLOY_IMAGE_DRIVE (
         echo   Parameters loaded. Secrets, if present, are not displayed.
     )
 )
+if defined DEPLOY_IMAGE_DRIVE (
+    if defined DEPLOYARGS (
+        set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"
+    )
+)
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
 ```
 
@@ -43,6 +48,49 @@ a `deploy.args` was loaded — never its contents — so a BitLocker
 PIN or other secret in the file does not appear on the WinPE
 console, KVM, or any over-the-shoulder view. To inspect the args,
 read the file from the IMAGES partition directly.
+
+## Drive-letter substitution: `{DRIVE}`
+
+Before the args are handed to PowerShell, `startnet.cmd` does a
+literal text replacement of every `{DRIVE}` token in the args line
+with `%DEPLOY_IMAGE_DRIVE%` — the drive letter WinPE assigned to
+the IMAGES partition this boot. So a `deploy.args` line like:
+
+```text
+-WimFile "{DRIVE}\images\Win11_Pro.wim" -UnattendFile "{DRIVE}\configs\unattend.xml" -TargetDisk 0 -Force -Silent
+```
+
+becomes (if WinPE mounted IMAGES as `E:` this boot):
+
+```text
+-WimFile "E:\images\Win11_Pro.wim" -UnattendFile "E:\configs\unattend.xml" -TargetDisk 0 -Force -Silent
+```
+
+This is what makes a single ISO portable across hardware — different
+hosts may assign the USB a different letter, but the args still
+resolve to the right paths. `scripts/build_iso.ps1` writes
+`{DRIVE}\...` paths by default for exactly this reason.
+
+Notes:
+
+- **Token is case-sensitive.** `{drive}` is not substituted; use
+  `{DRIVE}` exactly.
+- **Substitution is unconditional inside the args line.** Anywhere
+  `{DRIVE}` appears — `-WimFile`, `-UnattendFile`, `-BitLockerKeyPath`,
+  custom values — gets the same replacement. There is no quoting or
+  escape mechanism for a literal `{DRIVE}` string.
+- **No substitution if IMAGES is not found.** If `startnet.cmd`
+  cannot locate a volume labeled IMAGES (`%DEPLOY_IMAGE_DRIVE%`
+  unset), the substitution block is skipped and the literal
+  `{DRIVE}` reaches PowerShell. The deploy script's subsequent
+  path validation will then fail loudly with a not-found error
+  rather than running against a wrong path.
+- **Absolute drive letters still work.** Hand-authored args using
+  `I:\images\...` instead of `{DRIVE}\images\...` are passed through
+  untouched. Use absolute letters when the IMAGES letter is stable
+  on a given USB (legacy two-partition workflow); use `{DRIVE}` when
+  the same args file is shared across builds that may mount on
+  different letters (single-ISO + Rufus workflow).
 
 ## Constraints
 

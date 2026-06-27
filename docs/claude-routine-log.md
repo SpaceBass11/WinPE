@@ -5,6 +5,100 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — Document `{DRIVE}` placeholder substitution in DEPLOY_ARGS.md
+
+**Investigated:** open PRs (#54-#144, ~30 routine-spawned PRs in
+flight) and the maintenance backlog. Most active areas — `-UnattendFile`
+absolute-path resolution, BitLocker PIN content cleanup, builder
+input validation, Pester coverage of validation gates, stale doc
+drift — are already covered by open PRs. PR #109 covers the
+`deploy.args.example` footgun; PR #56 covers `Show-ImageList` /
+`Show-ImageSelection` factoring; PR #108 covers `Resolve-BitLockerKeyPath`
+`LookupMode` Pester coverage; PR #101 adds a CI grep guard for the
+`{DRIVE}` substitution line in `startnet.cmd`. PR #103's body
+explicitly called out a remaining follow-up: "add a Drive-letter
+substitution subsection to `docs/DEPLOY_ARGS.md` documenting the
+`{DRIVE}` => `%DEPLOY_IMAGE_DRIVE%` replacement that `startnet.cmd`
+performs". No PR was created for it. Confirmed via
+`search_pull_requests` over `DRIVE`/`substitution` keywords (only
+results were #101 CI grep and #129 WorkDir guard, neither doc-side).
+
+**Found:** `docs/DEPLOY_ARGS.md` `## How it works` shows the
+`set /p DEPLOYARGS=<...` loader block (lines 29-39) but stops short
+of the `set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"`
+substitution that `scripts/build_boot_wim.ps1` writes immediately
+after. `configs/deploy.args.example` has a single comment-line
+about `{DRIVE}` next to the single-ISO example. `scripts/build_iso.ps1`
+writes `{DRIVE}\images\...` paths by default. So three places use
+or hint at the mechanism, but no doc actually explains:
+- Case-sensitivity (`{drive}` is not substituted)
+- Substitution scope (anywhere in the args line, no escape mechanism)
+- The unset-IMAGES fallthrough (literal `{DRIVE}` reaches PowerShell)
+- When to use `{DRIVE}` vs. absolute drive letters (legacy
+  two-partition USB vs. single-ISO + Rufus workflow)
+
+An operator authoring their own `deploy.args` would need to
+reverse-engineer this from the builder script.
+
+**Changed:**
+- `docs/DEPLOY_ARGS.md` — extended the `## How it works` cmd snippet
+  to include the substitution block (4 lines from the builder's
+  `startnet.cmd` heredoc, verbatim). Added a new `## Drive-letter
+  substitution: {DRIVE}` subsection with a worked before/after
+  example, four behavior bullets (case-sensitive, unconditional
+  in-args scope, unset-IMAGES fallthrough, when-to-use guidance).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the doc addition.
+
+**Verification:**
+- Diff is doc-only — no `.ps1`, `.cmd`, `.yml`, or `tests/`
+  touched.
+- `pwsh` not installed in this Linux session; not needed —
+  `tests/test_parse.ps1`, `tests/test_wim_parser.ps1`, and
+  `tests/test_disk_enumeration.ps1` only parse PowerShell scripts
+  and grep production files. No assertion in any of them is keyed
+  to text in `docs/DEPLOY_ARGS.md` or `CHANGELOG.md`.
+- Verified the substitution-block snippet I added matches the
+  builder verbatim by grepping `scripts/build_boot_wim.ps1` at
+  lines 304-308:
+  `if defined DEPLOY_IMAGE_DRIVE` / `if defined DEPLOYARGS` /
+  `set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"`.
+  If the builder's substitution shape drifts, PR #101's CI grep
+  (check `#27`) fails first; the doc reads as the source-of-truth
+  description of the same line.
+- Markdown structure: kept the existing `## How it works` →
+  `## Constraints` → `## Security caveat — same as CCTK` →
+  `## Use cases` → `## Failure modes` heading order; inserted
+  the new `## Drive-letter substitution: {DRIVE}` between `## How
+  it works` and `## Constraints` so a reader of the doc encounters
+  the args-pipeline mechanism end-to-end before reading the
+  format constraints.
+- README.md and other docs (BITLOCKER.md, CCTK.md, USB_SETUP.md,
+  SCRIPT_REFERENCE.md, END_USER_DEPLOY.md) all link to
+  DEPLOY_ARGS.md but none deep-link into a specific anchor that
+  would be affected by adding the new heading.
+
+**Risks / follow-ups:**
+- Zero deployment risk. Doc-only change inside `docs/DEPLOY_ARGS.md`
+  and `CHANGELOG.md`. No script logic, no test fixture, no CI
+  config touched. No version bump.
+- Coordination: no file overlap with any of the ~30 open PRs. The
+  only file overlap with in-flight work is `CHANGELOG.md`, which
+  every routine PR appends to; this PR appends at the top of
+  `## Unreleased / ### Changed`, the same insertion point used
+  by the most recent merged routine PRs, so the merge with any
+  other in-flight `### Changed` bullet is a trivial linear append.
+- **Next recommended improvement:** the maintenance log has now
+  noted overlap with ~30 stale routine PRs three runs in a row.
+  A useful next step would be a one-off pass that lists open
+  routine-spawned PRs by age, identifies duplicates (e.g. #91
+  vs #126, #76 vs #111, #79 vs #110, #88 vs #105 vs #139), and
+  surfaces a recommended close/merge order. Not in scope for a
+  routine run — flag for the maintainer when they next
+  reconcile the backlog.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

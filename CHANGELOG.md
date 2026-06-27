@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/DEPLOY_ARGS.md` now documents the `{DRIVE}` placeholder
+  substitution.** Added a "Drive-letter substitution" subsection
+  describing the literal text replacement `startnet.cmd` performs
+  on `{DRIVE}` tokens before the args reach PowerShell, with notes
+  on case-sensitivity, scope, the unset-IMAGES fallthrough, and
+  when to use the placeholder vs. absolute drive letters. The "How
+  it works" cmd snippet now also shows the substitution block, not
+  just the loader block. Documentation-only; no script behavior
+  change.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
