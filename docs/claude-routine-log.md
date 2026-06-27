@@ -5,6 +5,108 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `refresh_usb.ps1` warns when `-CctkSource` is silently dropped
+
+**Investigated:** open PRs (#141–#160 — 20+ open routine PRs touching
+build_iso safety, bitlocker, deploy.args, unattend XML, refresh_usb
+.esd listing, etc.); the closed-PR follow-up backlog noted in PR #128's
+"risks / follow-ups" section (SCRIPT_REFERENCE.md catch-up done in
+#128 itself; refresh_usb `-OutputName` extension strip done in #135);
+git log on `scripts/refresh_usb.ps1` (#143 covers the post-refresh
+.esd listing). Cross-checked the 20 open routine PRs to avoid
+duplicating the build_iso `-Interactive`-drops-flags warning (#156)
+which is the same UX pattern as this fix but on a different script.
+
+**Found:** `scripts/refresh_usb.ps1` accepts `-CctkSource <path>` even
+when `-RebuildBootWim` resolves to `No` (either explicit `-RebuildBootWim No`
+or the default `-RebuildBootWim Ask` prompt answered "n"). The
+`$CctkSource` value is then silently discarded — the rebuild block
+that would have forwarded it to `build_boot_wim.ps1 -CctkSource` is
+gated by `$RebuildBootWim -eq 'Yes'`, so the parameter sits unused
+in `$PSBoundParameters` and never produces any log line. An operator
+running `refresh_usb -SourceIso ... -CctkSource 'C:\Dell\DCC\X86_64'`
+and accepting the default Ask prompt would see no CCTK trace in
+the post-refresh summary but also no warning that the source was
+ignored — exactly the kind of silent contract violation the recent
+PR #156 (build_iso `-Interactive` drops flags) hardened against on
+the sibling script.
+
+The docstring at lines 75–77 said "Used only when -RebuildBootWim"
+which technically documents the constraint, but consistency with
+PR #156's pattern (surface the discard at runtime, not just in the
+docstring) is what catches the operator who hasn't re-read the
+docstring this session.
+
+**Changed:**
+
+- `scripts/refresh_usb.ps1` — after the rebuild-question resolution
+  block (so the warning fires for both explicit `-RebuildBootWim No`
+  and the Ask prompt answered "n"), added a guarded
+  `if ($RebuildBootWim -ne 'Yes' -and $CctkSource) { Write-Warn ... }`
+  pair that logs the discard and points the operator at the
+  resolution (`-RebuildBootWim Yes` from the ADK env). Docstring's
+  `-CctkSource` section refreshed to name the new warning behavior
+  so future readers see the contract spelled out.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the warning. No version bump (single-script UX fix; no
+  `$Script:Config.ScriptVersion` touch, no destructive path modified).
+
+**Verification:**
+
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell/Releases v7.4.6 Linux tarball into `/opt/pwsh/`); the
+  network policy allows the GitHub-Releases download.
+- Baseline `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed /
+  0 failed before edits.
+- Post-edit `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed /
+  0 failed. The added lines parse clean and don't disturb any of the
+  refresh_usb syntax assertions or the brace-balance / region-balance
+  checks on the deploy script.
+- Predicate smoke test exercised five inputs against the warning
+  expression `($RebuildBootWim -ne 'Yes' -and $CctkSource)`:
+  - `Yes` + `'C:\dcc'` → no warn (intended, rebuild runs)
+  - `No`  + `'C:\dcc'` → warn (the regression)
+  - `No`  + `''`       → no warn (no source, no signal)
+  - `Yes` + `''`       → no warn (rebuild runs without CCTK)
+  - `Ask` + `'C:\dcc'` → warn (covers the literal "Ask" case if a
+    caller passes it through; the production code only reaches this
+    branch after the Ask prompt has already resolved to Yes/No, so
+    this just guards belt-and-suspenders)
+  All five paths matched the expected truth table.
+- No test file exists for refresh_usb behavioral assertions; adding
+  one would require mocking Read-Host across the Ask path, which is
+  out of scope for this fix.
+
+**Risks:**
+
+- Minimal. Single-file, additive operator-facing log line on an
+  admin-host workflow wrapper. No destructive code paths touched,
+  no new parameter, no behavior change for the existing happy paths
+  (`-RebuildBootWim Yes -CctkSource ...` is unaffected — the warning
+  is gated on `-ne 'Yes'`).
+- The warning fires for the literal `'Ask'` case too, even though
+  production runs always resolve Ask before reaching the warning
+  block. Belt-and-suspenders — if a future refactor reorders the
+  blocks, the warning still fires correctly.
+
+**Next recommended improvement:**
+
+- `scripts/refresh_usb.ps1` `-BootUsbDrive` defaults to `'P:'` and is
+  also dropped when `-RebuildBootWim No`. Detecting "user-provided"
+  needs `$PSBoundParameters.ContainsKey('BootUsbDrive')` (because
+  the default is non-empty). Lower-value than `-CctkSource` because
+  a different boot-USB letter without a rebuild is genuinely noise
+  rather than a missed action — flagged here so a future routine
+  pass can decide whether to also surface it.
+- `New-DiskpartScript` content has no direct test — the existing
+  Pester suite checks only the source-drive-protection return value
+  and mocks Set-Content. A test that captures the generated diskpart
+  command string and asserts on partition sizes / labels / drive
+  letters / data-disk presence would catch silent layout regressions
+  on a safety-critical surface. Larger scope than this routine.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

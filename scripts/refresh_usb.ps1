@@ -73,8 +73,10 @@
     Used only when -RebuildBootWim. Default: 'P:'.
 
 .PARAMETER CctkSource
-    Used only when -RebuildBootWim. Optional path to Dell CCTK to
-    embed in boot.wim. See docs/CCTK.md.
+    Used only when -RebuildBootWim Yes. Optional path to Dell CCTK to
+    embed in boot.wim. See docs/CCTK.md. If passed when the boot
+    rebuild is skipped, the script logs a warning and continues - the
+    CCTK source is silently dropped without it.
 
 .EXAMPLE
     # Simplest case: new ISO, refresh just the image
@@ -168,6 +170,15 @@ if (Test-Path $outputWim) {
 if ($RebuildBootWim -eq 'Ask') {
     $resp = Read-Host "Also rebuild WinPE boot.wim on $BootUsbDrive after the image is ready? (y/N)"
     $RebuildBootWim = if ($resp -match '^y') { 'Yes' } else { 'No' }
+}
+
+# Warn if rebuild-only flags were passed but the rebuild won't run. Silent
+# acceptance would let an operator think CCTK was embedded when nothing
+# happened. Fires after the Ask prompt resolves, so users who answer "n"
+# to the prompt also see it.
+if ($RebuildBootWim -ne 'Yes' -and $CctkSource) {
+    Write-Warn "-CctkSource was provided but -RebuildBootWim is '$RebuildBootWim' - CCTK will NOT be embedded this run."
+    Write-Warn "  Re-run with -RebuildBootWim Yes (from the ADK env) to actually embed CCTK in boot.wim."
 }
 
 # Pre-flight the ADK env for the boot rebuild now, so we don't run

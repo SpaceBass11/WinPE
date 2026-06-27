@@ -9,6 +9,20 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/refresh_usb.ps1` warns when `-CctkSource` is silently
+  dropped.** Passing `-CctkSource` without `-RebuildBootWim Yes`
+  previously did nothing without any feedback — the operator's CCTK
+  source was discarded and no log line surfaced the discrepancy.
+  The wrapper now emits a `[ warn  ]` line after the
+  rebuild-question resolves (covering both the explicit
+  `-RebuildBootWim No` path and the `Ask` prompt answered "no"
+  cases), pointing at the resolution: re-run with
+  `-RebuildBootWim Yes` from the ADK env to actually embed CCTK.
+  Same surface-the-discard pattern as the `-Interactive`-drops-flags
+  warning recently added to `scripts/build_iso.ps1`. Docstring's
+  `-CctkSource` section updated to match. No version bump
+  (single-script UX fix; no `$Script:Config.ScriptVersion` touch,
+  no destructive code path modified).
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
