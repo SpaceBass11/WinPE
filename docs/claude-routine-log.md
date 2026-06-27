@@ -5,6 +5,132 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `Select-AdditionalWipeDisks` excludes the running system disk
+
+**Investigated:** open Claude routine PRs #119–#148 (surveyed via
+`mcp__github__list_pull_requests` and PR-body greps for
+`IsSystemDisk` / `additional-wipe` / `system disk` / `Select-AdditionalWipeDisks`).
+The active backlog focuses on path-resolution defenses (#124 -WimFile,
+#133 -UnattendFile, #139 -BitLockerKeyPath), build_iso safety
+(#127 .iso extension, #141 PIN deploy.args round-trip,
+#147 disk-number collisions, #120 unattend.xml well-formedness),
+Pester coverage for individual gates (#119, #123, #125, #137, #142),
+and doc drift cleanup. No PR touches the additional-wipe candidate
+filter or the system-disk protection there.
+
+**Found:** `Select-AdditionalWipeDisks` (`unified_winpe_deploy.ps1`
+line 1377–1467, post-edit) builds its candidate list with
+`@($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number })`.
+That filter excludes the primary target but says nothing about
+`IsSystemDisk`. In WinPE this is invisible — `Get-SystemDisks` skips
+the system-disk detection block when `$env:SystemDrive -eq 'X:'`,
+so no disk gets flagged. But in the `CONTINUE ANYWAY` escape hatch
+(operator typed past `Test-WinPEEnvironment` while running on a real
+Windows host), `Get-SystemDisks` correctly flags the host's running
+system disk, then `Show-DiskMenu` paints it `[SYSTEM DISK - DANGER!]`
+in the primary-target view, and the primary-target path requires a
+typed `DESTROY SYSTEM` confirmation when picked. The additional-wipe
+path applied no such protection: an operator could pick the system
+disk from `-WipeDisks` (silent) or the comma-list prompt
+(interactive) and the only gate was a single typed `WIPE ALL` for
+the whole set. Two divergent safety bars for the same physical
+disk, with the weaker one reachable by a different code path —
+the exact pattern the system-disk protection was added to prevent.
+
+The current `Get-SystemDisks` fallback (`if ($diskNumber -eq 0)
+{ $disk.IsSystemDisk = $true }`) means even when the WMI
+ASSOCIATORS-OF query fails, disk 0 is still flagged on non-WinPE
+hosts — so the gap surfaces on the common Hyper-V test path
+(operator runs the script inside a guest VM to dry-run a flow).
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Select-AdditionalWipeDisks`: the
+  candidate filter now also rejects `IsSystemDisk` disks. A small
+  preceding loop logs `Excluding disk N (model) from
+  additional-wipe candidates: it is the running system disk`
+  for any disk it drops, so the operator sees what happened. The
+  block comment is expanded with a four-line note explaining why
+  the filter is a no-op in WinPE and only protects the
+  `CONTINUE ANYWAY` escape hatch.
+- `tests/validation-gates.Tests.ps1` — new `Describe
+  "Select-AdditionalWipeDisks system-disk exclusion"` with two
+  tests: (1) silent `-WipeDisks '1'` against a disk-set where
+  disk 1 is `IsSystemDisk=$true` returns `$null` (abort, the
+  filtered disk number doesn't match a valid candidate); (2)
+  silent `-WipeDisks '1'` against a disk-set where disk 1 is
+  `IsSystemDisk=$false` still returns the disk normally
+  (regression guard against over-pruning). Header
+  `.DESCRIPTION` covered-invariants list gets a new bullet.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the gap, the fix, and the WinPE no-op promise. No
+  version bump (additive safety filter; WinPE behavior unchanged).
+
+**Verification:**
+- `pwsh` v7.4.6 installed in-session per CLAUDE.md note.
+- Baseline before edits:
+  - `tests/test_parse.ps1` → 48 / 0
+  - `tests/test_wim_parser.ps1` → 16 / 0
+  - `tests/test_disk_enumeration.ps1` → 34 / 0
+- Post-edit syntax / structural balance:
+  - `tests/test_parse.ps1` → 48 / 0 (unchanged)
+  - `tests/test_wim_parser.ps1` → 16 / 0 (unchanged)
+  - `tests/test_disk_enumeration.ps1` → 34 / 0 (unchanged)
+  - `PSParser::Tokenize` parse errors on the deploy script = 0
+  - Brace balance: 399 / 399 (was 397 / 397; +2 / +2 from the new
+    `foreach` and `Where-Object` extension)
+  - Region balance: 10 / 10 (unchanged)
+  - Pester `.Tests.ps1` parses cleanly via
+    `[Parser]::ParseFile(...)` (no syntax errors)
+- Behavioral probe: loaded the deploy script as a dynamic module
+  (same seam the Pester suite uses) and called
+  `Select-AdditionalWipeDisks` directly under both topologies:
+  - Disk 1 `IsSystemDisk=$true`, silent `-WipeDisks '1'` → returns
+    `$null`, log line `Excluding disk 1 ... it is the running
+    system disk` confirmed.
+  - Disk 1 `IsSystemDisk=$false`, silent `-WipeDisks '1'` → returns
+    a one-element array with `Number=1`, log line `Silent mode:
+    queuing disk 1 ... for additional wipe` confirmed.
+- Pester suite can't run locally (PSGallery blocked in the
+  container per CLAUDE.md — `Install-Module Pester` returns
+  "No match was found"). CI's `pester` job on `windows-latest`
+  is the source of truth and will run the new tests end-to-end
+  on push.
+
+**Risks / follow-ups:**
+- Minimal. The filter is purely additive — no existing test
+  setup uses `IsSystemDisk=$true` in the disk topology fed to
+  `Select-AdditionalWipeDisks` (the validation-gates suite's
+  default Get-SystemDisks mock has both disks non-system), so
+  no existing assertion regresses. The WinPE no-op promise is
+  structural: `Get-SystemDisks` only sets `IsSystemDisk` when
+  `$env:SystemDrive -ne 'X:'`, which is false in WinPE.
+- The new warning log line uses `Write-Log -Level Warning` — same
+  pattern the script already uses to surface USB and removable-media
+  exclusions one layer up. No new log levels, no new dependencies.
+- A future maintainer might want to add the same `IsSystemDisk`
+  filter to the interactive-mode candidate list and have the
+  listing line itself mark the excluded disk — currently the
+  filter happens silently in the interactive path too. Skipped
+  this pass because the simple "drop and log" pattern already
+  closes the safety gap without changing the menu layout.
+
+**Next recommended improvement:**
+- A small extension of the masterize CI Phase 1B greps to pin
+  the new `IsSystemDisk` exclusion: a single `grep -E` for
+  `-and -not \$_.IsSystemDisk` in `Select-AdditionalWipeDisks`
+  would prevent a future "simplification" from quietly dropping
+  the filter. Skipped this pass to keep the change minimal; CI
+  Pester coverage already enforces it functionally.
+- The same defensive principle could be applied to the
+  `interactive` branch of `Select-AdditionalWipeDisks`: today
+  the filter happens silently and the operator sees no entry
+  in the menu for the system disk. A small `Write-Log` line
+  per excluded disk runs whether silent or interactive (because
+  the filter loop is outside the `$Silent` branch), so this is
+  already covered as a side-effect.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

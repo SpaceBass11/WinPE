@@ -1381,8 +1381,18 @@ function Select-AdditionalWipeDisks {
     )
 
     # Candidates: every enumerated disk other than the primary target.
-    # Get-SystemDisks already excludes USB and removable media.
-    $candidates = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number })
+    # Get-SystemDisks already excludes USB and removable media. System disks
+    # (flagged by Get-SystemDisks when running outside WinPE) are also
+    # excluded here so the additional-wipe path can't bypass the typed
+    # 'DESTROY SYSTEM' confirmation that the primary-target path requires.
+    # In WinPE itself no disk is flagged IsSystemDisk (X: is the RAM drive),
+    # so this filter is a no-op there; it only protects the
+    # 'CONTINUE ANYWAY' non-WinPE escape hatch.
+    $excludedSystem = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number -and $_.IsSystemDisk })
+    foreach ($sys in $excludedSystem) {
+        Write-Log "Excluding disk $($sys.Number) ($($sys.Model)) from additional-wipe candidates: it is the running system disk" -Level Warning
+    }
+    $candidates = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number -and -not $_.IsSystemDisk })
     if ($candidates.Count -eq 0) { return @() }
 
     # Silent path: resolve -WipeDisks without prompting

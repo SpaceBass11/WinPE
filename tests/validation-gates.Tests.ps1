@@ -24,6 +24,8 @@
           - -EnableBitLocker without -BitLockerPin
           - -EnableBitLocker -BitLockerPin '<5 chars>'
           - -Silent -DataDiskNumber without -Force
+      - Select-AdditionalWipeDisks excludes IsSystemDisk from candidates
+        (otherwise the WIPE ALL prompt could bypass DESTROY SYSTEM)
       - Start-Deployment validation passes with -Silent -Force
         -DataDiskNumber explicit (mocks short-circuit before any
         destructive op runs).
@@ -145,6 +147,56 @@ Describe "Resolve-BitLockerKeyPath escrow precedence" {
         $result.Path | Should -Not -Be 'D:\BitLocker'
         $result.Path | Should -Not -Match '^D:'
         $result.Path | Should -Match 'C:\\Windows'
+    }
+}
+
+Describe "Select-AdditionalWipeDisks system-disk exclusion" {
+
+    BeforeEach {
+        Mock -ModuleName DeployUnderTest -CommandName Write-Log -MockWith { }
+    }
+
+    It "Excludes IsSystemDisk=true disks from the silent extra-wipe candidate set" {
+        # In non-WinPE mode (CONTINUE ANYWAY escape hatch), Get-SystemDisks
+        # flags the host's system disk as IsSystemDisk=$true. The primary-target
+        # path requires a typed 'DESTROY SYSTEM' to wipe such a disk; the
+        # additional-wipe path must apply the same protection so an operator
+        # can't bypass it via -WipeDisks.
+        $disks = @(
+            [PSCustomObject]@{ Number=0; Size=500; Model='Target NVMe'; InterfaceType='SCSI'; HasPartitions=$false; PartitionInfo='No partitions'; IsSystemDisk=$false }
+            [PSCustomObject]@{ Number=1; Size=500; Model='System NVMe'; InterfaceType='SCSI'; HasPartitions=$true;  PartitionInfo='Part1:500GB';  IsSystemDisk=$true  }
+        )
+        $target = $disks[0]
+        $picked = & $script:DeployModule {
+            param($AllDisks, $TargetDisk)
+            $Silent    = $true
+            $Force     = $true
+            $WipeDisks = '1'   # tries to wipe the system disk
+            Select-AdditionalWipeDisks -AllDisks $AllDisks -TargetDisk $TargetDisk
+        } -ArgumentList @(,$disks), $target
+        # The system disk is filtered from $candidates, so the silent-mode
+        # request for disk 1 finds no valid match and returns $null (abort).
+        $picked | Should -BeNullOrEmpty
+    }
+
+    It "Returns the non-system disk when the silent extra-wipe set is valid" {
+        # Regression guard: the new filter must not over-prune. A normal
+        # non-system, non-target disk should still flow through.
+        $disks = @(
+            [PSCustomObject]@{ Number=0; Size=500; Model='Target NVMe'; InterfaceType='SCSI'; HasPartitions=$false; PartitionInfo='No partitions'; IsSystemDisk=$false }
+            [PSCustomObject]@{ Number=1; Size=500; Model='Data NVMe';   InterfaceType='SCSI'; HasPartitions=$true;  PartitionInfo='Part1:500GB';  IsSystemDisk=$false }
+        )
+        $target = $disks[0]
+        $picked = & $script:DeployModule {
+            param($AllDisks, $TargetDisk)
+            $Silent    = $true
+            $Force     = $true
+            $WipeDisks = '1'
+            Select-AdditionalWipeDisks -AllDisks $AllDisks -TargetDisk $TargetDisk
+        } -ArgumentList @(,$disks), $target
+        $picked              | Should -Not -BeNullOrEmpty
+        @($picked).Count     | Should -Be 1
+        @($picked)[0].Number | Should -Be 1
     }
 }
 

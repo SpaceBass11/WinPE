@@ -9,6 +9,21 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Select-AdditionalWipeDisks` now excludes the running system disk
+  from candidates.** Previously the additional-wipe candidate list was
+  every non-target enumerated disk. In WinPE no disk is flagged
+  `IsSystemDisk` (X: is the RAM drive), so the change is a no-op there;
+  but when the operator typed `CONTINUE ANYWAY` to bypass the WinPE
+  check, `Get-SystemDisks` correctly flagged the host's running system
+  disk and that disk could still be picked from the extra-wipe list
+  with only the `WIPE ALL` confirmation — silently bypassing the
+  typed `DESTROY SYSTEM` confirmation the primary-target path
+  requires for the same disk. The filter now drops `IsSystemDisk`
+  disks before the prompt and logs a warning when it does so. New
+  Pester tests cover both the exclusion (silent `-WipeDisks` pointed
+  at the system disk aborts) and the regression guard (non-system
+  extra-wipe pick still flows through). No behavior change for
+  WinPE deploys.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
