@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`build_iso.ps1 -Interactive` no longer silently drops `-UnattendFile`.**
+  When the operator passed `-Interactive` together with `-UnattendFile`,
+  the answer file was copied into the ISO at `configs\<name>.xml` but
+  the generated `deploy.args` referenced only `-ImagePath`. The deploy
+  script therefore never saw `-UnattendFile`, never staged it to
+  `C:\Windows\Panther\unattend.xml`, and the target booted to the full
+  OOBE prompt set as if no answer file had been supplied. The
+  `-UnattendFile` append now runs after both the interactive and
+  silent argsLine branches, so a staged unattend reaches first boot in
+  either mode. TUI selection of WIM/edition/disk is unaffected.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

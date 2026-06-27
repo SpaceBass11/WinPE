@@ -278,10 +278,6 @@ if ($Interactive) {
     # Fully silent: boot -> deploy -> done, no prompts
     $argsLine = "-WimFile `"{DRIVE}\images\$wimBaseName`" -TargetDisk $TargetDisk -Force -Silent"
 
-    if ($unattendInIso) {
-        $argsLine += " -UnattendFile `"$unattendInIso`""
-    }
-
     if ($WipeDisks) {
         # Validate format before embedding
         if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
@@ -299,6 +295,17 @@ if ($Interactive) {
     }
 
     Write-Step "Generating silent deploy.args"
+}
+
+# -UnattendFile applies to both modes. The TUI picks the WIM/edition/disk,
+# but Windows Setup processes unattend.xml on first boot (account creation,
+# OOBE skip, autologon), which is orthogonal to the deploy-time selection.
+# Without this, an operator who passed -UnattendFile with -Interactive saw
+# the file staged into the ISO at configs\ but never referenced in
+# deploy.args, so the deploy script never copied it to C:\Windows\Panther
+# and the target booted to the full OOBE prompt set.
+if ($unattendInIso) {
+    $argsLine += " -UnattendFile `"$unattendInIso`""
 }
 
 Set-Content -Path $deployArgsPath -Value $argsLine -Encoding ASCII -Force

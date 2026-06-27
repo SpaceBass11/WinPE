@@ -5,6 +5,94 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `build_iso.ps1 -Interactive` silently drops `-UnattendFile`
+
+**Investigated:** the 30 currently-open Claude routine PRs (#125-#154,
+listed via `mcp__github__list_pull_requests`) to avoid duplicating
+in-flight work, then the `deploy.args` generator in
+`scripts/build_iso.ps1` (lines 268-306 pre-edit) against the deploy
+script's `-UnattendFile` consumer (`unified_winpe_deploy.ps1` lines
+1727-1747 validation; 1932-1937 stage-to-Panther). Cross-checked
+against open builder PRs (#127, #129, #131, #141, #147, #151) and the
+deploy-script `-UnattendFile` PRs (#133, #148, #150, #152) — none
+target the interactive-mode argsLine branch.
+
+**Found:** When an operator runs
+`build_iso.ps1 -Interactive -UnattendFile foo.xml`:
+
+1. `foo.xml` is copied into the ISO at `configs\foo.xml`
+   (`build_iso.ps1` line 263, pre-edit).
+2. `$unattendInIso` is set to `{DRIVE}\configs\foo.xml`
+   (line 264, pre-edit).
+3. The interactive `if` branch (line 272-276, pre-edit) writes
+   `deploy.args` as `-ImagePath "{DRIVE}\images"` — `$unattendInIso`
+   is never read.
+4. On boot the deploy script gets `-ImagePath` only, so its
+   `if ($UnattendFile)` validation block never fires.
+5. After the TUI deploy completes, the post-apply staging block
+   (`Copy-Item -Path $UnattendFile -Destination
+   C:\Windows\Panther\unattend.xml`) is also skipped.
+6. The target boots straight into full OOBE prompts as if the
+   operator had never passed `-UnattendFile` at all.
+
+The silent-mode branch did append `-UnattendFile` (the original
+line 281-283, pre-edit) so the bug was interactive-mode-only. No
+warning, no doc note — the staged file just sat in the ISO unused.
+
+**Changed:**
+
+- `scripts/build_iso.ps1` — moved the `-UnattendFile` append out of
+  the silent-mode branch and after the `if/else` block, so it runs
+  in both modes. Removed the duplicate from the silent branch.
+  Added a six-line comment explaining why first-boot unattend
+  processing is orthogonal to the TUI WIM/edition/disk picks.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet at the top
+  describing the silent-drop. No version bump (builder-only
+  behavioral fix; no deploy-script change).
+
+**Verification:**
+
+- `pwsh` v7.4.6 installed in-session per CLAUDE.md.
+- Baseline pre-edit / post-edit:
+  - `tests/test_parse.ps1` → 48 / 0 unchanged.
+  - `tests/test_wim_parser.ps1` → 16 / 0 unchanged.
+  - `tests/test_disk_enumeration.ps1` → 34 / 0 unchanged.
+- Behavioral check: wrote a stripped-down argsLine reproduction
+  under `/tmp` and ran 7 cases:
+  - Interactive + UnattendFile → string contains `-UnattendFile` ✓
+  - Interactive without UnattendFile → no `-UnattendFile` ✓
+  - Silent + UnattendFile → still contains `-UnattendFile` (regression
+    guard for the lifted append) ✓
+  - Silent + UnattendFile + Pin → contains both `-UnattendFile` and
+    `-EnableBitLocker` ✓
+  - Interactive baseline → `-ImagePath` only, no `-WimFile` ✓
+  All 7 cases pass.
+- Pester suite (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md (PSGallery blocked in the web container); no Pester
+  invariants added by this change.
+
+**Risks / follow-ups:**
+
+- Minimal. The append previously ran on the silent path; now it runs
+  on both paths. No new code, no new parameters — the existing
+  `if ($unattendInIso)` guard already gates the empty case. The
+  resulting `deploy.args` for any silent-mode input the script
+  already accepted is byte-identical (same line ordering before /
+  after the change since the append was already at the end of the
+  silent branch).
+- Outstanding routine-backlog candidates I did NOT take this pass:
+  - **`build_iso.ps1 -Interactive` still silently drops
+    `-BitLockerPin`, `-DataDiskNumber`, `-WipeDisks`, and non-default
+    `-TargetDisk`.** Parallel footguns to the unattend one fixed
+    here, but each is a separate behavior call (warn vs throw vs
+    apply). Smaller scope per PR; defer.
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code that could be factored out — cleanup
+    only, deferred across multiple prior entries because the menu
+    render is load-bearing TUI UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
