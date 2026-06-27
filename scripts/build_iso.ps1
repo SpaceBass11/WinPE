@@ -182,6 +182,30 @@ if ([IO.Path]::GetExtension($WimFile) -notin '.wim','.esd') {
 }
 $WimFile = (Resolve-Path $WimFile).Path
 
+# Cross-validate disk numbers when the ISO will embed them in deploy.args
+# (silent mode only - interactive mode leaves the picks to the operator at
+# runtime so they're not embedded in deploy.args). The deploy script catches
+# these collisions at runtime too, but failing here saves the operator from
+# building + flashing a multi-GB ISO that's DOA on first boot. Pure input
+# validation so it sits before MediaDir/ADK environment checks.
+if (-not $Interactive) {
+    if ($DataDiskNumber -ge 0 -and $DataDiskNumber -eq $TargetDisk) {
+        throw "-DataDiskNumber ($DataDiskNumber) is the same as -TargetDisk; the deploy script would refuse to wipe one disk twice. Pick a different data disk or drop -DataDiskNumber."
+    }
+    if ($WipeDisks) {
+        if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
+            throw "-WipeDisks must be comma-separated disk numbers (e.g. '1,2'). Got: '$WipeDisks'"
+        }
+        $wipeNums = @($WipeDisks -split ',' | ForEach-Object { [int]$_.Trim() })
+        if ($TargetDisk -in $wipeNums) {
+            throw "-WipeDisks contains -TargetDisk ($TargetDisk); the target is already wiped and repartitioned, drop $TargetDisk from -WipeDisks."
+        }
+        if ($DataDiskNumber -ge 0 -and $DataDiskNumber -in $wipeNums) {
+            throw "-WipeDisks contains -DataDiskNumber ($DataDiskNumber); the data disk is already formatted, drop $DataDiskNumber from -WipeDisks."
+        }
+    }
+}
+
 if (-not (Test-Path $MediaDir -PathType Container)) {
     throw "MediaDir not found: $MediaDir`nRun build_boot_wim.ps1 first (default output: C:\WinPE_Build\media)."
 }
@@ -283,10 +307,7 @@ if ($Interactive) {
     }
 
     if ($WipeDisks) {
-        # Validate format before embedding
-        if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
-            throw "-WipeDisks must be comma-separated disk numbers (e.g. '1,2'). Got: '$WipeDisks'"
-        }
+        # Format + cross-validation already happened in the silent-mode block above.
         $argsLine += " -WipeDisks `"$WipeDisks`""
     }
 

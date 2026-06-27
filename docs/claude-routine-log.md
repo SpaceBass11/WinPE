@@ -5,6 +5,97 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `build_iso.ps1` rejects disk-number collisions at build time
+
+**Investigated:** open PRs (#127-#146 all in flight; lots of build_iso /
+BitLocker / refresh_usb churn but nothing covering this specific gap),
+the actual generated `deploy.args` shape in `scripts/build_iso.ps1`'s
+silent branch (lines 277-302 pre-edit), and the deploy script's runtime
+collision gates (`unified_winpe_deploy.ps1` lines 1796-1798 for
+`-DataDiskNumber == -TargetDisk` and 1829-1833 for `-WipeDisks` vs
+`-DataDiskNumber` overlap).
+
+**Found:** `scripts/build_iso.ps1` had no cross-validation between
+`-TargetDisk`, `-DataDiskNumber`, and `-WipeDisks` in silent mode. An
+operator could build an ISO with `-TargetDisk 0 -DataDiskNumber 0`, or
+`-TargetDisk 0 -WipeDisks "0,1"`, and the resulting `deploy.args`
+would write `-TargetDisk 0 -DataDiskNumber 0 -Force -Silent` (or
+similar). The deploy script catches these at runtime, but failing at
+deploy time means: ISO already built (slow — robocopy + oscdimg on a
+5-15 GB WIM is multi-minute), already flashed to USB with Rufus, and
+already booted on the target. Catching at build time saves that whole
+cycle.
+
+The only existing `WipeDisks` validation in the builder was a format
+check (`^\s*\d+(\s*,\s*\d+)*\s*$`) at line 287, inside the silent
+argsLine branch. That validated shape but not collision.
+
+**Changed:**
+- `scripts/build_iso.ps1` — new validation block right after the
+  `WimFile` input validation (so it fires as pure input validation,
+  before any environment / ADK checks). Silent-mode only (interactive
+  mode doesn't embed `-TargetDisk` / `-DataDiskNumber` / `-WipeDisks`
+  in `deploy.args` so they don't reach the deployed machine).
+  Rejects three configurations: `-DataDiskNumber == -TargetDisk`,
+  `-WipeDisks` containing `-TargetDisk`, and `-WipeDisks` containing
+  `-DataDiskNumber`. The pre-existing format regex moved into the
+  same block (so all four checks happen together before staging) and
+  was removed from the silent argsLine branch.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the new validation block. No version bump (builder-only safety
+  check, no deploy-script behavior change).
+
+**Verification:**
+- `pwsh` installed once per session per CLAUDE.md instructions
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0 (unchanged
+  from baseline; the script still parses, all required functions
+  still present).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged.
+- Wrote a 7-case ad-hoc validator under `/tmp` that loads the script
+  (minus `#Requires -RunAsAdministrator`) and invokes it through a
+  splat hashtable with a temp WIM stand-in. All 7 cases pass:
+  - DataDiskNumber == TargetDisk throws with `same as -TargetDisk`.
+  - WipeDisks containing TargetDisk throws with
+    `-WipeDisks contains -TargetDisk`.
+  - WipeDisks containing DataDiskNumber throws with
+    `-WipeDisks contains -DataDiskNumber`.
+  - Malformed WipeDisks (e.g. `'abc'`) throws with
+    `comma-separated disk numbers`.
+  - `-Interactive` bypasses the collision block (script falls
+    through to the MediaDir check — expected, since interactive
+    mode doesn't embed those params).
+  - Default `DataDiskNumber=-1` with any `TargetDisk` passes
+    collision and falls through to MediaDir check (expected — no
+    collision possible when DataDiskNumber is off).
+  - `WipeDisks="1,2"` with `TargetDisk=0` passes collision and
+    falls through to MediaDir check (expected — no overlap).
+
+**Risks / follow-ups:**
+- Minimal. Pure input validation: no behavior change for valid
+  configurations, identical generated `deploy.args` for any input
+  the script already accepted. Three new throw paths, each for an
+  invariant the deploy script already enforces at runtime.
+- The pre-existing `-WipeDisks` format regex moved location but is
+  byte-identical (`^\s*\d+(\s*,\s*\d+)*\s*$`); the silent argsLine
+  branch now relies on the earlier check, with a one-line comment
+  noting that.
+- Outstanding routine-backlog candidates not taken this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — cleanup-only,
+    deferred across multiple routine entries because the menu
+    render is load-bearing TUI UX. Risk of subtle UX changes.
+  - A Pester-level test that exercises these three collision
+    throws under `build_iso.ps1` (paralleling the deploy-script
+    validation gates in `tests/validation-gates.Tests.ps1`) —
+    would close the gap between ad-hoc local verification and CI.
+    The existing builder test coverage is syntax-only.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
