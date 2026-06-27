@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-UnattendFile` XML well-formedness pre-flight now has Pester
+  coverage.** Three regression-guard tests in
+  `tests/validation-gates.Tests.ps1` pin the pre-flight check at
+  lines 1732-1747 of `unified_winpe_deploy.ps1`: nonexistent file
+  rejected, malformed XML rejected before any destructive op, and
+  well-formed XML accepted and staged to `C:\Windows\Panther` after
+  image apply. The check itself shipped in May (deploy log entry
+  2026-05-17) but had no test guarding it — a regression would have
+  let a malformed answer file sneak past pre-flight and surface as
+  unexpected manual OOBE prompts after the target disk was already
+  wiped + imaged. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

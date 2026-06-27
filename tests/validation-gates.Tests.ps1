@@ -24,6 +24,10 @@
           - -EnableBitLocker without -BitLockerPin
           - -EnableBitLocker -BitLockerPin '<5 chars>'
           - -Silent -DataDiskNumber without -Force
+          - -UnattendFile pointing at a nonexistent file
+          - -UnattendFile pointing at malformed XML
+      - Start-Deployment accepts well-formed -UnattendFile and stages
+        it to C:\Windows\Panther after image apply.
       - Start-Deployment validation passes with -Silent -Force
         -DataDiskNumber explicit (mocks short-circuit before any
         destructive op runs).
@@ -415,5 +419,100 @@ Describe "Start-Deployment validation gates" {
         }
         $val = & $script:DeployModule { $Script:Config.BitLockerPin }
         $val | Should -Be 'goodpin42'
+    }
+
+    # -------------------------------------------------------------------
+    # -UnattendFile XML well-formedness pre-flight (lines 1732-1747 in
+    # the script). The check runs BEFORE Find-ImageFiles / disk wipe /
+    # DISM apply, so a regression that loosened it would let a malformed
+    # answer file sneak past pre-flight and get copied to
+    # C:\Windows\Panther AFTER the target disk is already wiped + imaged.
+    # Windows Setup then silently ignores the bad XML and falls through
+    # to manual OOBE — the operator discovers the misconfig only when
+    # the deploy is already half-done. Three tests pin the contract:
+    # nonexistent file rejected, malformed XML rejected, well-formed
+    # accepted.
+    # -------------------------------------------------------------------
+
+    It "Rejects -UnattendFile pointing at a nonexistent file" {
+        # Layer a path-specific mock on top of the BeforeEach blanket
+        # Test-Path -> $true so the unattend Test-Path check sees missing.
+        Mock -ModuleName DeployUnderTest -CommandName Test-Path -ParameterFilter {
+            $Path -eq 'X:\nonexistent-unattend.xml'
+        } -MockWith { $false }
+        $result = & $script:DeployModule {
+            $WimFile      = 'I:\images\Win.wim'
+            $TargetDisk   =  0
+            $Force        = $true
+            $Silent       = $true
+            $UnattendFile = 'X:\nonexistent-unattend.xml'
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'UnattendFile not found' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects -UnattendFile pointing at malformed XML before any destructive op" {
+        # Real on-disk file under Pester's TestDrive: the [xml] cast on
+        # Get-Content runs against the real cmdlet (Get-Content is NOT in
+        # the BeforeEach mock set), so the parser actually exercises the
+        # XML well-formedness logic instead of a stubbed return.
+        # $TestDrive lives in the test-script scope, so we marshal the
+        # path across the module boundary via $env:.
+        $env:UNATTEND_TEST_FILE = Join-Path $TestDrive 'bad-unattend.xml'
+        Set-Content -Path $env:UNATTEND_TEST_FILE -Encoding UTF8 -Value '<unattend><settings><not-closed></unattend>'
+        try {
+            $result = & $script:DeployModule {
+                $WimFile      = 'I:\images\Win.wim'
+                $TargetDisk   =  0
+                $Force        = $true
+                $Silent       = $true
+                $UnattendFile = $env:UNATTEND_TEST_FILE
+                Start-Deployment
+            }
+            $result | Should -BeFalse
+            $logs = $Global:CapturedLogs
+            ($logs | Where-Object { $_.Message -match 'not well-formed XML' }) | Should -Not -BeNullOrEmpty
+            Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+            Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+        } finally {
+            Remove-Item Env:UNATTEND_TEST_FILE -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "Accepts -UnattendFile pointing at well-formed XML and stages it post-apply" {
+        # Mock Copy-Item — the post-apply unattend stage at line 1937 fires
+        # only when -UnattendFile is set, and lands on C:\Windows\Panther
+        # which isn't writable under CI. The other Pester gates don't set
+        # UnattendFile so they don't reach this code path.
+        Mock -ModuleName DeployUnderTest -CommandName Copy-Item -MockWith { }
+        $env:UNATTEND_TEST_FILE = Join-Path $TestDrive 'good-unattend.xml'
+        Set-Content -Path $env:UNATTEND_TEST_FILE -Encoding UTF8 -Value @'
+<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="oobeSystem"></settings>
+</unattend>
+'@
+        try {
+            $result = & $script:DeployModule {
+                $WimFile      = 'I:\images\Win.wim'
+                $TargetDisk   =  0
+                $Force        = $true
+                $Silent       = $true
+                $UnattendFile = $env:UNATTEND_TEST_FILE
+                Start-Deployment
+            }
+            $result | Should -BeTrue
+            $logs = $Global:CapturedLogs
+            ($logs | Where-Object { $_.Message -match 'not well-formed XML' }) | Should -BeNullOrEmpty
+            ($logs | Where-Object { $_.Message -match 'Unattend file staged' }) | Should -Not -BeNullOrEmpty
+            Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 1
+            Should -Invoke -ModuleName DeployUnderTest -CommandName Copy-Item          -Times 1
+        } finally {
+            Remove-Item Env:UNATTEND_TEST_FILE -ErrorAction SilentlyContinue
+        }
     }
 }

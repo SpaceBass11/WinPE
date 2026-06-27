@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — Pester coverage for `-UnattendFile` XML pre-flight
+
+**Investigated:** the 30 open Claude routine PRs (#122–#151) plus the
+existing Pester surface in `tests/validation-gates.Tests.ps1`.
+Cross-referenced each open PR title against the deploy script's
+validation gates to find an untested safety check that no in-flight
+PR was touching.
+
+**Found:** the `-UnattendFile` XML well-formedness pre-flight check
+in `unified_winpe_deploy.ps1` (lines 1732-1747) had zero Pester
+coverage. The check itself shipped on 2026-05-17 per this same log,
+in response to a known failure mode: Windows Setup silently ignores
+a malformed unattend.xml and falls through to manual OOBE, so a
+regression here would only surface AFTER the target disk was wiped
++ imaged. None of the in-flight PRs touched this code:
+ - PR #133 resolves `-UnattendFile` to an absolute path (different
+   concern — runs after the validation passes)
+ - PR #148 wraps the post-apply `Copy-Item` in try/catch (different
+   concern — staging step, not pre-flight)
+ - PR #151 covers `build_iso.ps1`'s separate malformed-unattend
+   rejection (different script, different code path)
+ - PR #150 just drops a stale doc comment
+
+The Pester `Start-Deployment validation gates` block already mocks
+every destructive function plus `Test-Path`, so the new tests slot
+in alongside the existing 18 with minimal new setup. `Get-Content`
+is intentionally NOT mocked, so the [xml] cast actually exercises
+the parser against TestDrive-backed files.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — three new `It` blocks at the
+  end of the `Start-Deployment validation gates` describe:
+  1. Rejects -UnattendFile pointing at a nonexistent file (path-
+     specific `Test-Path` mock layered on the blanket `$true` mock).
+  2. Rejects malformed XML before any destructive op (real
+     TestDrive file with `<unattend><settings><not-closed></unattend>`
+     — verified locally that this payload throws under [xml]).
+  3. Accepts well-formed XML and stages it post-apply (with
+     `Copy-Item` mock since the unattend stage at line 1937 lands
+     on `C:\Windows\Panther` which isn't writable under CI).
+  Synopsis block at the top of the file updated to enumerate the
+  two new rejection paths and the one new accept path.
+- `CHANGELOG.md` — entry under `## Unreleased / ### Changed` naming
+  the line range pinned and the regression class it guards against.
+
+**Verification:**
+- `pwsh` (7.4.6) installed per CLAUDE.md tarball recipe.
+- `PSParser::Tokenize` on the updated test file: 0 errors.
+- Full `tests/test_parse.ps1` run: 48/48 passed (was 48/48 — no
+  shift, since the change is test-file-only).
+- Brace balance on `tests/validation-gates.Tests.ps1`: 120/120
+  (was 114/114; +6/+6 from the three new try/finally blocks).
+- `Describe` count unchanged (4); `It` count 18 → 21 (+3).
+- Pester itself not available locally — PSGallery blocked in this
+  container per CLAUDE.md note. Manually verified the test
+  payloads against a real `[xml]` cast in pwsh 7.4.6: the
+  malformed payload throws ("The 'not-closed' start tag on line 1
+  position 22 does not match the end tag of 'unattend'"), the
+  well-formed payload parses clean. So the `Should -Match 'not
+  well-formed XML'` and `Should -BeNullOrEmpty` assertions will
+  hit / miss the right branches when CI runs the suite.
+- All three regex patterns (`UnattendFile not found`,
+  `not well-formed XML`, `Unattend file staged`) confirmed
+  verbatim in `unified_winpe_deploy.ps1` lines 1734 / 1740 / 1938.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. Same
+  PowerShell 5.1 compatibility constraints as the existing Pester
+  block. CI's `pester` job on `windows-latest` runs the suite end-
+  to-end.
+- Outstanding follow-ups not taken this pass (all already covered
+  by open routine PRs — listed for context, not as new work):
+   - `Show-ImageList` / `Show-ImageSelection` shared listing-render
+     code (~30 lines) — repeatedly flagged in prior log entries,
+     deferred again because the menu render is load-bearing TUI UX.
+   - No Pester coverage for the `Find-ImageFiles`
+     `DEPLOY_IMAGE_DRIVE` env-var fallback path (line 320-327).
+     PR #146 touches the nearby "DEPLOY_IMAGE_DRIVE set but
+     inaccessible" warning, so worth waiting for that to land
+     before adding adjacent tests.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
