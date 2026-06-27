@@ -5,6 +5,146 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — CCTK config-selection fixture test
+
+**Investigated:** the 31 currently-open routine PRs (#127-#157) to
+avoid duplicating in-flight work, the maintenance log's prior
+"next recommended improvement" backlog, and which of the deploy
+script's load-bearing parsers/selectors are still untested.
+
+The most recent log entry (2026-06-27, PR #157, `deploy.args`
+first-line fix) explicitly named "a fixture test for the CCTK
+model normalization regex (`($rawModel -replace '[^A-Za-z0-9]',
+'').Trim()`)" as the next-step follow-up. It was deferred there
+out of concern that the Pester PR queue (#137, #142, #152) might
+restructure the mock harness — but a CCTK selection test doesn't
+need Pester or mocks (it's pure string normalization + pure file-
+existence lookup), so it can land independently of that queue.
+Same no-Pester pattern as `tests/test_disk_enumeration.ps1` and
+`tests/test_wim_parser.ps1`.
+
+**Found:** `Invoke-CctkConfig` at line 1269 of
+`unified_winpe_deploy.ps1` does fleet-wide per-machine BIOS
+configuration. The selection rules are:
+
+  1. `<SERVICETAG>.ini` (from `Win32_BIOS.SerialNumber.Trim()`)
+  2. `<MODEL>.ini` (from
+      `(Win32_ComputerSystem.Model -replace '[^A-Za-z0-9]', '').Trim()`)
+  3. `default.ini`
+  4. skip
+
+Two silent-failure classes weren't covered by any test:
+
+- A drift in the alnum regex (e.g. someone changing it to
+  `[^A-Za-z0-9_]` to "be more permissive") would change the
+  filename match — operators would name their config
+  `Latitude_5520.ini` based on the new regex, the script would
+  still look for `Latitude5520.ini`, and the per-model config
+  would silently fall through to `default.ini` (or nothing).
+- A precedence flip would let `default.ini` shadow a
+  per-machine `<servicetag>.ini` override — the operator who
+  added that file specifically to fix one box would see no
+  effect and have nothing logged to point at the cause.
+
+Neither failure mode trips an error: both produce a "loaded
+default.ini" or "no config matched - skipping" log line and the
+deploy proceeds. The 2026-06-27 PR #157 routine entry called
+this out and the masterize CI checks don't cover it either
+(check #18 only verifies the CCTK call happens before disk
+selection — not which config it picks).
+
+**Changed:**
+
+- `tests/test_cctk_selection.ps1` — new fixture test, 40 cases:
+  - 6 service-tag `.Trim()` cases (incl. tab-padded, empty, `$null`).
+  - 13 model-normalization cases incl. spaces, underscores, hyphens,
+    parens, periods, Unicode, the empty / null / collapse-to-empty
+    edges.
+  - 9 precedence cases — full matrix of present / absent on each
+    of the three tiers, plus the four null-tag and null-model
+    fall-through combinations.
+  - 4 round-trip cases — raw WMI-style model string in, normalized
+    key out, on-disk file picked. Pins the operator-visible
+    contract: name your file the same way the regex produces the
+    key.
+  - 8 drift-guard regex matches against `unified_winpe_deploy.ps1`
+    (the alnum literal, the tag `.Trim()`, the `default.ini`
+    filename, and the three reason-string log markers). If any
+    side moves without the other, this test fails and forces the
+    pair to be re-synced.
+- `.github/workflows/ci.yml` — wired the new test as a follow-on
+  step in the `syntax` job (same pattern as the existing
+  `test_disk_enumeration.ps1` line).
+- `CLAUDE.md` Running Checks table — updated from "three test
+  files" to "five test files" and added rows for
+  `test_disk_enumeration.ps1` (which had been merged via PR #50
+  but never made it into the table) plus the new
+  `test_cctk_selection.ps1`. Mirrored entries appended to the
+  local-test command list immediately below the table.
+- `CHANGELOG.md` — new `### Changed` bullet at the top of
+  `## Unreleased`, above the existing `Get-SystemDisks` entry.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed via the CLAUDE.md one-liner (GitHub
+  Releases tarball into `/opt/pwsh/`).
+- Baselines (pre-edit):
+  - `tests/test_parse.ps1` → 48 / 0
+  - `tests/test_wim_parser.ps1` → 16 / 0
+  - `tests/test_disk_enumeration.ps1` → 34 / 0
+- Post-edit:
+  - `tests/test_cctk_selection.ps1` → 40 / 0 (new)
+  - `tests/test_parse.ps1` → 48 / 0 (unchanged — test doesn't
+    cover other test files; the deploy script wasn't touched)
+  - `tests/test_wim_parser.ps1` → 16 / 0 (unchanged)
+  - `tests/test_disk_enumeration.ps1` → 34 / 0 (unchanged)
+- `PSParser::Tokenize` clean on the new file
+  (`/opt/pwsh/pwsh -NoProfile -c "[System.Management.Automation.PSParser]::Tokenize(...)"`).
+- Manual drift-flip sanity check: editing the regex in the deploy
+  script to `[^A-Za-z0-9_]` would fail the "Model alnum regex
+  still '[^A-Za-z0-9]'" assertion, which is the intended
+  early-warning. (Reverted; no production code is touched in this
+  commit.)
+
+**Risks / follow-ups:**
+
+- Low. Test-only change. No production code touched. No new
+  dependencies. Same PSv5.1-compatible idioms as the existing
+  fixtures (`-replace`, `-contains`, `-match` — all PSv5.1-safe).
+- The PIN-content concerns being handled in the Pester queue
+  (#137, #142, #152) are independent — they assert deploy-script
+  validation behavior, not CCTK selection. No conflict.
+- Outstanding backlog from prior routine entries that I did not
+  take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line listing-
+    render duplication — deferred for six consecutive routine
+    entries on consistent "load-bearing UX" grounds. Leave for a
+    release-cycle refactor pass.
+  - Adversarial review of the BitLocker first-boot script for the
+    case where `Add-BitLockerKeyProtector -RecoveryKeyProtector`
+    on C: fails AFTER `Enable-BitLocker -TpmAndPinProtector`
+    succeeded — currently logs a WARNING and proceeds, leaving
+    C: encrypted with TPM+PIN only and no recovery key (TPM
+    reset = permanent lockout). The right fix is non-trivial
+    (the cmdlet doesn't atomically take both protectors) and
+    deserves a deliberate pass, not a routine.
+
+**Next recommended improvement:**
+
+- A fixture test for `Test-FinalWipeConfirmation` (deploy.ps1
+  ~line 712) — currently PR #142 is in flight via Pester, but a
+  pure no-mock fixture could pin the accept/reject character set
+  without depending on the mock harness. Reassess once PR #142
+  lands; if it covers the same surface area, no follow-up
+  needed.
+- Adversarial review of `New-DiskpartScript` for the
+  `DataDiskNumber = TargetDisk.Number` collision case (PR #147
+  partially covers the silent-mode side; the interactive TUI
+  side is less obvious — does `Select-AdditionalWipeDisks`
+  filter the data disk out of the additional-wipe candidates?).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

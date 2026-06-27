@@ -108,18 +108,22 @@ Use `/review` to run a comprehensive check of the deployment script covering:
 
 ### Running Checks
 
-The repo has three test files; know which is which before changing one:
+The repo ships five test files; know which is which before changing one:
 
 | File | What it covers | Where it runs |
 |------|----------------|---------------|
 | `tests/test_parse.ps1` | PowerShell syntax + function presence + version consistency across every shipped pipeline script (`unified_winpe_deploy.ps1` + the five under `scripts/`) | Anywhere with `pwsh` (also CI) |
 | `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` regex parser used by `Get-WimImageInfo` — guards against silent edition mis-attribution | Anywhere with `pwsh` (also CI) |
+| `tests/test_disk_enumeration.ps1` | Fixture test for `Get-SystemDisks` filtering (USB / removable / CD excluded) and partition rendering (`Win32_DiskDrive.Partitions` precedence so Linux/LVM disks don't get reported as empty) | Anywhere with `pwsh` (also CI) |
+| `tests/test_cctk_selection.ps1` | Fixture test for `Invoke-CctkConfig` — model alnum-normalization regex and the `<servicetag>.ini` > `<model>.ini` > `default.ini` selection precedence used to pick a per-deploy BIOS config | Anywhere with `pwsh` (also CI) |
 | `tests/validation-gates.Tests.ps1` | **Pester suite.** v4.7.0 BitLocker default-config invariants, `Resolve-BitLockerKeyPath` precedence, `New-DiskpartScript` source-drive protection, `Start-Deployment` validation gates | **CI only** — see Pester note below |
 
 ```bash
 # Syntax + parser fixtures - runs anywhere with pwsh installed
 pwsh -NoProfile -File ./tests/test_parse.ps1
 pwsh -NoProfile -File ./tests/test_wim_parser.ps1
+pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1
+pwsh -NoProfile -File ./tests/test_cctk_selection.ps1
 ```
 
 The deeper safety/diskpart/BCDBoot greps that used to live in

@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Invoke-CctkConfig` selection logic now has fixture-test coverage.**
+  New `tests/test_cctk_selection.ps1` exercises the model-key
+  normalization regex (`-replace '[^A-Za-z0-9]', ''` plus `.Trim()` —
+  13 cases including spaces, underscores, hyphens, parens, periods,
+  Unicode, and the empty/null guard) and the three-tier file-pick
+  precedence used to drive per-deploy BIOS config on Dell fleets
+  (`<servicetag>.ini` > `<model>.ini` > `default.ini` > skip — 9 cases
+  covering the full matrix of present/absent on each tier and the
+  null-tag fall-through). Includes a drift guard that fails if the
+  regex literal, service-tag `.Trim()`, the `default.ini` filename, or
+  the three reason-string log markers move in the deploy script. Wired
+  into the CI `syntax` job. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
