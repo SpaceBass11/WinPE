@@ -5,6 +5,100 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `build_iso.ps1 -Interactive` silently drops several deploy flags
+
+**Investigated:** the 30 currently-open Claude routine PRs (#126-#155)
+to find an un-taken candidate. Picked up the explicit follow-up PR
+#155's body called out: "`build_iso.ps1 -Interactive` still silently
+drops `-BitLockerPin`, `-DataDiskNumber`, `-WipeDisks`, and non-default
+`-TargetDisk`. Parallel footguns to the unattend one fixed here, but
+each is a separate behavior call (warn vs throw vs apply). Smaller
+scope per PR; defer." Cross-checked against the remaining open builder
+PRs (#127, #129, #131, #141, #147, #151, #155) — none address the
+warn-on-dropped-flags case.
+
+**Found:** In `scripts/build_iso.ps1` lines 268-302 the `-Interactive`
+branch writes `deploy.args` as `-ImagePath "{DRIVE}\images"` only. The
+PowerShell parameters `-BitLockerPin`, `-DataDiskNumber`, `-WipeDisks`,
+and `-TargetDisk` all bind successfully but never reach the resulting
+`deploy.args`. The most consequential drop is `-BitLockerPin`: the
+operator builds an ISO expecting BitLocker encryption, but the deploy
+script never receives the PIN and the target boots unencrypted. The
+`-BitLockerPin` doc block (lines 41-47 pre-edit) made no mention of
+this — the `-DataDiskNumber`, `-WipeDisks`, and `-TargetDisk` docs all
+already said "Only used when -Interactive is not set", so the doc
+itself was inconsistent.
+
+**Changed:**
+
+- `scripts/build_iso.ps1` —
+  - Added a `-BitLockerPin / -Interactive` doc clarification
+    (mirrors the existing `-DataDiskNumber` / `-WipeDisks` /
+    `-TargetDisk` language).
+  - New post-validation warning block. When `-Interactive` is set
+    together with any of `-BitLockerPin`, `-DataDiskNumber`,
+    `-WipeDisks`, or an explicitly-bound `-TargetDisk`, the
+    builder emits one combined `[wrn]` line listing every dropped
+    flag with the recovery hint
+    "drop -Interactive (with -ConfirmSilentDestructiveIso) to pass
+    these flags through to deploy.args."
+    `PSBoundParameters.ContainsKey('TargetDisk')` distinguishes the
+    "operator typed -TargetDisk 0" case from the "took the default
+    0" case so no spurious warn fires.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top of
+  the Changed section. No version bump (builder-only behavioral
+  surface; no deploy-script change).
+
+**Verification:**
+
+- `pwsh` v7.4.6 installed in-session per CLAUDE.md.
+- Baseline: `tests/test_parse.ps1` → 48 / 0,
+  `tests/test_wim_parser.ps1` → 16 / 0,
+  `tests/test_disk_enumeration.ps1` → 34 / 0.
+- Post-edit: all three suites unchanged at 48 / 16 / 34, 0 failures.
+  No regressions; no new structural assertions added (this is a
+  parameter-binding behavior change, not a code shape the parser
+  test would catch).
+- Behavioral harness: stripped-down repro of the warn block in
+  `/tmp/test_dropped_warn.ps1` covering 8 cases x 14 assertions:
+  - `-Interactive` alone → no warn ✓
+  - `-Interactive -BitLockerPin foo` → warn lists `-BitLockerPin` only ✓
+  - `-Interactive -DataDiskNumber 1` → warn lists `-DataDiskNumber` ✓
+  - `-Interactive -WipeDisks '1,2'` → warn lists `-WipeDisks` ✓
+  - `-Interactive` + explicit `-TargetDisk 1` → warn lists `-TargetDisk` ✓
+  - `-Interactive` + default `TargetDisk` (not bound) → no warn ✓
+  - silent path + all four flags → no drop warning (silent passes
+    them through) ✓
+  - `-Interactive` + all four flags → single combined warning with
+    all four names in order ✓
+  All 14 pass.
+- Pester suite (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md (PSGallery blocked in the web container); no Pester
+  invariants added by this change.
+
+**Risks / follow-ups:**
+
+- Minimal. Pure additive warning + docstring tightening. No
+  behavioral change to the generated `deploy.args` — flags that were
+  dropped before are still dropped. The warn fires once per build, at
+  validation time, before any robocopy / oscdimg work, so it cannot
+  destabilize an already-working build pipeline.
+- The next step for any of these four flags would be deciding
+  "apply" (pass through to deploy.args even in -Interactive mode) vs.
+  "throw" (refuse to build). Both are larger behavior changes that
+  deserve separate PRs and likely a Pester invariant. Left to the
+  next routine pass.
+- Outstanding routine-backlog candidates I did NOT take this run:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code that could be factored out — cleanup
+    only, deferred across multiple prior entries because the menu
+    render is load-bearing TUI UX.
+  - **30+ in-flight routine PRs.** Backlog reconciliation (close
+    duplicates, merge order) is out of scope for a routine run but
+    increasingly worth a one-off pass.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -44,7 +44,8 @@
     is enforced here; the deploy script enforces only Windows' 6-20
     char window at runtime. Security note: the PIN is stored in
     plaintext in the ISO/on the USB - the USB is the trust boundary.
-    Use a unique PIN per USB.
+    Use a unique PIN per USB. Only used when -Interactive is not set
+    (a build-time warning surfaces the drop).
 
 .PARAMETER DataDiskNumber
     Disk number of a secondary data drive to wipe and format as D:.
@@ -205,6 +206,26 @@ if ($UnattendFile) {
 if ($BitLockerPin) {
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
+    }
+}
+
+# Warn about parameters the -Interactive argsLine silently drops. The
+# interactive deploy.args carries only -ImagePath so the TUI can pick the
+# WIM/edition/disk, which means any deploy-time options the operator passed
+# alongside -Interactive get omitted from deploy.args. The resulting ISO
+# would deploy without the behavior the operator thought they had set —
+# -BitLockerPin (no encryption) and -DataDiskNumber (data disk untouched)
+# are the most consequential drops. PSBoundParameters distinguishes "user
+# explicitly set -TargetDisk 0" from "took the default 0" so we only warn
+# when the operator actually intended a value.
+if ($Interactive) {
+    $droppedFlags = @()
+    if ($BitLockerPin)                                { $droppedFlags += '-BitLockerPin' }
+    if ($DataDiskNumber -ge 0)                        { $droppedFlags += '-DataDiskNumber' }
+    if ($WipeDisks)                                   { $droppedFlags += '-WipeDisks' }
+    if ($PSBoundParameters.ContainsKey('TargetDisk')) { $droppedFlags += '-TargetDisk' }
+    if ($droppedFlags.Count -gt 0) {
+        Write-Warn "-Interactive mode ignores: $($droppedFlags -join ', '). The TUI handles disk/edition picks; drop -Interactive (with -ConfirmSilentDestructiveIso) to pass these flags through to deploy.args."
     }
 }
 

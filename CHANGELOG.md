@@ -9,6 +9,22 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`build_iso.ps1` warns when `-Interactive` is combined with deploy
+  parameters the interactive `deploy.args` silently drops.** The
+  interactive argsLine carries only `-ImagePath` so the TUI can pick
+  the WIM/edition/disk, which means `-BitLockerPin`,
+  `-DataDiskNumber`, `-WipeDisks`, and a non-default `-TargetDisk`
+  passed alongside `-Interactive` were previously omitted from the
+  generated `deploy.args` with no surface signal. The most
+  consequential drop was `-BitLockerPin`: the operator built an ISO
+  expecting BitLocker encryption, but the deploy script never
+  received the PIN and the target booted unencrypted. Build now emits
+  one combined `[wrn]` line listing every flag that was dropped, and
+  the `-BitLockerPin` docstring calls out the `-Interactive`
+  interaction. No behavior change to the generated `deploy.args`
+  itself — flags that were dropped before are still dropped (changing
+  that needs a separate `apply-vs-warn` decision per flag).
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
