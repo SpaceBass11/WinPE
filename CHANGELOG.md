@@ -9,6 +9,13 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-WipeDisks` now warns when given without `-Silent`.** Mirrors
+  the existing `-BitLockerPin`-without-`-EnableBitLocker` warning.
+  In interactive mode the additional-wipe prompt reads disk numbers
+  fresh from stdin, so the parameter was silently dropped — an
+  operator who pre-staged `-WipeDisks "1,2"` but forgot `-Silent`
+  saw none of the additional disks queued. Pre-flight log line
+  only, no destructive behavior change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

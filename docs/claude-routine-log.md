@@ -5,6 +5,94 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `-WipeDisks` without `-Silent` ignored-warning (parity with PIN)
+
+**Investigated:** open routine PRs (#134–#153, ~20 in flight), grouping
+by topic to find a non-overlapping gap. PR #153 (added the
+`-BitLockerKeyPath`-without-`-EnableBitLocker` warning) explicitly
+called this case out in its `Next recommended improvement` section:
+> "-WipeDisks provided without -Silent is silently ignored... Symmetrical
+> 'ignored in interactive mode' warning would close that UX trap too."
+
+Cross-checked `Select-AdditionalWipeDisks`
+(`unified_winpe_deploy.ps1:1377-1467`) and the pre-flight warning block
+(`unified_winpe_deploy.ps1:1696-1698`).
+
+**Found:** `Select-AdditionalWipeDisks` reads `$WipeDisks` only inside
+its `if ($Silent)` branch (line 1389). The interactive branch
+(lines 1404-1466) ignores the parameter and prompts the operator with
+`Read-Host` instead. An operator who pre-stages
+`-WipeDisks "1,2"` but forgets `-Silent` sees the additional-wipe TUI
+prompt as if they hadn't supplied anything — the comma list silently
+disappears. There is no warning, no log line, nothing in the script's
+output that tells the operator the parameter did nothing. This is the
+same UX trap PR #153 closed for `-BitLockerKeyPath` and the existing
+PIN-ignored warning closes for `-BitLockerPin`. The pre-flight block
+already has the canonical place for these (line 1696-1698, right above
+the `if ($Silent -and -not $ListOnly)` gate); a fourth-pair warning
+slots in cleanly.
+
+PR #137 covers test-only Pester coverage for the existing PIN-ignored
+warning; it doesn't touch `-WipeDisks`. PR #149 excludes the system disk
+from the additional-wipe candidate set; orthogonal to this. PR #147
+rejects build_iso disk-number collisions; build-time, not deploy-time.
+None of the 20 open routine PRs touch this specific warning.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — three-line warning block right after the
+  existing `-BitLockerPin` and (PR #153) `-BitLockerKeyPath` ignored
+  warnings. Same pattern, same `Write-Log -Level Warning`, same gating
+  shape (`$WipeDisks -and -not $Silent`). Inline comment explains why
+  the parameter is silent-only and what the operator should do
+  instead (use the additional-wipe prompt).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the additive warning. No version bump (pre-flight log
+  line only).
+
+**Verification:**
+- `pwsh` v7.4.6 installed in-session per the CLAUDE.md note
+  (`/opt/pwsh/pwsh`, GitHub-Releases tarball).
+- Baseline before edits:
+  - `tests/test_parse.ps1` → 48 / 0
+  - `tests/test_wim_parser.ps1` → 16 / 0
+  - `tests/test_disk_enumeration.ps1` → 34 / 0
+- Post-edit:
+  - `tests/test_parse.ps1` → 48 / 0 unchanged.
+  - `tests/test_wim_parser.ps1` → 16 / 0 unchanged.
+  - `tests/test_disk_enumeration.ps1` → 34 / 0 unchanged.
+  - `PSParser::Tokenize` parse-error count on the deploy script: 0.
+- Behavioral spot-check via `pwsh -c`: loaded the deploy script with
+  the parser, confirmed the new branch is inside `Start-Deployment`
+  before the silent-mode gate and after the BitLocker validation,
+  reachable on every non-silent run with `$WipeDisks` set.
+- Pester suite is CI-only per the CLAUDE.md PSGallery note. A
+  follow-up Pester gate parallel to PR #137's PIN-ignored case would
+  close the test-coverage loop; not in this PR to keep scope minimal.
+
+**Risks / follow-ups:**
+- Minimal. Pure additive log line at pre-flight, before any destructive
+  op. Matches the well-tested PIN-ignored warning pattern verbatim. No
+  new parameters, no behavior change when `-WipeDisks` is set together
+  with `-Silent` (silent path still validates format and queues the
+  set), and no behavior change when `-WipeDisks` is absent.
+- The new warning string fires on `$WipeDisks` being any truthy value
+  (PSv5.1 `-and` short-circuits, so a malformed value like `"abc"`
+  still surfaces this warning — operator then sees the prompt and
+  re-enters; the malformed-string regex check at line 1714 is still
+  silent-only-mode-gated, but that's a separate concern).
+
+**Next recommended improvement:**
+- Pester case asserting the new `-WipeDisks`-ignored warning fires
+  (parallel to PR #137's PIN-ignored coverage). Test-only, minimal
+  scope, would close the symmetry.
+- The interactive `Select-AdditionalWipeDisks` branch could
+  optionally seed its `Read-Host` default from `$WipeDisks` (so an
+  operator who *does* want the parameter respected in interactive
+  mode can press Enter to accept it), but that's a behavior change
+  on top of the simple warning above. Defer.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
