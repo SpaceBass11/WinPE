@@ -121,7 +121,11 @@ $mountPath   = "HKLM\$mountKey"
 
 if (Test-Path $defaultHive) {
     Log "Mounting Default User hive ($defaultHive)..."
-    & reg.exe load $mountPath $defaultHive 2>&1 | Out-Null
+    # Capture reg.exe output so a non-zero exit code can be paired with the
+    # actual diagnostic line (file locked, access denied, hive corrupt,
+    # wrong format). Without this, the operator only sees "exit N" — and
+    # reg.exe's exit codes are not documented in a useful table anywhere.
+    $loadOutput = & reg.exe load $mountPath $defaultHive 2>&1
     if ($LASTEXITCODE -eq 0) {
         try {
             Log "Applying tweaks to Default User hive..."
@@ -133,15 +137,25 @@ if (Test-Path $defaultHive) {
             # access — force a collect before unload or reg.exe complains.
             [gc]::Collect()
             [gc]::WaitForPendingFinalizers()
-            & reg.exe unload $mountPath 2>&1 | Out-Null
+            $unloadOutput = & reg.exe unload $mountPath 2>&1
             if ($LASTEXITCODE -eq 0) {
                 Log "Default User hive unmounted cleanly."
             } else {
-                Log "  WARN Default User hive unload returned $LASTEXITCODE (handles still open). Tweaks were applied but the hive file may not flush until reboot."
+                $unloadMsg = ($unloadOutput | Out-String).Trim()
+                if ($unloadMsg) {
+                    Log "  WARN Default User hive unload returned $LASTEXITCODE (handles still open): $unloadMsg. Tweaks were applied but the hive file may not flush until reboot."
+                } else {
+                    Log "  WARN Default User hive unload returned $LASTEXITCODE (handles still open). Tweaks were applied but the hive file may not flush until reboot."
+                }
             }
         }
     } else {
-        Log "  ERR Default User hive load failed (exit $LASTEXITCODE) — future users won't inherit tweaks"
+        $loadMsg = ($loadOutput | Out-String).Trim()
+        if ($loadMsg) {
+            Log "  ERR Default User hive load failed (exit $LASTEXITCODE): $loadMsg — future users won't inherit tweaks"
+        } else {
+            Log "  ERR Default User hive load failed (exit $LASTEXITCODE) — future users won't inherit tweaks"
+        }
     }
 } else {
     Log "  WARN Default User hive not found at $defaultHive — skipping Default User pass"

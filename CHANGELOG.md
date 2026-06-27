@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`first-login.ps1` surfaces `reg.exe` stderr on hive load/unload failure.**
+  When the Default User hive load or unload returns non-zero,
+  `first-login.log` previously showed only the bare exit code (e.g.
+  `exit 1`), which is opaque — `reg.exe` doesn't have a documented
+  exit-code table. The script now captures the stderr line
+  (`The process cannot access the file because it is being used by
+  another process.`, `Access is denied.`, etc.) and appends it to
+  the warning, so the operator can diagnose without re-running. No
+  change to the success path or to the per-tweak loop.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

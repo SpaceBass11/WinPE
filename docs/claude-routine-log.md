@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `first-login.ps1`: surface `reg.exe` stderr on hive load/unload failure
+
+**Investigated:** the 30+ open routine PRs (#132–#161) to avoid
+duplicating in-flight work, then scanned the deploy pipeline for
+small-but-real diagnostic gaps. None of the open PRs touch
+`scripts/first-login.ps1`'s body (only #150 touches an unattend doc
+comment about it). The file has had no logic change since it was added
+in PR #21.
+
+**Found:** In `scripts/first-login.ps1` lines 124 + 136, both
+`reg.exe load` and `reg.exe unload` had their output dropped via
+`2>&1 | Out-Null` and only the bare `$LASTEXITCODE` was logged.
+`reg.exe` does not publish a documented exit-code table, so on failure
+the operator only sees `exit 1` (or whatever int) in
+`C:\Windows\Setup\Scripts\first-login.log` with no indication of *why*
+— file locked, access denied, hive corrupt, wrong arch, etc. all collapse
+to the same log line. This matters specifically for the Default User
+hive: load failure means every newly-created Windows user on that
+image silently misses the entire HKCU tweak set, but the first-login
+log offers no clue. The hive file remains there to inspect by hand,
+but only after someone notices the regression on the deployed box.
+
+**Changed:** `scripts/first-login.ps1` — replaced both
+`& reg.exe ... 2>&1 | Out-Null` calls with a captured-output variant.
+On non-zero exit, the captured text is `Out-String | Trim()`'d and
+appended to the log line after the exit code; if the captured text is
+empty (a defensive guard — reg.exe usually writes *something* on
+failure), the original "exit N only" line is logged so the log shape
+never regresses below the prior format. CHANGELOG.md gets a
+`## Unreleased / ### Changed` bullet.
+
+Success-path output is unchanged. No new variables leak out of scope
+(both `$loadOutput` / `$unloadOutput` are local to the `if`/`finally`
+blocks). PowerShell 5.1 compatible — only `Out-String`, `Trim()`, and
+`$LASTEXITCODE` are used.
+
+**Verification:**
+- Installed `/opt/pwsh/pwsh` v7.4.6 per CLAUDE.md and ran the three
+  test files locally.
+- `tests/test_parse.ps1` → 48 passed / 0 failed (was 48 / 0 baseline;
+  no new assertions added because this is a logging-only change with
+  no new public functions to enumerate).
+- `tests/test_wim_parser.ps1` → 16 / 0 unchanged.
+- `tests/test_disk_enumeration.ps1` → 34 / 0 unchanged.
+- Behavioral sanity: ran the new code path with a stub command that
+  exits 1 with stderr (`bash -c 'echo "ERROR..." >&2; exit 1'`) and
+  also with a silent-fail stub (`bash -c 'exit 1'`). The
+  stderr-bearing case correctly appends the message after the exit
+  code; the silent case falls through to the original "exit N" line
+  with no awkward dangling colon. Confirms the `if ($loadMsg)` guard
+  is doing real work.
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per CLAUDE.md;
+  this change is in `scripts/first-login.ps1` which isn't covered by
+  Pester anyway, so no local-Pester gap.
+
+**Risks:**
+- Minimal. Pure additive logging on the failure path; success path
+  byte-identical. No destructive code touched (no DISM, diskpart,
+  bcdboot, registry-write semantics). The captured-output variable
+  is consumed only inside the same `if`/`finally` block — no scope
+  leak, no GC handle.
+- The `Out-String | Trim()` pipeline is the same idiom used elsewhere
+  in the deploy script (`unified_winpe_deploy.ps1` line ~1230 for
+  CCTK error capture). PSv5.1 supports it.
+
+**Next recommended improvement:** of the backlog called out across
+prior entries and still not in flight:
+- **`Show-ImageList` / `Show-ImageSelection`** in
+  `unified_winpe_deploy.ps1` share ~30 lines of listing-render code.
+  Deferred across multiple entries because TUI UX is load-bearing;
+  worth a fresh look only if a coverage test is added first.
+- **Fixture test for `prepare_wim.ps1` parameter-set validation**
+  (the `-SourceIso` vs `-SourceWim` mutual-exclusion + `-Index`
+  passthrough logic). PR #160 is currently fixing a specific
+  parameter-passing bug in the ESD branch — a small fixture test
+  would prevent the next regression.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
