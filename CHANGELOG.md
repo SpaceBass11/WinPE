@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Security
+- **BitLocker first-boot script always wipes its PIN-bearing copy now,
+  even when `Enable-BitLocker` fails on C:.** Previously, a TPM or
+  firmware fault made the script `exit 1` before the self-delete block,
+  leaving `C:\Windows\Setup\Scripts\bitlocker-setup.ps1` (which carries
+  the plaintext startup PIN) on the encrypted volume. Any local user on
+  first login could read it. The generated script now wraps the entire
+  body in `try { ... } finally { ... }`; the finally always runs
+  `Remove-Item` on `bitlocker-setup.ps1` + `SetupComplete.cmd` and only
+  reboots if `$succeeded = $true`. `bitlocker-setup.log` still keeps
+  the error trace for diagnosis.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

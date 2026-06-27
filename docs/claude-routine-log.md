@@ -5,6 +5,93 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — BitLocker first-boot script: always wipe PIN-bearing copy
+
+**Investigated:** open routine PRs (#139-#158 — sixteen open, most
+covering deploy.args / build_iso / BitLocker peripheral safety) plus
+the backlog items in the previous routine entry. Read
+`Initialize-BitLockerSetup` end-to-end in `unified_winpe_deploy.ps1`
+(lines 1501-1654) to look at what the generated first-boot script
+actually does on every code path, not just the happy one.
+
+**Found:** when `Enable-BitLocker` failed on C: (TPM not provisioned,
+group policy block, hardware fault), the generated `bitlocker-setup.ps1`
+hit `exit 1` on line 1585 and the self-delete + reboot block at the
+bottom never ran. That left
+`C:\Windows\Setup\Scripts\bitlocker-setup.ps1` sitting on the now-
+unencrypted volume with the plaintext startup PIN in it
+(`ConvertTo-SecureString '<PIN>' -AsPlainText -Force`). Any local user
+who hit OOBE / first login could read it with notepad. Same exposure
+for the staged `SetupComplete.cmd` though it's less interesting (it
+just invokes the .ps1).
+
+This is a real failure mode in field deployments — Dell/HP fleets where
+TPM is owned by a prior tenant, or where the BIOS hadn't auto-provisioned
+the TPM before Windows ran. The deploy says "BitLocker setup staged" and
+the operator walks away.
+
+**Changed:** `unified_winpe_deploy.ps1` — modified the `$bitlockerScript`
+heredoc emitted by `Initialize-BitLockerSetup` so the generated script
+wraps the BitLocker logic in `$succeeded = $false; try { ... $succeeded = $true } finally { ... }`.
+The finally always runs `Remove-Item` on `bitlocker-setup.ps1` +
+`SetupComplete.cmd` and only fires `shutdown.exe /r` when
+`$succeeded = $true`. The C: failure path changed from `exit 1` to
+`throw` so the finally inherits control. Added a 'BitLocker setup FAILED
+- PIN-bearing scripts removed for safety' log line for the failure
+branch. The success-path output is unchanged.
+
+CHANGELOG.md gets a `### Security` bullet under Unreleased pinning the
+behavior.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed once-per-session per CLAUDE.md (network policy
+  allows the GitHub Releases tarball).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0 failed
+  (unchanged from baseline).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 passed / 0
+  failed (unchanged).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 passed
+  / 0 failed (unchanged; no overlap with my edits).
+- Generated-script verification: loaded `Initialize-BitLockerSetup` via
+  the same dynamic-module pattern the Pester suite uses, captured the
+  emitted `bitlocker-setup.ps1` text into a scratchpad harness, stubbed
+  `Enable-BitLocker` to throw, and ran it under pwsh. Output:
+  `ERROR enabling C: BitLocker: TPM not present` → `Self-deleted staging
+  scripts` → `BitLocker setup FAILED - PIN-bearing scripts removed for
+  safety` — i.e. the finally fired even on the throw. Repeated with all
+  stubs succeeding: `C: TPM+PIN protector set` → `Self-deleted staging
+  scripts` → `BitLocker setup complete - rebooting` → `SHUTDOWN INVOKED`.
+  Success path unchanged.
+- Pester (`tests/validation-gates.Tests.ps1`) only covers param
+  defaults / `Resolve-BitLockerKeyPath` / Start-Deployment gates, not
+  the generated script body, so no Pester signal either way. CI runs it
+  on push regardless and will catch any regression in the validation
+  gates.
+
+**Risks / follow-ups:**
+
+- Generated script is the only thing that changed; the change is
+  defensive (wraps with try/finally, swaps one `exit 1` for `throw`).
+  No new dependencies, no destructive code path touched, no parameter
+  surface change.
+- Behavioral diff on the failure path: the script now exits non-zero
+  via the rethrown exception instead of via `exit 1`. Both produce a
+  non-zero process exit; `SetupComplete.cmd` captures the output to
+  setupcomplete.log either way and Windows continues to first login.
+  Pre-fix the operator had to remember to delete the PIN file manually
+  before logging in; post-fix it's already gone. No operator workflow
+  changes for the success path.
+- Outstanding routine backlog from prior entries that I did not take
+  this pass:
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line listing
+    duplication — flagged in three prior entries; still deferred as
+    UX-load-bearing.
+  - The other open routine PRs (#139-#158) cover most of the smaller
+    peripheral safety items I could find.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

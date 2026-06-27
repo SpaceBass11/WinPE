@@ -1563,74 +1563,90 @@ function Write-BL { param([string]`$m) `$ts = Get-Date -Format 'HH:mm:ss'; "`$ts
 
 Write-BL 'BitLocker setup starting'
 
-# Enhanced PIN requires this policy key (allows non-numeric characters in startup PIN)
-`$fvePath = 'HKLM:\SOFTWARE\Policies\Microsoft\FVE'
-if (-not (Test-Path `$fvePath)) { New-Item -Path `$fvePath -Force | Out-Null }
-Set-ItemProperty -Path `$fvePath -Name 'UseEnhancedPin' -Value 1 -Type DWord -Force
-
-$recoveryDirBlock
-if (-not (Test-Path `$recoveryDir)) {
-    try { New-Item -ItemType Directory -Path `$recoveryDir -Force | Out-Null }
-    catch { Write-BL "WARN: could not create `$recoveryDir : `$(`$_.Exception.Message)" }
-}
-
-`$pin = ConvertTo-SecureString '$escapedPin' -AsPlainText -Force
-
-# C: — TPM + Enhanced PIN primary protector
+# Wrap the body so the staging scripts (which carry the plaintext PIN)
+# always self-delete in the finally, even if Enable-BitLocker throws.
+# Without this, a TPM/firmware fault on C: would leave bitlocker-setup.ps1
+# on the encrypted volume with the PIN intact - any local user on first
+# login could read it.
+`$succeeded = `$false
 try {
-    Enable-BitLocker -MountPoint 'C:' -EncryptionMethod XtsAes256 -TpmAndPinProtector -Pin `$pin -ErrorAction Stop | Out-Null
-    Write-BL 'C: TPM+PIN protector set'
-} catch {
-    Write-BL "ERROR enabling C: BitLocker: `$(`$_.Exception.Message)"
-    exit 1
-}
+    # Enhanced PIN requires this policy key (allows non-numeric characters in startup PIN)
+    `$fvePath = 'HKLM:\SOFTWARE\Policies\Microsoft\FVE'
+    if (-not (Test-Path `$fvePath)) { New-Item -Path `$fvePath -Force | Out-Null }
+    Set-ItemProperty -Path `$fvePath -Name 'UseEnhancedPin' -Value 1 -Type DWord -Force
 
-# C: — recovery key backup protector (escrowed off-volume)
-try {
-    Add-BitLockerKeyProtector -MountPoint 'C:' -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
-    Write-BL "C: recovery key saved to `$recoveryDir"
-} catch {
-    Write-BL "WARNING: C: recovery key protector failed: `$(`$_.Exception.Message)"
-}
+    $recoveryDirBlock
+    if (-not (Test-Path `$recoveryDir)) {
+        try { New-Item -ItemType Directory -Path `$recoveryDir -Force | Out-Null }
+        catch { Write-BL "WARN: could not create `$recoveryDir : `$(`$_.Exception.Message)" }
+    }
+
+    `$pin = ConvertTo-SecureString '$escapedPin' -AsPlainText -Force
+
+    # C: — TPM + Enhanced PIN primary protector
+    try {
+        Enable-BitLocker -MountPoint 'C:' -EncryptionMethod XtsAes256 -TpmAndPinProtector -Pin `$pin -ErrorAction Stop | Out-Null
+        Write-BL 'C: TPM+PIN protector set'
+    } catch {
+        Write-BL "ERROR enabling C: BitLocker: `$(`$_.Exception.Message)"
+        throw
+    }
+
+    # C: — recovery key backup protector (escrowed off-volume)
+    try {
+        Add-BitLockerKeyProtector -MountPoint 'C:' -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
+        Write-BL "C: recovery key saved to `$recoveryDir"
+    } catch {
+        Write-BL "WARNING: C: recovery key protector failed: `$(`$_.Exception.Message)"
+    }
 "@
 
     if ($stageDataDisk) {
         $bitlockerScript += @"
 
 
-# D: — recovery key protector
-try {
-    Enable-BitLocker -MountPoint 'D:' -EncryptionMethod XtsAes256 -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
-    Write-BL "D: recovery key saved to `$recoveryDir"
-} catch {
-    Write-BL "ERROR enabling D: BitLocker: `$(`$_.Exception.Message)"
-}
+    # D: — recovery key protector
+    try {
+        Enable-BitLocker -MountPoint 'D:' -EncryptionMethod XtsAes256 -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
+        Write-BL "D: recovery key saved to `$recoveryDir"
+    } catch {
+        Write-BL "ERROR enabling D: BitLocker: `$(`$_.Exception.Message)"
+    }
 
-# D: — auto-unlock tied to C:
-try {
-    Enable-BitLockerAutoUnlock -MountPoint 'D:' -ErrorAction Stop | Out-Null
-    Write-BL 'D: auto-unlock enabled'
-} catch {
-    Write-BL "WARNING: D: auto-unlock failed: `$(`$_.Exception.Message)"
-}
+    # D: — auto-unlock tied to C:
+    try {
+        Enable-BitLockerAutoUnlock -MountPoint 'D:' -ErrorAction Stop | Out-Null
+        Write-BL 'D: auto-unlock enabled'
+    } catch {
+        Write-BL "WARNING: D: auto-unlock failed: `$(`$_.Exception.Message)"
+    }
 "@
     }
 
     $bitlockerScript += @"
 
 
-# Delete this script and the staged SetupComplete.cmd so the plaintext PIN
-# doesn't linger on disk after the encryption that consumed it.
-try {
-    Remove-Item -Path 'C:\Windows\Setup\Scripts\bitlocker-setup.ps1' -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path 'C:\Windows\Setup\Scripts\SetupComplete.cmd'   -Force -ErrorAction SilentlyContinue
-    Write-BL 'Self-deleted staging scripts'
-} catch {
-    Write-BL "WARNING: could not self-delete staging scripts: `$(`$_.Exception.Message)"
-}
+    `$succeeded = `$true
+} finally {
+    # Always delete the PIN-bearing staging scripts, even when an
+    # Enable-BitLocker call above threw. The bitlocker-setup.log keeps
+    # the error trace for diagnosis - the script content itself isn't
+    # needed there.
+    try {
+        Remove-Item -Path 'C:\Windows\Setup\Scripts\bitlocker-setup.ps1' -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path 'C:\Windows\Setup\Scripts\SetupComplete.cmd'   -Force -ErrorAction SilentlyContinue
+        Write-BL 'Self-deleted staging scripts'
+    } catch {
+        Write-BL "WARNING: could not self-delete staging scripts: `$(`$_.Exception.Message)"
+    }
 
-Write-BL 'BitLocker setup complete - rebooting'
-shutdown.exe /r /t 15 /c 'BitLocker configured. Rebooting to finalise...'
+    if (`$succeeded) {
+        Write-BL 'BitLocker setup complete - rebooting'
+        shutdown.exe /r /t 15 /c 'BitLocker configured. Rebooting to finalise...'
+    } else {
+        Write-BL 'BitLocker setup FAILED - PIN-bearing scripts removed for safety. See log for the failure.'
+    }
+}
 "@
 
     $setupCompleteCmd = @"
