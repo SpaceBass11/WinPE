@@ -1,12 +1,25 @@
-:: Two-partition USB (legacy workflow: FAT32 WinPE boot + NTFS IMAGES data partition)
-:: Drive letter is fixed at whatever letter the IMAGES partition gets (I: below is an example).
 -WimFile "I:\images\Win11_Enterprise.wim" -TargetDisk 0 -UnattendFile "I:\configs\unattend.xml" -DataDiskNumber 1 -EnableBitLocker -BitLockerPin "ReplaceWithYourPin42" -Force -Silent
 
-:: Single-ISO workflow (build_iso.ps1 output — one file, Rufus to USB)
-:: {DRIVE} is substituted at boot time with the actual drive letter WinPE assigns the USB.
-:: build_iso.ps1 writes this file automatically; edit as needed before building.
--WimFile "{DRIVE}\images\Win11_Pro_Custom.wim" -TargetDisk 0 -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
-
-:: Interactive/TUI variant: pre-locates the WIM dir but prompts the operator
-:: for edition selection, target disk, and confirmations. Good for lab/testing USBs.
--ImagePath "{DRIVE}\images"
+:: ---------------------------------------------------------------------------
+:: deploy.args — startnet.cmd's `set /p` reads ONLY the literal first line
+:: above and passes it verbatim to unified_winpe_deploy.ps1. Everything in
+:: this section (`::` prefix) is reference material that set /p never sees.
+:: See docs/DEPLOY_ARGS.md for the full parameter reference.
+::
+:: The active first line is the README's canonical two-partition USB scenario:
+:: legacy FAT32 WinPE boot + NTFS IMAGES data partition (I: assumed). Replace
+:: -BitLockerPin "ReplaceWithYourPin42" with your real PIN before deploying.
+:: ---------------------------------------------------------------------------
+::
+:: To switch scenarios, REPLACE the first line of this file with the args
+:: below the matching `:: Scenario:` heading (and remove its leading `::`).
+::
+:: Scenario: Single-ISO workflow (build_iso.ps1 output, Rufus to USB).
+:: {DRIVE} is substituted at boot time with the actual letter WinPE assigns
+:: the USB, so paths stay correct regardless of enumeration order.
+::   -WimFile "{DRIVE}\images\Win11_Pro_Custom.wim" -TargetDisk 0 -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
+::
+:: Scenario: Interactive TUI variant — pre-locates the WIM dir but still
+:: prompts the operator for edition, target disk, and confirmations. Good
+:: for lab / testing USBs.
+::   -ImagePath "{DRIVE}\images"

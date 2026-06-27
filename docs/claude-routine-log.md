@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `configs/deploy.args.example` first-line trap
+
+**Investigated:** the 30 open routine PRs (#127-#156) to avoid duplicating
+in-flight work, the maintenance log's prior next-step backlog (which is
+mostly drained: PR #50 closed the Get-SystemDisks fixture test; the
+Show-ImageList / Show-ImageSelection refactor has been deferred across
+five consecutive entries with consistent "load-bearing UX" reasoning so
+honoring that), and the deploy.args / startnet.cmd / build_iso.ps1
+boundary that the open PRs have been hammering on. Looked for a small
+high-confidence area no PR had touched.
+
+**Found:** `configs/deploy.args.example` ships with `::` cmd.exe comments
+as lines 1-2, with the actual PowerShell args on line 3. But the
+DEPLOY_ARGS.md Quick Start tells users to "Copy
+`configs/deploy.args.example` to the IMAGES partition root as
+`deploy.args`" — and `startnet.cmd`'s `set /p DEPLOYARGS=<deploy.args`
+reads the literal first line, comments included. So a user following
+the docs verbatim gets `:: Two-partition USB (legacy workflow...)`
+fed into `powershell.exe -File X:\scripts\unified_winpe_deploy.ps1`.
+
+The script's `param()` block has `$ImagePath` first, so PowerShell's
+positional binding silently assigns `$ImagePath = '::'` and proceeds.
+No parameter-binding error, no early abort — just garbage state that
+eventually fails with a confusing "image not found" log line, after
+the operator has already plugged in, walked away, and trusted the
+boot to "just work." No open PR addresses the example-file layout.
+
+**Changed:**
+- `configs/deploy.args.example` — restructured so line 1 is the
+  README's canonical two-partition USB scenario (working args, replace
+  `-BitLockerPin "ReplaceWithYourPin42"` before use). The explanatory
+  commentary and the two alternative scenarios (single-ISO, interactive
+  TUI) live below as `::` lines that `set /p` never sees. Each
+  alternative is now a commented-out one-liner with an explicit "replace
+  the first line with this" callout so the swap procedure is obvious.
+- `docs/DEPLOY_ARGS.md` — Quick start step 2 now spells out that the
+  first line is the only line `set /p` reads, and explicitly warns
+  against putting a `::` comment there. Step 1 unchanged (`Copy ... as
+  deploy.args`) — that direction is still correct because the new
+  example boots cleanly.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry at the top of the
+  Unreleased section.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per the CLAUDE.md note (GitHub Releases
+  tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0 (matches the
+  pre-edit baseline; the example file isn't parsed by the test, but the
+  shipped scripts still tokenize clean).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0.
+- Dry-test of the new first line: `Get-Content ... -TotalCount 1` does
+  not start with `::`, matches `^-\w+`, and `[Parser]::ParseInput("&
+  dummy.ps1 $line")` reports 0 errors — the line is a valid PowerShell
+  argument list. Worst case for a "naive copy" deploy is now the
+  README's documented two-partition scenario with the literal
+  placeholder PIN — the script's BitLocker validation gate (`PIN length
+  6-20`) passes, so it would actually run; the deploy targets disk 0
+  and wipes it per `-Force -Silent`. That matches the documented
+  behavior of the README/Quick start, so the change is consistent with
+  the docs rather than introducing new surprises.
+
+**Risks / follow-ups:**
+- Low. No production PowerShell touched. The on-USB workflow is
+  unchanged from `set /p`'s perspective (it still reads line 1); only
+  the *contents* of line 1 in the shipped template moved. A user who
+  had already copied the old broken template to their USB will still
+  have the broken file there — but it was broken before, and the new
+  template fixes new copies from this commit forward.
+- Outstanding backlog from prior routine entries that I did not take:
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line listing-render
+    duplication — deferred consistently for UX reasons. Strong agent-
+    consensus signal; leave for a release-cycle refactor pass, not a
+    routine.
+  - A fixture test for the CCTK model normalization regex
+    (`($rawModel -replace '[^A-Za-z0-9]', '').Trim()`) — fleet-wide
+    config-file matching depends on this regex, and a drift would
+    silently break per-model overrides. Worth considering once the
+    Pester PR queue (#137, #142, #152) clears so the new test doesn't
+    conflict with the mock harness restructure those involve.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

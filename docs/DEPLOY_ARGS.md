@@ -9,7 +9,10 @@ rebuild required for a different deploy profile — just edit the file.
 
 1. Copy [`configs/deploy.args.example`](../configs/deploy.args.example)
    to the IMAGES partition root as `deploy.args`.
-2. Edit the parameters for this USB.
+2. Edit the parameters on the **first line** for this USB. The
+   `::`-prefixed lines below are reference material — `set /p` never
+   reads them — but the very first line of the file is passed verbatim
+   to the deploy script, so do not put a `::` comment there.
 3. Plug into the target, boot, walk away.
 
 Example contents (one line):

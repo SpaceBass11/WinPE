@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/deploy.args.example` first line is now a working command, not
+  a `::` comment.** `startnet.cmd`'s `set /p` reads the literal first
+  line of `deploy.args` and passes it verbatim to PowerShell, so a `::`
+  comment on line 1 turned into positional args (silently mis-binding
+  `$ImagePath` to `::` and proceeding into auto-discovery with garbage
+  state). The example file now leads with the README's canonical
+  two-partition USB scenario; the explanatory commentary and alternative
+  scenarios (single-ISO, interactive TUI) live below as `::` lines that
+  `set /p` never sees. `docs/DEPLOY_ARGS.md` Quick start now spells out
+  that line 1 is the only line read, so editors don't reintroduce the
+  trap by adding a comment above their parameters.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
