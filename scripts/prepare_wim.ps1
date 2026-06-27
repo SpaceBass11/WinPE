@@ -43,10 +43,12 @@
     to see available names. Ignored if -Index is given.
 
 .PARAMETER Index
-    Numeric index to pick from the source WIM (overrides -Edition).
+    Numeric index to pick from the source (overrides -Edition).
     Useful for captured WIMs that don't use standard edition names, or
-    when you want to be explicit. If neither -Edition nor -Index is
-    given and the source is a captured WIM, defaults to index 1.
+    when you want to be explicit. Honored for ISOs containing either
+    install.wim or install.esd, and for -SourceWim. If neither -Edition
+    nor -Index is given and the source is a captured WIM, defaults to
+    index 1.
 
 .PARAMETER WorkDir
     Temporary working directory for ISO mount, WIM mount, and scratch.
@@ -276,18 +278,37 @@ if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
             Copy-Item -Path $isoWim -Destination $baseWim -Force
             Write-Ok "Copied install.wim to $baseWim"
         } elseif (Test-Path $isoEsd) {
-            # Some retail ISOs ship an ESD - export the requested edition out
+            # Some retail ISOs ship an ESD - export the requested edition out.
+            # ESDs collapse to one image per Export-WindowsImage call, so the
+            # caller's -Index/-Edition gets honored HERE rather than in step 2
+            # (after export there's only one image to pick from, and its index
+            # would no longer match the caller's intent).
             Write-Step "ISO has install.esd (not .wim) - converting via Export-WindowsImage"
             $esdImages = Get-WindowsImage -ImagePath $isoEsd
-            $esdMatch = $esdImages | Where-Object { $_.ImageName -eq $Edition } | Select-Object -First 1
-            if (-not $esdMatch) {
-                $available = ($esdImages.ImageName -join ', ')
-                throw "Edition '$Edition' not found in install.esd. Available: $available"
+            if ($PSBoundParameters.ContainsKey('Index')) {
+                # -Index overrides -Edition per the .PARAMETER Index docstring.
+                $esdMatch = $esdImages | Where-Object { $_.ImageIndex -eq $Index } | Select-Object -First 1
+                if (-not $esdMatch) {
+                    $available = ($esdImages | ForEach-Object { "  $($_.ImageIndex): $($_.ImageName)" }) -join "`n"
+                    throw "Index $Index not found in install.esd. Available:`n$available"
+                }
+            } else {
+                $esdMatch = $esdImages | Where-Object { $_.ImageName -eq $Edition } | Select-Object -First 1
+                if (-not $esdMatch) {
+                    $available = ($esdImages.ImageName -join ', ')
+                    throw "Edition '$Edition' not found in install.esd. Available: $available"
+                }
             }
+            # Label the exported WIM by its actual image name so an -Index 3
+            # export of 'Windows 11 Pro' isn't mislabeled as the $Edition default.
             Export-WindowsImage -SourceImagePath $isoEsd -SourceIndex $esdMatch.ImageIndex `
-                -DestinationImagePath $baseWim -DestinationName $Edition `
+                -DestinationImagePath $baseWim -DestinationName $esdMatch.ImageName `
                 -ScratchDirectory $scratchDir -CheckIntegrity | Out-Null
-            Write-Ok "Exported $Edition from install.esd"
+            Write-Ok "Exported '$($esdMatch.ImageName)' (ESD index $($esdMatch.ImageIndex)) from install.esd"
+            # The exported WIM has exactly one image at index 1. Tell step 2 to
+            # use it directly rather than re-resolving via -Index/-Edition - the
+            # caller's -Index N referred to the ESD, not the resulting baseWim.
+            $esdPreselected = $true
         } else {
             throw "Neither sources\install.wim nor install.esd found on ISO"
         }
@@ -312,15 +333,22 @@ if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
 }
 
 # Step 2: identify which index in the base WIM to customize. Precedence:
-#   1. -Index, if given (overrides everything else)
-#   2. -Edition name match, if explicit or the source is an ISO
-#   3. For captured WIMs without explicit selection: default to index 1
+#   1. ESD source already pinned a single image at step 1 - use it
+#   2. -Index, if given (overrides everything else)
+#   3. -Edition name match, if explicit or the source is an ISO
+#   4. For captured WIMs without explicit selection: default to index 1
 Write-Step "Inspecting $baseWim"
 $baseImages = Get-WindowsImage -ImagePath $baseWim
 $indexGiven   = $PSBoundParameters.ContainsKey('Index')
 $editionGiven = $PSBoundParameters.ContainsKey('Edition')
 
-if ($indexGiven) {
+if ($esdPreselected) {
+    # The ESD branch in step 1 already picked the right image and
+    # collapsed the export down to it; re-resolving here would mismatch
+    # because $Index referred to the ESD, not the resulting baseWim.
+    $target = $baseImages | Select-Object -First 1
+    Write-Ok "Using '$($target.ImageName)' (single image extracted from ESD)"
+} elseif ($indexGiven) {
     $target = $baseImages | Where-Object { $_.ImageIndex -eq $Index } | Select-Object -First 1
     if (-not $target) {
         $available = ($baseImages | ForEach-Object { "  $($_.ImageIndex): $($_.ImageName)" }) -join "`n"

@@ -5,6 +5,92 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `prepare_wim.ps1 -Index N` for ESD-based ISOs
+
+**Investigated:** Open PRs (30 open as of 2026-06-27) and the routine
+log's prior backlog. None of the open PRs touch `prepare_wim.ps1`'s
+ISO+ESD handling. Walked the parameter-set logic to find a real,
+narrow bug that hadn't already been claimed.
+
+**Found:** Step 1 of `scripts/prepare_wim.ps1` always selects ESD
+images by `-Edition` (defaulting to `Windows 11 Enterprise`),
+silently ignoring `-Index`. After export the resulting `baseWim`
+has exactly one image at index 1. Step 2 then runs the standard
+`if ($indexGiven)` branch and tries to find `ImageIndex -eq $Index`
+in `baseWim` — for any caller-supplied `-Index ≠ 1`, this throws
+`Index N not found in $baseWim. Available: 1: ...`. Confusing for
+the operator since the `.PARAMETER Index` docstring promises
+`-Index` "overrides -Edition" and is "useful when you want to be
+explicit." The bug only fires for ISOs containing `install.esd`
+(typical of retail Media Creation Tool media); ISOs with
+`install.wim` and the `-SourceWim` flow are unaffected.
+
+**Changed:**
+- `scripts/prepare_wim.ps1` — ESD branch in step 1 now branches on
+  `$PSBoundParameters.ContainsKey('Index')`: if true, select the ESD
+  image by `ImageIndex -eq $Index` (with a per-index error listing
+  when not found); otherwise fall back to the existing edition-name
+  match. Export `-DestinationName` switched from `$Edition` to
+  `$esdMatch.ImageName` so an `-Index 3` export of `Windows 11 Pro`
+  isn't mislabeled. New `$esdPreselected = $true` flag added at the
+  end of the ESD branch; step 2 honors it as the new top precedence
+  ("ESD already pinned a single image at step 1 - use it") so the
+  `-Index N`-vs-`baseWim`-index mismatch can no longer fire.
+  `.PARAMETER Index` docstring rewritten: "Numeric index to pick
+  from the source... Honored for ISOs containing either install.wim
+  or install.esd, and for -SourceWim."
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry added at the
+  top with the full before/after explanation.
+
+**Verification:**
+- `pwsh` 7.4.6 installed via the GitHub-Releases tarball per
+  CLAUDE.md (network policy allows that download).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed.
+- Post-edit: same command → 48 passed / 0 failed. No regression in
+  syntax, function presence, or version-consistency checks.
+- Independent AST parse of `scripts/prepare_wim.ps1` via
+  `[System.Management.Automation.Language.Parser]::ParseFile` →
+  clean (zero errors).
+- Visual review of `git diff scripts/prepare_wim.ps1`: only the
+  ESD branch in step 1 and the step-2 dispatch were changed; WIM
+  ISO path (`if (Test-Path $isoWim)`) and `-SourceWim` path
+  untouched, so behavior for those two source kinds is bit-for-bit
+  identical.
+- Cannot end-to-end test against a real ISO from a Linux
+  container — `Mount-DiskImage` / `Get-WindowsImage` need a real
+  Windows host with the DISM stack. CI's `syntax` job on
+  `windows-latest` and the Pester `pester` job both exercise the
+  script-load path, and any masterize regression would surface
+  there too.
+
+**Risks / follow-ups:**
+- Minimal blast radius. The behavior change only fires on
+  `-SourceIso <iso with install.esd>` AND `-Index N` — exactly the
+  case that was already broken. Every other source/parameter combo
+  still hits the same code path it did before.
+- Backward-compatible. Callers who passed `-Edition` (explicit or
+  default) against an ESD ISO continue to get the same selection
+  and the same destination name. Callers who passed `-Index`
+  against an ESD ISO previously got a confusing exception and now
+  get the right image.
+- No new dependencies, no new params, no new files. PSv5.1-safe
+  (only `$PSBoundParameters.ContainsKey`, `Where-Object`,
+  `ForEach-Object`, `Select-Object` — all stock).
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code — deferred again because the menu
+    render is load-bearing TUI UX and any extraction needs careful
+    review.
+  - **`prepare_wim.ps1` parameter-set fixture test** would close the
+    remaining test gap in this script's branch logic, but the mount
+    / DISM dependency makes a useful test substantial work
+    (Pester would need to mock `Get-WindowsImage`,
+    `Mount-DiskImage`, `Export-WindowsImage`, etc.).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

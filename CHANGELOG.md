@@ -8,6 +8,21 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`prepare_wim.ps1 -Index N` for ISOs containing `install.esd`.**
+  When the source ISO shipped an `install.esd` (typical for retail
+  Media Creation Tool media), the script's step-1 ESD export branch
+  always selected by `-Edition` and silently ignored a caller-supplied
+  `-Index`. Step 2 then tried to find that index in the resulting
+  single-image `baseWim` and threw `Index N not found` — confusing
+  for the operator, who had just been told `-Index` "overrides
+  -Edition" in the `.PARAMETER Index` docstring. The ESD branch now
+  honors `-Index` first, labels the export by the actual image name
+  (so an `-Index 3` export of `Windows 11 Pro` isn't mislabeled with
+  the `$Edition` default), and signals step 2 to use the extracted
+  image directly. ISOs with `install.wim` and the `-SourceWim` flow
+  are unaffected.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
