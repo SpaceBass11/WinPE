@@ -30,7 +30,9 @@
       boot completes truly unattended and FirstLogonCommands run.
     - Sets a default ComputerName ("WIN-*" = Windows generates a random
       suffix; replace with a real name if you need a known hostname)
-    - Calls scripts\first-login.ps1 to apply per-user HKCU debloat tweaks
+    - Calls scripts\first-login.ps1 to apply HKCU debloat tweaks to the
+      AutoLogon admin AND to the Default User hive (so TechL0/L1/L2 and
+      any future accounts inherit the same tweaks on first sign-in)
 
   Password encoding:
     Each <Password><Value> field expects a base64 of the UTF-16LE byte
@@ -193,11 +195,11 @@
            use that flag, comment this block out or the SynchronousCommand
            will fail (non-blocking, but noisy in setupact.log).
 
-           Runs as whoever AutoLogon logs in — applies HKCU tweaks to
-           that account's profile. To make non-admin accounts (TechL0/1/2)
-           inherit the same tweaks, the script would need to also edit
-           the Default User hive (C:\Users\Default\NTUSER.DAT); ask if
-           you want that added. -->
+           Runs as whoever AutoLogon logs in. The script applies tweaks in
+           two passes: (1) the live HKCU of the auto-logon account, and
+           (2) the Default User hive at C:\Users\Default\NTUSER.DAT — so
+           non-admin accounts (TechL0/1/2) and any future users inherit
+           the same UX without needing this script to re-run per user. -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>

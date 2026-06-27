@@ -5,6 +5,73 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `configs/unattend.example.xml` Default User hive comment drift
+
+**Investigated:** the 20 open `claude/*` PRs (#130-#149) covering
+BitLocker, build_iso, refresh_usb, unattend abs-path resolution,
+deploy.args docs, test coverage. Looked for a small, novel improvement
+not duplicating any in-flight work. Scanned configs, scripts, and the
+example unattend template for documentation drift.
+
+**Found:** `configs/unattend.example.xml` carries two stale comments
+about `scripts/first-login.ps1`:
+
+1. Header comment block (line 33) said "Calls scripts\first-login.ps1
+   to apply per-user HKCU debloat tweaks" — missing the second pass.
+2. Inline comment next to `<FirstLogonCommands>` (lines 191-200)
+   said the script runs as the AutoLogon user "applies HKCU tweaks to
+   that account's profile. To make non-admin accounts (TechL0/1/2)
+   inherit the same tweaks, the script would need to also edit the
+   Default User hive (C:\Users\Default\NTUSER.DAT); ask if you want
+   that added."
+
+Both pieces of text predate the dual-hive support that landed in
+the same PR #21 (`ada844f`) — but `unattend.example.xml` was never
+re-touched after the script gained the second pass. The script's own
+docstring correctly describes the dual-hive behavior; the deploy doc
+(`docs/UNATTEND.md`) doesn't make the stale claim either. Only the
+example XML was drifting. The risk: operators reading the template
+either request an enhancement that's already implemented or assume
+tier accounts won't inherit the tweaks and replicate the script
+per-account in their own automation.
+
+**Changed:**
+- `configs/unattend.example.xml` — rewrote the line-33 bullet to
+  mention "AutoLogon admin AND the Default User hive (so TechL0/L1/L2
+  and any future accounts inherit the same tweaks on first sign-in)"
+  and the inline comment to describe the two-pass behavior directly
+  instead of asking for an enhancement.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing the
+  documentation drift fix.
+
+**Verification:**
+- XML well-formedness: `python3 -c "import xml.etree.ElementTree as ET;
+  ET.parse('configs/unattend.example.xml')"` parses cleanly (root tag
+  `{urn:schemas-microsoft-com:unattend}unattend` as expected).
+- `pwsh` installed once per session per the CLAUDE.md note (v7.4.6
+  tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0 (unchanged
+  from baseline — XML-only change doesn't touch PSScriptAnalyzer or
+  the parse coverage).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0.
+
+**Risks / follow-ups:**
+- Minimal. Comment-only XML change. No production behavior touched, no
+  PowerShell parsed, no tests regressed. The example file is read by
+  humans copying it to their USB; no script imports or parses these
+  comments.
+- Outstanding routine-backlog candidates not taken this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out (deferred since
+    PR #26 because the menu render is load-bearing TUI UX).
+  - `prepare_wim.ps1` doesn't reject `-OutputWim` paths that collide
+    with `-SourceWim` (a same-path call would clobber the source
+    after the working-copy is taken, losing the original). Small
+    pre-flight check, low risk, would prevent operator surprise.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

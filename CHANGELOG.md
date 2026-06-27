@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/unattend.example.xml` no longer claims `first-login.ps1`
+  needs a Default User hive enhancement.** The inline comment next to
+  the `FirstLogonCommands` block said the script "would need to also
+  edit the Default User hive (C:\Users\Default\NTUSER.DAT); ask if
+  you want that added" — but dual-hive support has shipped since the
+  script's introduction in PR #21 (HKCU pass + Default User hive pass
+  in a single run). The comment now describes what the script
+  actually does, so operators don't request an enhancement that's
+  already implemented or assume tier accounts won't inherit the
+  tweaks. Header comment block also updated to mention the dual-hive
+  behavior. No script changes — comment-only documentation fix.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
