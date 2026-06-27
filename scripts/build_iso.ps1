@@ -200,6 +200,17 @@ if ($UnattendFile) {
         throw "UnattendFile not found: $UnattendFile"
     }
     $UnattendFile = (Resolve-Path $UnattendFile).Path
+    # Well-formedness gate — mirrors the runtime check in
+    # unified_winpe_deploy.ps1. Windows Setup silently ignores a malformed
+    # unattend.xml and falls through to manual OOBE, so a typo in the
+    # answer file would only surface after every shipped ISO has been
+    # flashed and booted. Catching it here keeps the bad ISO from leaving
+    # the build machine.
+    try {
+        [xml](Get-Content -Path $UnattendFile -Raw) | Out-Null
+    } catch {
+        throw "UnattendFile is not well-formed XML: $UnattendFile`n  Parse error: $($_.Exception.Message)`n  Sanity-check manually: [xml](Get-Content '$UnattendFile')  (see docs/UNATTEND.md section 6)"
+    }
 }
 
 if ($BitLockerPin) {

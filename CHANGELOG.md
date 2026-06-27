@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`build_iso.ps1` rejects malformed `-UnattendFile` at build time.**
+  Mirrors the runtime XML well-formedness check in
+  `unified_winpe_deploy.ps1`. Windows Setup silently ignores a
+  malformed `unattend.xml` and falls through to manual OOBE, so
+  a typo in the answer file previously survived `build_iso` (which
+  did only `Test-Path -PathType Leaf`), got baked into the ISO,
+  and only surfaced after every end-user had flashed and booted it.
+  The new `try { [xml](Get-Content ...) }` block runs alongside the
+  existing existence check and throws with the parser's error
+  message + a pointer to `docs/UNATTEND.md` section 6.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

@@ -5,6 +5,92 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — `build_iso.ps1` rejects malformed `-UnattendFile` at build time
+
+**Investigated:** The 30 currently-open Claude routine PRs (#121-#150)
+to avoid duplicating in-flight work, plus the
+`-UnattendFile` validation in `scripts/build_iso.ps1` vs the matching
+runtime check in `unified_winpe_deploy.ps1`. The deploy-script entry
+on 2026-05-17 in this log noted that Windows Setup silently ignores
+a malformed `unattend.xml` and falls through to manual OOBE, and
+added `try { [xml](Get-Content ...) }` to the deploy-time validation.
+
+**Found:** `scripts/build_iso.ps1` did `Test-Path -PathType Leaf` and
+`Resolve-Path` on `-UnattendFile` (lines 198-203, pre-edit) but no
+well-formedness check. A typo in the answer file passed `build_iso`,
+got baked into the ISO under `configs\`, and only surfaced *after*
+every end-user had flashed and booted the bad ISO — by which point
+their disk had been wiped and the image applied. The deploy script's
+2026-05-17 mitigation catches it on the user's machine, but only after
+the wipe. The build-time gate keeps the bad ISO from ever leaving the
+build machine in the first place, so the failure mode collapses from
+"every shipped USB" to "one IT-admin error message before staging."
+
+No open PR covered this — #150 / #148 / #133 all touch
+`unattend.xml` paths but the only build-time `build_iso.ps1` PRs
+(#147 / #141 / #131 / #127) are about disk-number collisions, PIN
+quoting, PIN redaction, and ISO-extension validation respectively.
+
+**Changed:**
+
+- `scripts/build_iso.ps1` — inside the existing `if ($UnattendFile)`
+  block (line 198), added a `try { [xml](Get-Content -Path
+  $UnattendFile -Raw) | Out-Null } catch { throw ... }`. Error
+  message mirrors the deploy-script wording (parse error + pointer
+  to `docs/UNATTEND.md` section 6). Same shape as the existing
+  destination-not-found `throw`s in the file.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet at the top
+  describing the gate and why build-time is the right place for it.
+
+**Verification:**
+
+- `pwsh` installed once per session per CLAUDE.md (v7.4.6 tarball
+  into `/opt/pwsh/`); network policy allows the GitHub-Releases
+  download.
+- `/opt/pwsh/pwsh -NoProfile -File ./tests/test_parse.ps1` →
+  48 passed / 0 failed (parse + drift-guard checks, including the
+  `build_iso.ps1` syntax assertion added in PR #46 — would have
+  surfaced any structural damage from the edit).
+- `/opt/pwsh/pwsh -NoProfile -File ./tests/test_wim_parser.ps1` →
+  16 / 0 unchanged (no cross-contamination).
+- `/opt/pwsh/pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1`
+  → 34 / 0 unchanged (same).
+- Behavioral check: ran the lifted `try { [xml]... }` block under
+  `pwsh` against two on-disk fixtures — a minimal well-formed
+  `unattend.xml` shell (no throw, PASS) and an unattend.xml with an
+  unclosed `<settings>` tag (throws with `UnattendFile is not
+  well-formed XML: <path>`, PASS). Mirrors what the script will
+  do at build time.
+- Pester suite (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md — PSGallery is blocked in the web-session container so
+  `Install-Module Pester` fails. No new Pester invariants added by
+  this change, so the existing suite is unaffected.
+
+**Risks / follow-ups:**
+
+- Minimal. Pure additive validation in a non-destructive code path.
+  No disk, DISM, BCDBoot, or oscdimg behavior touched. Failure mode
+  is a clear `throw` before any file copy — same shape as the four
+  other `throw`s already in the validation block. Worst case is a
+  build-time regression on a legitimately-shaped unattend.xml the
+  XML parser refuses (e.g. a BOM-prefixed file that PowerShell's
+  `Get-Content -Raw` mishandles); same constraint applies to the
+  deploy-time check, which has shipped since 2026-05-17 without
+  reported issues.
+- Outstanding routine-backlog items I did NOT take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** — still flagged
+    across multiple prior entries; ~30 lines of listing-render code
+    could be factored out. Deferred again because the menu render
+    is load-bearing TUI UX and the open PR backlog already contains
+    several deploy-script touches.
+  - **Symmetric `[xml]` validation in `unified_winpe_deploy.ps1`
+    when `-UnattendFile` is resolved at deploy-time after the
+    open PR #133 lands** — once the absolute-path resolve is in,
+    re-confirm the existing XML check still runs against the
+    resolved path. Mechanical follow-up after #133 merges.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
