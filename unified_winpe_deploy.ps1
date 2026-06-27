@@ -324,6 +324,12 @@ function Find-ImageFiles {
         if (Test-Path $envDrive) {
             Write-Log "Using image drive from launcher: $envDrive" -Level Info
             $ImagePath = $envDrive
+        } else {
+            # Surface the silent fall-through: a stale env var (USB unplugged
+            # between startnet.cmd and the script, label mismatch on remount,
+            # etc.) would otherwise leave the operator wondering why the
+            # full-drive scan kicked in instead of the IMAGES fast path.
+            Write-Log "DEPLOY_IMAGE_DRIVE='$($env:DEPLOY_IMAGE_DRIVE)' is set but path not accessible - falling back to drive scan" -Level Warning
         }
     }
 

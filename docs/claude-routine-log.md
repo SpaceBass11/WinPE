@@ -5,6 +5,99 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — Warn on stale `DEPLOY_IMAGE_DRIVE` in `Find-ImageFiles`
+
+**Investigated:** The 30 open Claude routine PRs (#116-#145, surveyed
+via `mcp__github__list_pull_requests`) to avoid duplicating in-flight
+work. Most active areas are already covered: `-UnattendFile` /
+`-WimFile` / `-BitLockerKeyPath` absolute-path resolution (#133,
+#124, #139), BitLocker PIN content/redaction (#131, #132, #134,
+#136), builder input validation (#118, #126, #127, #129, #141),
+Pester coverage (#119, #123, #125, #137, #142), doc drift (#117,
+#121, #128, #138, #144, #145), and the `deploy.args.example`
+first-line regression (#109). PR #145's log entry calls out PR #109
+as covering the example-file footgun and notes the active backlog
+is otherwise drained. Looked for an uncovered observability gap.
+
+**Found:** `Find-ImageFiles` (`unified_winpe_deploy.ps1` lines
+319-328) reads `$env:DEPLOY_IMAGE_DRIVE` (set by `startnet.cmd`
+after the IMAGES-by-label probe), normalizes a bare `D:` to
+`D:\`, then `Test-Path`s it. On success it logs
+`"Using image drive from launcher: <drive>"` and short-circuits
+to `Search-DirectoryForImages`. On failure — env var set but
+path not accessible — there was no log line at all: the script
+silently fell through to the full multi-drive scan. Failure modes
+that produce this:
+
+- USB was unplugged between `startnet.cmd` setting the env var
+  and the PowerShell script starting (rare but not impossible
+  on hot-add hardware).
+- Volume relabel mid-boot, or a duplicate IMAGES label race.
+- Operator manually `set DEPLOY_IMAGE_DRIVE=X:` to test the
+  fast path against a drive that's since gone.
+
+The operator would see the slower scan kick in and have no clue
+the optimization was skipped, or — worse — assume the env var
+worked when it didn't. No other PR in the queue targets this
+branch (greps for `DEPLOY_IMAGE_DRIVE` across `unified_winpe_deploy.ps1`
+and the open-PR diffs returned only reads, never the
+fall-through-with-warning pattern).
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Find-ImageFiles` env-var block:
+  added an `else` arm to the `Test-Path $envDrive` check that
+  emits a `Write-Log -Level Warning` line naming the stale env
+  value and announcing the fallback. The success branch is
+  byte-for-byte unchanged; the fully-unset branch
+  (`-not $env:DEPLOY_IMAGE_DRIVE`) doesn't enter the outer `if`
+  and is unaffected. Five-line comment explains the failure
+  modes the warning surfaces.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the
+  top describing the additive log. No version bump (additive
+  logging only, no behavior change).
+
+**Verification:**
+- `pwsh` v7.4.6 installed in-session per the CLAUDE.md note.
+- Baseline pre-edit:
+  - `tests/test_parse.ps1` 48/0
+  - `tests/test_wim_parser.ps1` 16/0
+  - `tests/test_disk_enumeration.ps1` 34/0
+- Post-edit: same counts (48/0, 16/0, 34/0). No new test added —
+  the diff is one `else` arm with a single `Write-Log` call inside
+  an existing branch already covered by `PSParser::Tokenize` in
+  `test_parse.ps1`.
+- Structural brace balance unchanged (+1 `{` / +1 `}` from the
+  new `else { }` arm, both inside the existing `if/else`).
+- Behavior probe in pwsh confirmed the new branch fires on a
+  nonexistent path: `$env:DEPLOY_IMAGE_DRIVE = "Q:\does\not\exist"`,
+  normalization keeps the literal value, `Test-Path` returns
+  `False`, warning emits as expected.
+- Masterize CI Phase 1B greps (check #11 `/English`, check #18
+  ExitCode handling, check #20 BitLocker defaults, etc.) are
+  unaffected — change is in `Find-ImageFiles`, not in any of
+  the destructive code paths the greps watch.
+
+**Risks / follow-ups:**
+- Minimal. Additive logging only inside a previously-silent
+  fall-through branch. No new return values, no parameter
+  changes, no destructive code touched (diskpart, DISM apply,
+  BCDBoot all unchanged). Worst case is the warning surfaces
+  in an environment that intentionally sets `DEPLOY_IMAGE_DRIVE`
+  to a transient path and tolerates the scan — but that case
+  was already wasting cycles on the scan, so a warning telling
+  the operator why is strictly more informative.
+- **Next recommended improvement:** the backlog has been
+  explicitly noted as drained across the last 3-4 routine
+  entries, and 30 open PRs already cover most identified
+  small-scope gaps. A useful next maintainer pass is the
+  PR-reconciliation called out by PR #145's log entry:
+  identify duplicates among the open routine PRs (e.g. #91 vs
+  #126, #76 vs #111, #79 vs #110, #88 vs #105 vs #139) and
+  surface a recommended close/merge order before further
+  routine runs accumulate more.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Find-ImageFiles` now warns when `DEPLOY_IMAGE_DRIVE` is set but
+  the path is not accessible.** Previously the env-var fast path
+  (set by `startnet.cmd` after locating the IMAGES volume) would
+  silently fall through to the full multi-drive scan if the path
+  failed `Test-Path` — e.g. the USB was unplugged between WinPE
+  init and the script start, or the volume was remounted under a
+  different letter. The operator would see the slower scan with
+  no indication that the optimization was skipped. A one-line
+  `Write-Log -Level Warning` now surfaces the stale env-var value
+  before the fallback scan begins. Additive logging only; no
+  behavior change on the happy path or on the fully-unset
+  (`-not $env:DEPLOY_IMAGE_DRIVE`) path.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
