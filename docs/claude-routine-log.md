@@ -5,6 +5,97 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-27 — unattend staging silent-success on Copy-Item failure
+
+**Investigated:** the 30 open routine PRs (#118-#147) and their stated
+follow-ups to avoid duplicating in-flight work, then the post-apply
+file-staging block in `Start-Deployment` (lines 1931-1939 of
+`unified_winpe_deploy.ps1`). Cross-referenced with `Initialize-BitLockerSetup`
+(line 1641) to see the established `try/catch` pattern for staging
+failures, and confirmed `$ErrorActionPreference` is set nowhere in the
+main script body (only inside the embedded BitLocker here-string at
+line 1560) - so the default `Continue` applies.
+
+**Found:** `Copy-Item -Path $UnattendFile -Destination ...` had no
+`-ErrorAction Stop` and was not wrapped in `try/catch`. Under default
+`$ErrorActionPreference = 'Continue'`, a Copy-Item failure (source
+file unreadable, USB unplugged between pre-flight and apply, network
+share down for the operator's UNC unattend path, etc.) prints a
+non-terminating error and falls through to the very next line:
+`Write-Log "Unattend file staged: $pantherDir\unattend.xml" -Level
+Success`. The script then proceeds through `Initialize-BitLockerSetup`,
+`Set-BootConfiguration`, and the final "DEPLOYMENT COMPLETED
+SUCCESSFULLY" banner. In `-Silent` mode the exit code stays `0`, so a
+fleet deploy ships a machine that prompts at OOBE on first boot rather
+than running unattended - the operator only learns about it after
+re-imaging.
+
+No open PR addresses this; PR #133 covers absolute-path resolution at
+pre-flight (closing one source of the same failure mode upstream),
+PR #120 covers malformed-XML rejection at build time. Neither catches
+the runtime case where the Copy itself fails after destructive ops.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` (lines 1931-1939, pre-edit) - wrapped the
+  `if ($UnattendFile) { ... }` body in `try/catch`. Added `-ErrorAction
+  Stop` on both `New-Item` (Panther dir create) and `Copy-Item`
+  (unattend.xml stage). On catch: logs the parser error, names the
+  source path, calls out the OOBE-on-first-boot consequence, points at
+  the redeploy recovery, and returns `$false` so
+  `Initialize-BitLockerSetup` and `Set-BootConfiguration` don't run.
+  Matches the pattern set by `Initialize-BitLockerSetup` at line 1641
+  (also wraps `Set-Content` in try/catch and returns `$false` on
+  failure).
+- `CHANGELOG.md` - new `### Fixed` bullet under `## Unreleased`.
+
+**Verification:**
+- `pwsh` v7.4.6 installed per the CLAUDE.md note (PowerShell-Releases
+  tarball into `/opt/pwsh/`); the network policy allows the GitHub
+  download.
+- Baseline (pre-edit):
+  - `tests/test_parse.ps1` → 48 passed / 0 failed.
+  - `tests/test_wim_parser.ps1` → 16 / 0.
+  - `tests/test_disk_enumeration.ps1` → 34 / 0.
+- Post-edit:
+  - `tests/test_parse.ps1` → 48 / 0 unchanged.
+  - Brace balance: 399 open / 399 close (+4 / +4 net from new
+    `try`/`catch`/inner `if` reformat - balanced).
+  - Region balance: 10 / 10 unchanged.
+- Behavioral spot-check via `pwsh -c`: a simulated `Copy-Item
+  -ErrorAction Stop` to a nonexistent source inside the same
+  `try/catch` shape fires the `catch{}` block and returns `$false`;
+  the success `Write-Output` never runs. Confirms the fix.
+- Pester suite (`tests/validation-gates.Tests.ps1`) runs CI-only
+  because the container's network policy blocks PSGallery - existing
+  Start-Deployment validation tests mock around the post-apply path,
+  so this change doesn't alter their assertions.
+
+**Risks / follow-ups:**
+- Small. Pure additive safety on a previously-silent failure mode.
+  Success path is unchanged (same Copy-Item call, same Success log
+  line). Failure path now produces a clear error log + non-zero exit
+  instead of a false success - which is a behavior change but in the
+  direction the script's "fail loud" philosophy already takes for
+  BitLocker staging.
+- The disk is already wiped when the failure surfaces (post-apply).
+  The recovery is a redeploy, exactly as it would be for any BCDBoot
+  or BitLocker staging failure today. Documented in the new error
+  message.
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30 lines
+    of listing-render code that could be factored out - flagged across
+    multiple prior entries; deferred again because the menu render is
+    load-bearing TUI UX and CLAUDE.md says no speculative refactors.
+  - **Same Copy-Item-into-Panther shape isn't replicated elsewhere**,
+    but the broader pattern (post-destructive staging that calls
+    `Copy-Item` / `Set-Content` without `-ErrorAction Stop`) is worth
+    a sweep next pass - `Initialize-BitLockerSetup` already does this
+    correctly, but `Initialize-SystemPaths` and the Panther path
+    creation here were the only other staging sites I touched.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

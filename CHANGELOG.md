@@ -8,6 +8,21 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Unattend staging Copy-Item failures no longer report success.**
+  `Start-Deployment` copied `-UnattendFile` to `C:\Windows\Panther\unattend.xml`
+  without `-ErrorAction Stop`, so with the default `$ErrorActionPreference =
+  'Continue'` a Copy-Item failure (source unreadable mid-deploy, USB
+  unplugged after pre-flight, etc.) printed an error and fell through
+  to the `Unattend file staged` Success log line. In `-Silent` mode the
+  exit code stayed `0`, so an unattended fleet deploy would ship a
+  machine that prompts at OOBE on first boot instead of running
+  unattended. The block is now wrapped in `try/catch`: failures log
+  loud, point at the OOBE consequence and the redeploy recovery, and
+  return `$false` before `Initialize-BitLockerSetup` / `Set-BootConfiguration`
+  run (matches the BitLocker-staging failure pattern, prevents
+  half-configured machines from being marked successful).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

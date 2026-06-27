@@ -1928,14 +1928,27 @@ function Start-Deployment {
     }
     Write-Log "Deployment verification passed" -Level Success
 
-    # Drop unattend.xml so Windows Setup picks it up on first boot
+    # Drop unattend.xml so Windows Setup picks it up on first boot.
+    # Default $ErrorActionPreference is Continue, so without -ErrorAction Stop
+    # a Copy-Item failure (source unreadable, USB unplugged, etc.) would print
+    # an error and fall through to the Success log line, leaving the operator -
+    # especially in -Silent mode - with exit 0 but no staged unattend.xml.
+    # First boot would then prompt at OOBE instead of running unattended.
     if ($UnattendFile) {
         $pantherDir = 'C:\Windows\Panther'
-        if (-not (Test-Path $pantherDir)) {
-            New-Item -ItemType Directory -Path $pantherDir -Force | Out-Null
+        try {
+            if (-not (Test-Path $pantherDir)) {
+                New-Item -ItemType Directory -Path $pantherDir -Force -ErrorAction Stop | Out-Null
+            }
+            Copy-Item -Path $UnattendFile -Destination "$pantherDir\unattend.xml" -Force -ErrorAction Stop
+            Write-Log "Unattend file staged: $pantherDir\unattend.xml" -Level Success
+        } catch {
+            Write-Log "Failed to stage unattend file: $($_.Exception.Message)" -Level Error
+            Write-Log "  Source: $UnattendFile" -Level Info
+            Write-Log "  Without staging, Windows Setup falls through to manual OOBE on first boot." -Level Info
+            Write-Log "  Re-run the deploy (it will repartition and re-apply) once the source is reachable." -Level Info
+            return $false
         }
-        Copy-Item -Path $UnattendFile -Destination "$pantherDir\unattend.xml" -Force
-        Write-Log "Unattend file staged: $pantherDir\unattend.xml" -Level Success
     }
 
     # Stage BitLocker setup script (runs on first Windows boot via SetupComplete.cmd)
