@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Masterize CI check #1 now also pins the `.VERSION` block top entry
+  to `$Script:Config.ScriptVersion`.** `CLAUDE.md` lists the script
+  header's `.VERSION` block as one of four places the version must
+  match on every bump, but the check previously only verified the
+  version appeared somewhere in `CHANGELOG.md`, `CLAUDE.md`, and
+  `README.md`. A drift between `.VERSION` and `ScriptVersion` (both
+  in `unified_winpe_deploy.ps1`) would have passed CI silently. The
+  check now extracts the first version line from the `.VERSION` block
+  via `awk` and fails when it doesn't equal `ScriptVersion`. No
+  production code changed; CI-only.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

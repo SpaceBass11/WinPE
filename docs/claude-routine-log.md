@@ -5,6 +5,83 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — masterize CI #1 misses `.VERSION` block drift
+
+**Investigated:** the 30 open routine PRs (#139–#168) to avoid
+duplicating in-flight work, then the masterize CI's Phase 1A check #1
+("Version consistency") in `.github/workflows/ci.yml` against the
+four-place version invariant documented in `CLAUDE.md` ("When
+Modifying the Script" → "Version field lives in four places that must
+all match — masterize CI check #1 enforces this").
+
+**Found:** the CI check enforces only three of those four locations.
+It extracts `$ver` from `$Script:Config.ScriptVersion`, then iterates
+`CHANGELOG.md`, `CLAUDE.md`, `README.md` checking `grep -q "$ver"
+"$f"`. The fourth place — the `.VERSION` block in the script's own
+header comment (lines 80-94) — is in the same file as `ScriptVersion`
+and is never independently verified. So a bump that updated
+`ScriptVersion = '4.X.Y'` but left the `.VERSION` block at the prior
+version would pass CI silently. No open PR addresses this.
+
+Manually validated the gap on a mutated copy of the script (replaced
+the first `.VERSION` block entry with `9.9.9` via `awk` in-memory):
+`grep -oP "ScriptVersion\s*=\s*'\K[0-9.]+"` returned `4.7.1` and the
+existing check still found `4.7.1` in CHANGELOG / CLAUDE / README, so
+it would have passed — confirming the silent-drift surface is real.
+
+**Changed:**
+- `.github/workflows/ci.yml` — appended a sub-check inside masterize
+  Phase 1A check #1 that extracts the first version line from the
+  `.VERSION` block via `awk '/^\.VERSION/{flag=1; next} flag &&
+  /^[[:space:]]+[0-9]+\.[0-9]+/{match(...)}'` and fails when it
+  doesn't equal `$ver`. Same `fail=1` cascade as the existing per-
+  file checks. Comment block explains why the third-party scan was
+  insufficient.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the CI sub-check addition. No version bump (CI-only change).
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per CLAUDE.md guidance (tarball into
+  `/opt/pwsh/`).
+- Local simulation of the new check on the unmodified tree:
+  `ScriptVersion: 4.7.1 / Header .VERSION: 4.7.1 — MATCH`.
+- Local simulation against a mutated copy (top entry rewritten to
+  `9.9.9`): `MISMATCH (expected — check would fail correctly)`.
+- YAML validity: `python3 -c "import yaml;
+  yaml.safe_load(open('.github/workflows/ci.yml'))"` parses clean.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0.
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0.
+- No production PowerShell touched, so the Pester suite
+  (`validation-gates.Tests.ps1`, CI-only per CLAUDE.md) is
+  unaffected by definition.
+
+**Risks / follow-ups:**
+- Minimal. CI-only change; one new `if`/`else` arm and an `awk`
+  invocation, both POSIX-portable (no GNU `\K` or PCRE) so they run
+  identically on the `ubuntu-latest` runner that hosts the masterize
+  job. No production deploy code touched, no test mutation, no new
+  dependency.
+- The awk regex assumes the `.VERSION` block keeps its current shape
+  (multi-line, version-then-dash-then-prose, leading whitespace per
+  PowerShell comment-help convention). A formatter that switched to
+  `<version> — <prose>` (em-dash) would still match because the regex
+  only anchors on the leading digit sequence; a switch to a
+  non-numeric leading token (e.g. a `[1m]` ANSI color code) would
+  fail and need the regex updated alongside the format change. That's
+  the intended brittleness — a header reformat is precisely when a
+  human should re-check the version invariant.
+- Outstanding routine-backlog candidates I deferred this pass:
+  - `Show-ImageList` / `Show-ImageSelection` shared listing-render
+    extraction — repeatedly deferred because the menu is load-bearing
+    TUI UX.
+  - `Select-ImageIndex` silent-mode error message could point at
+    `scripts/prepare_wim.ps1 -Index N -OutputWim ...` as the way out
+    of multi-index-ESD-in-silent-mode. Small docs improvement,
+    deferred to keep this pass narrow.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
