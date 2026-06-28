@@ -9,6 +9,22 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/first-login.ps1` now has behavioral-invariant coverage
+  in `tests/test_parse.ps1`.** Seven new grep assertions guard the
+  two silent-regression risks in the script: dropping Pass 2 (the
+  Default User hive apply) would mean future provisioned users
+  (TechL0/1/2, etc.) never inherit the tweaks — and the regression
+  wouldn't surface until those accounts first log in months later;
+  dropping `[gc]::Collect()` before `reg.exe unload` would leave
+  the Default User hive loaded and block `NTUSER.DAT` from
+  flushing until reboot. Asserts: `Apply-Tweak` helper present,
+  Pass 1 `-Root 'HKCU:'` call present, Pass 2
+  `-Root "HKLM:\$mountKey"` call present, standard
+  `Users\Default\NTUSER.DAT` hive path, `reg.exe load` /
+  `reg.exe unload` both present, and `[gc]::Collect()` present.
+  Mirrors the Test 9 pattern PR #52 added for `build_boot_wim.ps1`
+  and the Test 12 pattern PR #172 adds for `build_iso.ps1`. Test-
+  only change; first-login.ps1 itself is untouched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

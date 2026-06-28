@@ -5,6 +5,96 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `tests/test_parse.ps1` behavioral invariants for `first-login.ps1`
+
+**Investigated:** open routine PRs #152-#181 (30+ in flight) to find an
+unaddressed improvement. Cross-referenced PR #172's explicit follow-up
+note ("same pattern could be extended to `prepare_wim.ps1` /
+`refresh_usb.ps1` / `first-login.ps1` later"), the deferred follow-up
+in PR #181's body, and the local test inventory. PR #180 covers
+`prepare_wim.ps1`; PR #164 is restructuring the `$LASTEXITCODE` check
+in `refresh_usb.ps1` so behavioral invariants there would conflict;
+`first-login.ps1` had no overlapping open PR for behavioral coverage
+(PR #162 surfaces stderr but doesn't restructure the function).
+
+**Found:** `scripts/first-login.ps1` (PR #46, modified by PR #162) has
+two silent-regression risks that no test guards:
+
+1. **Pass 2 (Default User hive apply) drop-out.** The script runs the
+   tweak list twice: once against `HKCU:` (the current user) and once
+   against the Default User hive mounted from
+   `C:\Users\Default\NTUSER.DAT`. Pass 2 is what makes future
+   provisioned accounts (TechL0/1/2, future maintenance admins)
+   inherit the same tweaks when their profile is created on first
+   sign-in. A refactor that accidentally drops Pass 2 looks correct
+   to the developer (the current user gets all the tweaks; the script
+   logs success) — but the regression doesn't surface until months
+   later when those accounts actually log in for the first time.
+   PR #181's body called out the asymmetric documentation gap in the
+   unattend.xml example; the test-side gap is the same shape.
+
+2. **`[gc]::Collect()` drop-out before `reg.exe unload`.** PowerShell
+   holds onto registry handles past the last property access. Without
+   the forced GC + `WaitForPendingFinalizers()` before unload, the
+   unload call returns non-zero and the Default User hive stays
+   loaded — `NTUSER.DAT` won't flush until reboot. The same pattern
+   is used in `scripts/build_boot_wim.ps1` and `prepare_wim.ps1`;
+   the comment in first-login.ps1 explicitly warns this is the fix
+   for `reg.exe complains`. A refactor that removes it on cleanup
+   grounds would silently break the offline-hive contract.
+
+**Changed:**
+- `tests/test_parse.ps1` — replaced the syntax-only Test 13 block with
+  a `$firstLoginOk`-guarded behavioral block mirroring Test 9
+  (`build_boot_wim.ps1`) and the new Test 12 from PR #172
+  (`build_iso.ps1`). Seven new grep-based invariants run after syntax
+  passes: `Apply-Tweak` helper present, Pass 1 `-Root 'HKCU:'` call
+  present, Pass 2 `-Root "HKLM:\$mountKey"` call present, standard
+  `Users\Default\NTUSER.DAT` hive path, `reg.exe load` present,
+  `reg.exe unload` present, and `[gc]::Collect()` present.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the new coverage and the two silent-regression risks
+  it guards against.
+
+**Verification:**
+- `pwsh` v7.4.6 installed once per session per the CLAUDE.md note.
+- Baseline `pwsh -NoProfile -File ./tests/test_parse.ps1` →
+  **48 passed / 0 failed** before edits.
+- Post-edit same command → **55 passed / 0 failed**
+  (+7 new asserts; syntax + 6 invariants pass for the unmodified
+  `first-login.ps1`).
+- Drift-guard sanity check: mutated `[gc]::Collect()` to a comment in
+  a sandbox copy of `first-login.ps1`; re-ran the suite — the
+  matching invariant failed exactly as designed (54/1). Restored
+  the literal, suite back to 55/0.
+- Sibling tests unchanged: `test_wim_parser.ps1` and
+  `test_disk_enumeration.ps1` not re-exercised this pass (neither
+  touched).
+
+**Risks / follow-ups:**
+- Minimal. Test-only change. No production code touched. No new
+  network dependencies. Regex literals are conservatively anchored
+  to substrings so they won't false-fire on cosmetic edits (variable
+  renames, comment rewrites) unless the safety-critical literal
+  actually moves. PR #162 (in flight) modifies the `2>&1 | Out-Null`
+  redirection lines around `reg.exe load` / `reg.exe unload` but
+  doesn't restructure either call's positional invariant, so the new
+  invariants stay green after #162 merges.
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** shared listing-render
+    extraction — flagged across prior PRs but deferred each pass
+    because the menu render is load-bearing UX.
+  - **Overlap validation in `scripts/build_iso.ps1`** —
+    `-DataDiskNumber == -TargetDisk`, `-DataDiskNumber` in
+    `-WipeDisks`, and `-TargetDisk` in `-WipeDisks` would all be
+    friendlier caught at build time instead of at first-boot of the
+    end-user ISO. The deploy script catches them at runtime; this is
+    a UX, not a safety, improvement and overlaps build_iso PRs #155 /
+    #156 / #172 / #173 in the same file.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
