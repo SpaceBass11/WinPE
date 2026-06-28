@@ -5,6 +5,72 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `configs/unattend.example.xml` stale "Default User hive" comment
+
+**Investigated:** Open PR backlog (#151-#180, 30 in flight covering ARCHITECTURE
+resync, build_iso safety, prepare_wim invariants, BitLocker LookupMode tests,
+USB_SETUP sync, etc.) and merged work since the last routine entry (PRs #46-#52).
+Looked for a clean, unique gap that didn't overlap with anything in flight.
+Spot-read `configs/unattend.example.xml` and noticed the inline comment block
+right before `<FirstLogonCommands>` (around line 196) instructs the reader:
+
+> "Runs as whoever AutoLogon logs in — applies HKCU tweaks to that account's
+>  profile. To make non-admin accounts (TechL0/1/2) inherit the same tweaks,
+>  the script would need to also edit the Default User hive (C:\Users\Default\
+>  NTUSER.DAT); ask if you want that added."
+
+**Found:** Direct documentation drift. `scripts/first-login.ps1` has been a
+**dual-hive** script since PR #21 (the same commit that introduced this comment).
+The script's own `.DESCRIPTION` says: "Applies the tweak list to TWO targets in
+one pass: 1. The currently logged-in user (HKCU live hive). 2. The Default User
+hive (C:\Users\Default\NTUSER.DAT). So Level0 / Level1 / Level2 / future users
+all inherit the same tweaks when their profile is created on first logon —
+without needing this script to re-run per user." And the implementation (Pass 2
+at lines 116-148) does exactly that: load `NTUSER.DAT`, foreach `$tweaks` apply
+to `HKLM:\WimDefault`, GC + unload.
+
+Confirmed via `git show ada844f -- configs/unattend.example.xml` that the
+misleading comment shipped IN THE SAME COMMIT as the dual-hive feature — clearly
+leftover from an earlier draft of PR #21 that didn't get cleaned up.
+
+Effect on users: an admin editing the template gets told they need to ask for
+a feature that's already implemented. They might add per-user `SynchronousCommand`
+entries instead, or assume tier-0/1/2 accounts won't inherit the debloat.
+
+**Changed:**
+- `configs/unattend.example.xml` — rewrote the 4-line "would need to" comment
+  into 5 lines describing what the script actually does (dual-hive, future
+  TechL0/1/2 inherit automatically, points reader at `scripts/first-login.ps1`
+  for the tweak list). XML well-formedness unchanged.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry at the top describing
+  the drift and its source.
+
+**Verification:**
+- `pwsh` installed (PowerShell 7.4.6 tarball per CLAUDE.md).
+- `tests/test_parse.ps1`: 48 passed / 0 failed.
+- `tests/test_wim_parser.ps1`: 16 passed / 0 failed.
+- `tests/test_disk_enumeration.ps1`: 34 passed / 0 failed.
+- `python3 -c "ET.parse(...)"` confirms `configs/unattend.example.xml` still
+  parses to a valid `urn:schemas-microsoft-com:unattend` document.
+- No production code touched; comment-only change inside an XML comment block.
+  No effect on any PowerShell script or on Windows Setup behavior — Windows
+  Setup ignores `<!-- -->` comments.
+
+**Risks / follow-ups:**
+- Minimal. Pure XML-comment edit inside a template file users copy and edit.
+  No effect on the deploy pipeline, no behavioral change.
+- Outstanding routine-backlog candidates from prior entries that I did not
+  take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of listing-render
+    code that could be factored out — deferred across multiple prior entries
+    because the menu render is load-bearing TUI UX.
+  - `docs/SCRIPT_REFERENCE.md` line 430 says first-login.ps1 applies "per-user
+    (HKCU) tweaks" — technically true (HKCU includes the live user) but
+    understates the Default-User-template pass. Low-impact, didn't touch this
+    round since it isn't actively misleading.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

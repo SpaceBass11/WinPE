@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/unattend.example.xml` Default-User comment was stale.**
+  The inline comment next to `FirstLogonCommands` claimed the script
+  "would need to also edit the Default User hive" for non-admin
+  accounts to inherit the tweaks, and invited the reader to "ask if
+  you want that added." That feature has been in `scripts/first-login.ps1`
+  since PR #21 (Pass 2: load `C:\Users\Default\NTUSER.DAT`, apply the
+  full tweak list, unload). The comment was leftover from an earlier
+  draft in the same PR and didn't get updated. Rewrote the comment to
+  describe what the script actually does so users editing the template
+  aren't misled into thinking they need a feature that already exists.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
