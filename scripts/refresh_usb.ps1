@@ -192,10 +192,12 @@ if ($DisableExtraBloat) { $prepArgs.DisableExtraBloat = $true }
 
 Write-Step "Invoking prepare_wim.ps1..."
 $prepScript = Join-Path $PSScriptRoot 'prepare_wim.ps1'
+# prepare_wim.ps1 signals failure by `throw` under $ErrorActionPreference=Stop,
+# which propagates through `& $script` to our own EAP=Stop and terminates. Do
+# NOT gate on $LASTEXITCODE here: prepare_wim runs native commands (reg.exe
+# unload in particular) whose non-fatal warning paths can leak a non-zero
+# $LASTEXITCODE into us after a successful prep, producing a false "failed".
 & $prepScript @prepArgs
-if ($LASTEXITCODE -ne 0) {
-    throw "prepare_wim.ps1 failed (exit $LASTEXITCODE)"
-}
 Write-Ok "Image ready at $outputWim"
 
 # Step 2 (optional): WinPE boot.wim rebuild
@@ -208,10 +210,10 @@ if ($RebuildBootWim -eq 'Yes') {
     }
     if ($CctkSource) { $buildArgs.CctkSource = $CctkSource }
     $buildScript = Join-Path $PSScriptRoot 'build_boot_wim.ps1'
+    # Same rationale as the prepare_wim call above: throw propagates;
+    # checking $LASTEXITCODE would false-fail on benign native warnings
+    # (reg unload, mountvol /d) that leak a non-zero code post-success.
     & $buildScript @buildArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "build_boot_wim.ps1 failed (exit $LASTEXITCODE)"
-    }
     Write-Ok "WinPE boot.wim refreshed on $BootUsbDrive"
 }
 

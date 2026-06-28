@@ -8,6 +8,22 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/refresh_usb.ps1` no longer false-fails on benign
+  `reg.exe unload` warnings.** Both wrapped script calls (the
+  `prepare_wim.ps1` step and the optional `build_boot_wim.ps1`
+  step) previously gated on `$LASTEXITCODE` after `& $script`.
+  The wrapped scripts signal real failure via `throw` under
+  `$ErrorActionPreference = 'Stop'`, which already propagates;
+  the `$LASTEXITCODE` check was both redundant on the failure
+  path and incorrect on the success path, because a non-fatal
+  `reg.exe unload` (which the wrapped scripts only warn about,
+  not throw) leaves `$LASTEXITCODE` non-zero across the call
+  boundary. After a successful prep, `refresh_usb` would then
+  raise a spurious `"prepare_wim.ps1 failed (exit 1)"`. The
+  checks are now removed; the `$EAP = Stop` propagation path is
+  documented at each call site.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

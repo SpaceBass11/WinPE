@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `refresh_usb.ps1` false-fail on leaked `$LASTEXITCODE`
+
+**Investigated:** 30 open routine PRs (`#134`–`#163`) already cover
+most narrow safety / docs / test surface. Walked `scripts/` looking
+for areas no open PR touches. `refresh_usb.ps1` only has #161 (CCTK
+dropped), #143 (esd listing), #135 (OutputName extension strip) — none
+touch the script-call control flow.
+
+**Found:** `scripts/refresh_usb.ps1` has two `if ($LASTEXITCODE -ne 0)
+{ throw ... }` guards (lines 196-198 and 211-214) wrapped around
+`& $prepScript @prepArgs` / `& $buildScript @buildArgs`. Both wrapped
+scripts use `$ErrorActionPreference = 'Stop'` + `throw` for real
+failures, which already propagate through `&` into our own EAP=Stop
+context. The `$LASTEXITCODE` check is therefore:
+
+1. **Unreachable on real failures** — the throw bubbles out before
+   the `if` runs.
+2. **A false-positive trigger on benign warning paths.** Both
+   `prepare_wim.ps1` (line 425) and `build_boot_wim.ps1` (line 246)
+   contain `Write-Warn "reg unload returned $LASTEXITCODE..."` for the
+   well-known case where `reg.exe unload` returns non-zero even when
+   the hive is logically released (handles still open / needs reboot
+   to flush). After that warning, only PS cmdlets run (`Export-WindowsImage`,
+   `Dismount-WindowsImage`, etc.) — none of which reset `$LASTEXITCODE`.
+   The non-zero code therefore leaks across the `& $script` boundary
+   into refresh_usb, and the guard raises a spurious
+   `"prepare_wim.ps1 failed (exit 1)"` after a successful prep.
+
+Verified the leak with a reduced repro on Linux pwsh 7.4.6: inner
+script runs `/bin/sh -c "exit 1"` (stand-in for the benign
+`reg.exe unload`), exits normally with no throw; outer's
+`if ($LASTEXITCODE -ne 0) { throw }` triggers. Then verified that a
+real `throw` inside the inner script propagates through `& $inner`
+into the outer's `try { } catch { }` even without any `$LASTEXITCODE`
+check, confirming the guard is purely redundant on the failure path.
+
+**Changed:**
+- `scripts/refresh_usb.ps1` — removed both `if ($LASTEXITCODE -ne 0)
+  { throw ... }` blocks. Replaced each with a short comment block
+  pinning the rationale at the call site so a future reader doesn't
+  reintroduce the check.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing the
+  false-fail and the throw-propagates-already reasoning. No script
+  version bump (behavior-only fix on a wrapper script; the deploy
+  script itself is unchanged).
+
+**Verification:**
+- `pwsh` 7.4.6 installed per CLAUDE.md (tarball into `/opt/pwsh`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed (same baseline as before the edit; the `refresh_usb.ps1`
+  syntax-valid assertion still passes).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0,
+  `tests/test_disk_enumeration.ps1` → 34/0 (sanity, no cross-test
+  contamination).
+- Pester suite runs in CI only (network policy blocks PSGallery in
+  this container); this change touches no function that suite covers,
+  so no risk of new Pester drift.
+- Manual reproduction of the bug + manual proof the throw-propagation
+  path works without the check are both in the Bash transcript above.
+
+**Risks / follow-ups:**
+- Very low. Two-line deletion (plus comment lines) on a wrapper
+  script. No production deploy code touched. No diskpart/DISM/BCDBoot
+  surface area touched. No new dependencies. No CI rule changes.
+- The same anti-pattern does NOT appear elsewhere in the codebase:
+  `grep -n LASTEXITCODE scripts/*.ps1` confirms only `refresh_usb.ps1`
+  uses `$LASTEXITCODE` to gate on a *PowerShell script* call boundary.
+  Every other use sits right after the actual native command (reg.exe,
+  dism.exe, oscdimg.exe, robocopy, copype, xcopy, mountvol), which is
+  correct.
+- Outstanding routine-backlog candidates I deferred this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code. Deferred again — load-bearing TUI
+    UX.
+  - **CCTK pre-apply** test fixture for the model-regex selection
+    precedence is open as PR #158.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
