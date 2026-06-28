@@ -5,6 +5,82 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `prepare_wim.ps1` behavioral invariants pinned in `tests/test_parse.ps1`
+
+**Investigated:** Open PRs (#150-#179, ~30 in flight from prior routine
+runs) for overlap. Open PRs cover `build_iso.ps1` invariants (#172),
+`build_boot_wim.ps1` USB-equals-system-drive safety (#179), a
+`prepare_wim.ps1 -Index` ESD fix (#160), and a wide array of deploy.ps1
+safety/test gaps — but **no PR pins behavioral invariants in
+`prepare_wim.ps1` itself**. PR #50 (merged) established the pattern by
+adding 5 invariant checks to `build_boot_wim.ps1` (Test 9); the
+`prepare_wim.ps1` block (Test 10) was still syntax-only.
+
+`prepare_wim.ps1` has had two real regressions in the last two routine
+cycles — the `"$Edition (Custom)"` mislabel (2026-05-16 entry) and PR
+#160's `-Index`-vs-`install.esd` interaction. Both would have been
+caught by a Test-10 invariant block.
+
+**Changed:**
+
+- `tests/test_parse.ps1` — Test 10 expanded from
+  `Test-ScriptSyntax | Out-Null` to a syntax-then-invariants block
+  mirroring Test 9. Six new assertions:
+    1. Destination name uses `$target.ImageName` (regex anchors the
+       conditional form `$sourceName = if ($target.ImageName) ...`)
+    2. Destination name *not* hardcoded `"$Edition (Custom)"` —
+       belt-and-suspenders catch for the 2026-05-16 mislabel regression
+    3. Re-export uses `-CompressionType Max` (silent quality regression
+       otherwise)
+    4. Re-export uses `-CheckIntegrity` (silent corruption escape
+       otherwise)
+    5. `-DriverPath` rejects empty .inf folder (`contains no .inf files`
+       literal pinned)
+    6. `first-login.ps1` staging gated on `-DisableExtraBloat` (so plain
+       `-DisableCopilot` doesn't accidentally stage the per-user script)
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing the
+  coverage extension.
+
+**Verification:**
+
+- PowerShell installed once per session per the CLAUDE.md note
+  (PSv7.4.6 tarball into `/opt/pwsh/`).
+- Baseline before edit: `tests/test_parse.ps1` 48 passed / 0 failed;
+  `tests/test_wim_parser.ps1` 16/0; `tests/test_disk_enumeration.ps1` 34/0.
+- Post-edit: `tests/test_parse.ps1` 54 passed / 0 failed (the +6 are the
+  new invariant checks). Other two tests unchanged (16/0, 34/0).
+- **Negative test:** temporarily mutated `prepare_wim.ps1` to
+  `$sourceName = $Edition` + `"$Edition (Custom)"` — both new
+  destination-name assertions correctly flipped to FAIL (52 passed /
+  2 failed). Restored original; all 54 green. Confirms the regexes
+  catch the actual regression they're meant to catch.
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only change. No production code touched. No new
+  network dependencies. Pattern matches Test 9 (build_boot_wim
+  invariant block) exactly, including PSv5.1-safe constructs
+  (`-match`, `-notmatch`, `Get-Content -Raw`).
+- One regex (#6, `first-login.ps1` staging gate) uses a
+  non-greedy `[\s\S]{0,400}?` quantifier to span the brace body
+  without spilling past it. If the gated block grows beyond ~400
+  characters between `if ($DisableExtraBloat) {` and the
+  `first-login.ps1` literal, the assertion would false-FAIL; today
+  the gap is ~100 chars so there's plenty of slack.
+- Outstanding routine-backlog candidates I did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection` factor-out** — ~30 lines
+    of duplicated rendering code. Deferred across multiple routine
+    cycles because the menu is load-bearing TUI UX; the duplication
+    is stable and any factoring risks subtle behavior drift.
+  - **Pester coverage for `prepare_wim.ps1` parameter-set binding** —
+    a Pester test that loads the script as a dynamic module and
+    asserts `-SourceIso` and `-SourceWim` are mutually exclusive
+    would be a natural follow-on, but the existing Pester suite is
+    deploy-script-focused and adding a second script's harness is a
+    larger change than fits a single routine pass.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

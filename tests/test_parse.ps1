@@ -138,9 +138,39 @@ if ($builderOk) {
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
 }
 
-# Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)
+# Test 10: prepare_wim.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/prepare_wim.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
+$prepOk = Test-ScriptSyntax -Path $prepPath -Label "WIM prep"
+if ($prepOk) {
+    $pc = Get-Content $prepPath -Raw
+
+    # Output WIM destination name must derive from $target.ImageName, not a
+    # hardcoded $Edition. Regressing to the literal "$Edition (Custom)" mis-
+    # labels every captured WIM as 'Windows 11 Enterprise (Custom)' regardless
+    # of source (the 2026-05-16 fix in CHANGELOG / routine log).
+    Write-Result -Test 'WIM prep: destination name uses $target.ImageName' `
+        -Pass ($pc -match '\$target\.ImageName' -and $pc -match '\$sourceName\s*=\s*if\s*\(\s*\$target\.ImageName')
+    Write-Result -Test 'WIM prep: destination name not hardcoded "$Edition (Custom)"' `
+        -Pass ($pc -notmatch '"\$Edition\s*\(Custom\)"' -and $pc -notmatch "'\`$Edition\s*\(Custom\)'")
+
+    # Re-export must use max compression + integrity check. Either dropping
+    # silently inflates output size or lets WIM corruption escape into
+    # production deployments.
+    Write-Result -Test 'WIM prep: re-export uses -CompressionType Max' `
+        -Pass ($pc -match '-CompressionType\s+Max')
+    Write-Result -Test 'WIM prep: re-export uses -CheckIntegrity' `
+        -Pass ($pc -match 'Export-WindowsImage[\s\S]+?-CheckIntegrity')
+
+    # -DriverPath must reject a folder with no .inf files; a silent regression
+    # would let operators build with no drivers and not know until deploy.
+    Write-Result -Test 'WIM prep: -DriverPath rejects empty .inf folder' `
+        -Pass ($pc -match 'contains no \.inf files')
+
+    # first-login.ps1 staging must stay gated on -DisableExtraBloat. Ungating
+    # would silently change the staged image for plain -DisableCopilot runs.
+    Write-Result -Test 'WIM prep: first-login.ps1 staging gated on $DisableExtraBloat' `
+        -Pass ($pc -match 'if\s*\(\s*\$DisableExtraBloat\s*\)\s*\{[\s\S]{0,400}?first-login\.ps1')
+}
 
 # Test 11: refresh_usb.ps1 (syntax only - workflow wrapper)
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan

@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`prepare_wim.ps1` behavioral invariants now pinned in
+  `tests/test_parse.ps1`.** Test 10 expanded from syntax-only to also
+  assert: destination name derives from `$target.ImageName` rather
+  than a hardcoded `"$Edition (Custom)"` (the 2026-05-16 mislabel
+  fix); re-export uses `-CompressionType Max` and `-CheckIntegrity`;
+  `-DriverPath` rejects an empty .inf folder; and `first-login.ps1`
+  staging stays gated on `-DisableExtraBloat`. Six new assertions,
+  pattern matches the existing `build_boot_wim.ps1` invariant block
+  (Test 9). Test-only change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
