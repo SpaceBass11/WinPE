@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`build_iso.ps1` now has behavioral-invariant test coverage.**
+  Extends the existing syntax-only check in `tests/test_parse.ps1`
+  with seven grep-based invariant assertions modeled on the
+  `build_boot_wim.ps1` block added in PR #52: the
+  `-ConfirmSilentDestructiveIso` gate exists, the `VolumeLabel`
+  parameter still defaults to `'IMAGES'` (so the boot.wim
+  `startnet.cmd` partition scan finds the data partition), the
+  WIM-extension allowlist (`.wim`/`.esd`) and `-WipeDisks` regex
+  validation are present, oscdimg's `-bootdata` references both
+  `etfsboot.com` (BIOS) and `efisys.bin` (UEFI), and generated
+  deploy.args paths embed the `{DRIVE}` placeholder for
+  startnet.cmd's runtime substitution. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

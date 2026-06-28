@@ -5,6 +5,97 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `build_iso.ps1` behavioral-invariant test coverage
+
+**Investigated:** the 30 currently-open Claude routine PRs (#142-#171)
+to avoid duplicating in-flight work, then the parse/invariant test
+suites in `tests/test_parse.ps1` against each shipped pipeline script.
+
+**Found:** `tests/test_parse.ps1` Test 9 (added by PR #52, merged
+2026-05-28) gives `scripts/build_boot_wim.ps1` five behavioral-
+invariant grep checks on top of its syntax assertion — the DCH DLL
+allowlist, missing-DLL throw, and `$cctkDir` use in the copy block.
+The four sibling scripts (`build_iso.ps1`, `prepare_wim.ps1`,
+`refresh_usb.ps1`, `first-login.ps1`) are still syntax-only. Of
+those, `build_iso.ps1` has accumulated the most safety-critical
+mechanics in the last month (#147, #151, #155-#157, #44, #46, #48,
+#49) — the destructive-intent gate, ISO volume label, WIM
+allowlist, `-WipeDisks` regex, oscdimg `-bootdata` BIOS+UEFI
+shape, and the `{DRIVE}` placeholder in generated deploy.args.
+Any of those could regress silently in a future refactor without
+surfacing in CI's PSSA / PSParser pass.
+
+No open PR adds invariant tests for `build_iso.ps1` — the open
+build_iso PRs (#147, #151, #155, #156, #157) all modify the
+script itself rather than test it.
+
+**Changed:**
+
+- `tests/test_parse.ps1` — replaced the syntax-only ISO-builder
+  block (Test 12, the `Test-ScriptSyntax | Out-Null` one-liner) with
+  a `$buildIsoOk` guard mirroring the build_boot_wim Test 9 pattern.
+  When syntax passes, seven additional grep-based invariants run
+  against the raw file content: `-ConfirmSilentDestructiveIso` gate
+  (`-not $Interactive -and -not $ConfirmSilentDestructiveIso`),
+  `VolumeLabel` default `'IMAGES'`, WIM extension allowlist
+  (`.wim`/`.esd`), `-WipeDisks` regex literal, oscdimg `-bootdata`
+  references to `etfsboot.com` (BIOS) and `efisys.bin` (UEFI), and
+  the `{DRIVE}\images` placeholder in deploy.args generation.
+  Each invariant maps to a documented safety guarantee in
+  `docs/END_USER_DEPLOY.md` / `docs/DEPLOY_ARGS.md` /
+  `docs/USB_SETUP.md`. A header comment explains why the shapes
+  are invariants rather than just nice-to-have.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the new coverage. Tests-only, no version bump.
+
+**Verification:**
+
+- `pwsh` installed once per session per CLAUDE.md (v7.4.6 tarball
+  into `/opt/pwsh/`); network policy allows the GitHub-Releases
+  download.
+- Baseline before edit: `/opt/pwsh/pwsh -NoProfile -File
+  ./tests/test_parse.ps1` → 48 passed / 0 failed.
+- Post-edit: same command → **55 passed / 0 failed** (+7 new
+  invariant assertions; +0 regressions).
+- Sibling tests unchanged:
+  `tests/test_wim_parser.ps1` → 16/0,
+  `tests/test_disk_enumeration.ps1` → 34/0.
+- Drift-guard sanity check: flipped `VolumeLabel = 'IMAGES'` to
+  `'BADLABEL'` in `build_iso.ps1`, re-ran — the matching invariant
+  failed exactly as designed; restored the literal, suite back to
+  55/0. Confirms the patterns catch the regression class they're
+  meant to.
+- The Pester suite (`tests/validation-gates.Tests.ps1`) is CI-only
+  per CLAUDE.md — PSGallery is blocked in the web-session container
+  so `Install-Module Pester` fails. No Pester invariants touched
+  by this change.
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only change. No production code touched. No new
+  network dependencies. Pattern matches the build_boot_wim Test 9
+  block exactly, including PSv5.1 compatibility (only `Get-Content
+  -Raw` and `-match`, both PSv5.1-safe).
+- The regex literals in the new asserts are intentionally
+  conservative: each maps to a concrete substring rather than a
+  fuzzy shape, so a deliberate intentional reformat of the file
+  (e.g. variable renames, parameter reordering) won't false-fire
+  unless the safety-critical literal actually moves. The
+  `-WipeDisks` pattern only anchors on the `^\s*\d+` prefix to
+  avoid false positives if someone tightens the trailing alternation.
+- Outstanding routine-backlog candidates I did NOT take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code — deferred again because the
+    menu render is load-bearing TUI UX and the open PR backlog
+    already contains multiple deploy-script touches that would
+    conflict on a rebase.
+  - **Behavioral invariants for `prepare_wim.ps1` / `refresh_usb.ps1`
+    / `first-login.ps1`** — the same pattern could be applied to
+    them. Lower priority because they have less destructive-path
+    surface than `build_iso.ps1`.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
