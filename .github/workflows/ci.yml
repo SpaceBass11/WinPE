@@ -33,6 +33,10 @@ jobs:
         shell: pwsh
         run: ./tests/test_disk_enumeration.ps1
 
+      - name: Run disk size validation tests
+        shell: pwsh
+        run: ./tests/test_disk_size_check.ps1
+
   pester:
     name: Pester validation-gate smoke tests
     runs-on: windows-latest

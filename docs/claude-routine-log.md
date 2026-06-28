@@ -5,6 +5,81 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — Fixture test for disk-size validation in `Start-Deployment`
+
+**Investigated:** open PRs #120-#169 (50 open Claude side branches; many
+small fixes and Pester/test additions in flight). Cross-referenced their
+titles against the test gaps recorded across the last several routine
+entries (`Get-SystemDisks` fixture done, WIM parser fixture done,
+unattend wellformedness in flight as #152, BitLocker pin gates covered
+by Pester). The disk-size pre-flight gate in `Start-Deployment` (lines
+1839-1870 of `unified_winpe_deploy.ps1`) had no direct test and no
+in-flight PR. It is safety-critical: if the math under-estimates the
+applied image, DISM blows past disk capacity mid-apply (exit 112) — but
+only after the target disk has already been wiped, so the operator gets
+an unbootable machine instead of a pre-flight refusal.
+
+**Found:** the gate has two branches and three "fall through to the
+conservative 3x multiplier" edges (empty DISM `Size`, malformed `Size`
+with no digits, exception during parse). None were exercised. The
+comparison `$uncompressedGB -gt $estimatedSizeGB` is strict, so a
+fixture or refactor that flipped it to `-ge` (or swapped operands)
+would silently change which branch fires. A drift guard pinning the
+`-gt`, the `* 3` multiplier, the `+ 1.5` overhead, and the `if (-not
+$usedUncompressed)` gate closes the regression window.
+
+**Changed:**
+- `tests/test_disk_size_check.ps1` — new fixture test. Mirrors the
+  math from Start-Deployment into a `Get-DiskSizeEstimate` helper, runs
+  15 fixtures covering: compressed-only (5 GB → 16.5 GB required);
+  DISM-preferred path (verifies the 3x multiplier is NOT
+  double-counted); empty / malformed / space-separated DISM `Size`
+  fields; uncompressed-equal-to-compressed corner (strict `-gt` falls
+  back to 3x); disk pass / fail / exact-boundary cases. A 10-assertion
+  drift guard then matches the safety-critical literals and expressions
+  in `unified_winpe_deploy.ps1` so a silent refactor of the math fails
+  CI before reaching a disk.
+- `.github/workflows/ci.yml` — wired the new test into the `syntax`
+  job after `test_disk_enumeration.ps1`. Runs on every push and PR.
+- `CHANGELOG.md` — `### Added` bullet under `## Unreleased`. No version
+  bump (test-only addition, no `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- Per CLAUDE.md, installed PowerShell 7.4.6 from the GitHub Releases
+  tarball into `/opt/pwsh/` once per session (network policy allows the
+  Releases download).
+- Baseline (pre-change):
+  - `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0 failed.
+  - `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 passed / 0 failed.
+  - `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 passed / 0 failed.
+- New test (initial run): caught a regex-escaping bug in one of the
+  drift-guard assertions (the `[^\d]` digit-strip literal). Fixed and
+  re-ran:
+  - `pwsh -NoProfile -File ./tests/test_disk_size_check.ps1` → 25 passed / 0 failed.
+- Sanity re-run of `tests/test_parse.ps1` (48/0) and the other tests
+  unchanged — no cross-contamination.
+- PSScriptAnalyzer is not present in this Linux session (network policy
+  blocks PSGallery `Install-Module`); the new file is byte-pattern-matched
+  to `tests/test_disk_enumeration.ps1` which the CI `pssa` job already
+  passes, so the lint job is expected to stay green.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. No new
+  network dependencies. Pattern matches `tests/test_disk_enumeration.ps1`
+  exactly, including PSv5.1 compatibility (`[PSCustomObject]`,
+  `Get-Content -Raw`, `Test-Path`, `Math::Round` — all PSv5.1-safe).
+- Outstanding backlog (unchanged from prior entries — flagged but not
+  taken this pass to avoid duplicating in-flight side branches):
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of listing
+    code that could be factored out — multiple in-flight Claude branches
+    target this (#KXXvR, #RW8Go, #2pH5y) so leave it to those.
+  - The `Apply-WindowsImage` exit-code switch could be unit-tested
+    similarly (extract switch into a function, then drift-guard the
+    arms). Lower priority — the recovery text is operator-facing only,
+    not safety-critical.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

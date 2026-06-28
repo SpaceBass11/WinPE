@@ -8,6 +8,24 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added
+- **Fixture-test coverage for the disk-size validation math in
+  `Start-Deployment`.** New `tests/test_disk_size_check.ps1`
+  exercises the pre-partition capacity gate that decides whether a
+  selected target disk is big enough for the chosen image. Covers
+  both branches (DISM-supplied uncompressed size preferred; 3x
+  multiplier on compressed-only fallback), parser edge cases (empty
+  / malformed / space-separated DISM `Size` field), the strict
+  `-gt` boundary where uncompressed equals compressed (the
+  multiplier still fires), and the `-lt` disk-capacity check at its
+  equal-size boundary. Includes a drift guard pinning the
+  safety-critical literals and expressions (`compressed WIM ~3x`,
+  `uncompressed`, the `[^\d]` digit-strip, the `* 3` multiplier,
+  the `+ 1.5` overhead, the `-gt` / `-lt` comparisons, and the
+  `if (-not $usedUncompressed)` gate that prevents double-counting)
+  so a silent refactor of the size math fails CI before reaching a
+  disk. Wired into the CI `syntax` job. No production code changed.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
