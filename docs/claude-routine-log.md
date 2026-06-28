@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `docs/USB_SETUP.md` manual startnet.cmd template drift (deploy.args)
+
+**Investigated:** open PRs (#147-#176 all open at run time, none
+touching `docs/USB_SETUP.md`); the routine-log backlog. Cross-referenced
+`scripts/build_boot_wim.ps1` lines 273-309 (the canonical
+`startnet.cmd` the builder writes today) against
+`docs/USB_SETUP.md` lines 88-107 (the "Manual alternative" template
+operators are pointed at when they can't run the builder).
+
+**Found:** The manual-alternative template was last edited before
+the per-USB `deploy.args` mechanism shipped in v4.7.0 (PR #34) and
+the `{DRIVE}` substitution shipped in v4.7.0+ (PR #35's
+`build_iso.ps1` flow). The builder's actual `startnet.cmd` reads
+`<IMAGES>\deploy.args`, substitutes `{DRIVE}` with the runtime
+image-drive letter, and passes the resulting args through to
+`unified_winpe_deploy.ps1` — but the documented hand-build template
+silently dropped all of that. An operator following the manual
+template would get a `boot.wim` that ignores `deploy.args` entirely;
+their carefully-edited per-USB args file would just sit on the
+IMAGES partition doing nothing, with no error message — the script
+would just launch into the interactive TUI as if no args existed.
+`docs/DEPLOY_ARGS.md` documents the file as a supported workflow,
+so the docs were internally inconsistent.
+
+CI masterize check #24 ("startnet.cmd reads deploy.args from
+IMAGES") greps the builder script for the `set /p DEPLOYARGS`
+literal, so the builder side is pinned, but the docs side wasn't.
+
+**Changed:**
+- `docs/USB_SETUP.md` — "Manual alternative" template now mirrors
+  the builder's actual `startnet.cmd` output verbatim (deploy.args
+  read + secret-safe echo + `{DRIVE}` substitution + `!DEPLOYARGS!`
+  passthrough). Leading explainer now points at
+  `docs/DEPLOY_ARGS.md` and notes the file is optional (`if exist`
+  guard short-circuits the read).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the template resync.
+
+**Verification:**
+- Docs-only change. No `.ps1` files touched, so `tests/test_parse.ps1`,
+  `tests/test_wim_parser.ps1`, `tests/test_disk_enumeration.ps1`, and
+  the Pester suite are unaffected. CI's `link-check` job
+  (lychee-action) runs on every push and will validate the new
+  `docs/DEPLOY_ARGS.md` relative link.
+- Visually diffed the new template against
+  `scripts/build_boot_wim.ps1` line 273-309: the batch script body
+  is character-identical (same `setlocal enabledelayedexpansion`
+  shape, same `for %%d` letter list, same `!ERRORLEVEL!` /
+  `!DEPLOYARGS!` references, same `set /p DEPLOYARGS=` syntax). The
+  template would build a `boot.wim` whose `startnet.cmd` behaves
+  identically to the builder's output.
+- Confirmed no open PR (#147-#176) touches `docs/USB_SETUP.md` by
+  scanning the open-PR title list for "USB_SETUP".
+
+**Risks / follow-ups:**
+- Minimal. Documentation-only change to a template that operators
+  copy by hand. The template doesn't run; the only risk is a typo,
+  which would surface immediately the first time someone tested
+  their hand-built `boot.wim`. The added block is a verbatim copy
+  of code that's been in production via `build_boot_wim.ps1` for
+  multiple releases.
+- The `find /i "IMAGES"` lookup is a substring match — a volume
+  labeled `MYIMAGES` or `IMAGES_BACKUP` would also match. Same
+  behavior as the builder's output, so not a drift; flagging here
+  so a future routine pass can consider tightening it to an exact
+  match (would also require updating the builder, the CI masterize
+  check, and any operator USB with a non-exact label).
+- Outstanding backlog candidates that I didn't take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code (deferred across many prior
+    entries because the menu render is load-bearing TUI UX).
+  - **`-OutputWim` extension validation in
+    `scripts/prepare_wim.ps1`.** The script accepts any string;
+    a typo like `-OutputWim 'foo'` (no extension) silently
+    produces a file the deploy-script discovery filter won't
+    pick up. Minor — operator notices on first re-test.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

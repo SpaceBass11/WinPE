@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/USB_SETUP.md` "Manual alternative" `startnet.cmd` now ships
+  the `deploy.args` read block.** The hand-build template lagged the
+  builder's actual output, so operators who followed the manual
+  fallback got a `boot.wim` that silently ignored
+  `<IMAGES>\deploy.args` and the `{DRIVE}` substitution. Template
+  now matches what `scripts/build_boot_wim.ps1` writes verbatim
+  (volume-label lookup + optional args read + `{DRIVE}` expansion);
+  the leading explainer points at `docs/DEPLOY_ARGS.md` and notes
+  the file is optional. Docs-only.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
