@@ -5,6 +5,92 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `-ImagePath`-points-at-a-file UX trap in `Find-ImageFiles`
+
+**Investigated:** The 30 currently open Claude routine PRs (#136-#165)
+via `mcp__github__list_pull_requests`, then `git log --since="2 months
+ago"` to confirm the recently-merged set. Most active areas (BitLocker
+PIN handling, `-UnattendFile` validation, `build_iso.ps1` safety
+gates, `refresh_usb.ps1` ergonomics, fixture-test coverage, doc
+resyncs) are already in flight. Looked for an uncovered UX gap with a
+small, isolated, verifiable fix.
+
+**Found:** `Find-ImageFiles` (`unified_winpe_deploy.ps1` lines
+331-337, pre-edit) gated the `-ImagePath` branch on plain
+`Test-Path $ImagePath`. That returns `$true` for both directory and
+file leaves, so an operator who pastes a `.wim`/`.esd` path into
+`-ImagePath` (instead of `-WimFile`) sails past the check. The path
+is then handed to `Search-DirectoryForImages`, which runs
+`Get-ChildItem -Path file.wim -Filter '*.wim' -File -Recurse -Depth 2`
+— and `Get-ChildItem` on a single-file path with `-Recurse` returns
+**no results** (verified against PSv7.4.6 in the session container).
+The operator sees the generic downstream "No Windows image files
+found!" with no hint that they meant `-WimFile`. The `-WimFile`-vs-
+`-ImagePath` confusion is a documented operator slip — the deploy
+script's `Show-ImageSelection` error path at line 464 already says
+"Try using -ImagePath or -WimFile parameters", which makes the
+silent fall-through worse: the operator might toggle between the two
+flags without diagnosing the leaf-vs-container mismatch.
+
+Cross-checked the 30 open PRs by greps for `ImagePath`, `PathType`,
+`Container`, and `Find-ImageFiles` against each diff. None target
+this branch. The closest is PR #146 (warn when `DEPLOY_IMAGE_DRIVE`
+is set but the path isn't accessible), which addresses the sibling
+env-var fall-through but doesn't touch the `-ImagePath` block.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Find-ImageFiles` `-ImagePath`
+  branch: changed `Test-Path $ImagePath` to
+  `Test-Path $ImagePath -PathType Container`, then added a new
+  branch that fires when the leaf form (`-PathType Leaf`) hits.
+  The new branch logs two lines: an error naming the file, and an
+  Info line directing the operator at `-WimFile` and explaining
+  what `-ImagePath` expects. Existing nonexistent-path branch is
+  untouched, so the three terminal states are now: (a) directory
+  → existing search runs, (b) file → new clear error, (c) nothing
+  → existing "not found" error.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the additive diagnostic. No version bump (additive
+  diagnostic only; no behavior change on the valid happy path or
+  on the nonexistent-path failure path).
+
+**Verification:**
+- `pwsh` v7.4.6 installed in-session per the CLAUDE.md note.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0.
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0.
+- Behavior probe in `pwsh`: loaded the deploy script as a dynamic
+  module (the test seam used by `validation-gates.Tests.ps1`) and
+  invoked `Find-ImageFiles` directly with three different
+  `$ImagePath` shapes. Confirmed:
+    - File path → new "Specified -ImagePath is a file" error + the
+      Info follow-up pointing at `-WimFile`.
+    - Existing directory (empty) → no error, fall-through to scan
+      (identical to pre-edit behavior).
+    - Nonexistent path → unchanged "Specified image path not found"
+      error.
+- Brace balance unchanged at the file level (the edit is two new
+  `if`/`{...}` blocks balancing each other: +2 `{` / +2 `}`).
+
+**Risks / follow-ups:**
+- Minimal. The change is a stricter container check plus a
+  better-targeted error message inside an existing branch.
+  Destructive code paths (diskpart, DISM apply, BCDBoot, BitLocker
+  staging) are unchanged. No new parameters, no new return values,
+  no new exit codes. The valid-directory happy path runs the same
+  code as before.
+- Outstanding routine-backlog candidates from prior entries that
+  I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` shared listing-render
+    extraction — repeatedly deferred because the menu rendering is
+    load-bearing TUI UX.
+  - The 30 open routine PRs continue to overlap in places
+    (BitLocker PIN, `-UnattendFile`, `build_iso.ps1` gates). A
+    triage pass to surface duplicate intent before more accumulate
+    would help future routine runs choose untouched ground faster.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Find-ImageFiles` now rejects a `-ImagePath` that points at a
+  file with a clear error.** Previously `Test-Path $ImagePath` passed
+  for both files and directories, then `Search-DirectoryForImages`
+  ran `Get-ChildItem` on the file path and silently returned nothing
+  — the operator saw the downstream "No Windows image files found!"
+  with no hint they meant `-WimFile`. The check now uses
+  `-PathType Container`, and when the path is a leaf it logs the
+  specific error and points the operator at `-WimFile`. Pure
+  diagnostics improvement: directory paths and nonexistent paths
+  behave exactly as before.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

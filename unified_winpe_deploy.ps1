@@ -329,8 +329,18 @@ function Find-ImageFiles {
 
     # If specific image path provided, search there
     if ($ImagePath) {
-        if (Test-Path $ImagePath) {
+        if (Test-Path $ImagePath -PathType Container) {
             return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
+        }
+        # Common operator slip: pasting a .wim/.esd file path into -ImagePath
+        # instead of -WimFile. Without this check, Test-Path returns $true (the
+        # leaf exists), Search-DirectoryForImages then runs Get-ChildItem on a
+        # file path and silently returns nothing, and the operator sees "No
+        # images found" with no hint at the real cause.
+        if (Test-Path $ImagePath -PathType Leaf) {
+            Write-Log "Specified -ImagePath is a file, not a directory: $ImagePath" -Level Error
+            Write-Log "  Use -WimFile to point at a single .wim/.esd file; -ImagePath expects the containing folder." -Level Info
+            return @()
         }
         Write-Log "Specified image path not found: $ImagePath" -Level Error
         return @()
