@@ -5,6 +5,96 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `build_iso.ps1` `-BitLockerPin` length validation at build time
+
+**Investigated:** 20 currently-open Claude routine PRs (#153-#172)
+to avoid duplicating in-flight work. None touch `-BitLockerPin`
+length validation in `scripts/build_iso.ps1`. PR #159 is about
+secret hygiene (wiping the staging script on failure), PR #153
+is about warning when `-BitLockerKeyPath` is given without
+`-EnableBitLocker` — neither validates PIN length.
+
+**Found:** `scripts/build_iso.ps1` only had a soft warning around
+`-BitLockerPin` (line 205-209: warns when no UnattendFile is given).
+No length validation. Meanwhile, `unified_winpe_deploy.ps1`
+(line 1691-1695) enforces the Windows Enhanced-PIN 6-20 character
+window at first-boot validation:
+```
+if (...$Script:Config.BitLockerPin.Length -lt 6 -or
+       ...$Script:Config.BitLockerPin.Length -gt 20) {
+    Write-Log "BitLockerPin must be 6-20 characters (Enhanced PIN policy)" -Level Error
+}
+```
+So an admin who passed a too-short or too-long PIN to `build_iso.ps1`
+got a happy build, distributed a multi-GB ISO, and the failure only
+surfaced on the target laptop's first deploy attempt. By that point
+the target disk had been partitioned and the image applied — the
+operator only discovered the bad PIN when BitLocker setup failed at
+first boot.
+
+This is the same "fail-at-build-time-not-runtime" pattern as the
+`-UnattendFile` XML well-formedness check (routine log entry from
+2026-05-17): validation gates that already exist downstream should
+fire upstream to save the operator a wasted destructive run.
+
+**Changed:**
+
+- `scripts/build_iso.ps1` — added a length check inside the existing
+  `if ($BitLockerPin)` block (the same block that already warns about
+  missing UnattendFile). Throws with the same 6-20 character message
+  the deploy script uses, plus the actual measured length to make
+  off-by-one mistakes obvious. Length-only — no content/character-class
+  policy, consistent with PR #49's removal of paternalistic placeholder-PIN
+  rejection. No change when `-BitLockerPin` is omitted (empty string
+  short-circuits the outer `if`).
+- `CHANGELOG.md` — `## Unreleased / ### Added` bullet describing the
+  build-time validation gate.
+
+**Verification:**
+
+- `pwsh` installed once per session per CLAUDE.md (v7.4.6 tarball into
+  `/opt/pwsh/`); network policy allows the GitHub-Releases download.
+- Baseline: `/opt/pwsh/pwsh -NoProfile -File ./tests/test_parse.ps1`
+  → 48 passed / 0 failed.
+- Post-edit: same command → **48 passed / 0 failed**. Syntax check
+  on `build_iso.ps1` still green; no test count delta because we
+  intentionally did not touch `tests/test_parse.ps1` to avoid
+  conflicting with PR #172 (which is restructuring the same Test 12
+  block to add behavioral invariants). The new build-time literal
+  should be added as a test invariant in a follow-up after #172 lands.
+- Boundary smoke test (7 cases, all OK): pins of length 3, 5, 6, 10,
+  20, 21, and empty all fire/pass as expected. The empty-string case
+  is important — that's the "no `-BitLockerPin` passed" path, which
+  must stay a no-op so the warning-only soft-fail path still works
+  for admins who only want to flag the missing UnattendFile.
+- Pester suite (`tests/validation-gates.Tests.ps1`) unchanged and
+  irrelevant — it tests `unified_winpe_deploy.ps1`, not `build_iso.ps1`.
+
+**Risks / follow-ups:**
+
+- Minimal. Single additive `throw` inside an existing branch.
+  No destructive code paths (oscdimg, robocopy, deploy.args generation)
+  touched. The only behavior change is: a previously broken-at-runtime
+  invocation now fails at build time with a clearer message. Any
+  invocation that was working before is unaffected.
+- A future routine pass should add an invariant assertion to
+  `tests/test_parse.ps1`'s Test 12 block once PR #172 merges (PR #172
+  is restructuring that block; doing it here would guarantee a
+  conflict). The assertion should grep for the literal
+  `BitLockerPin.Length -lt 6 -or` to guard against the validation
+  being removed by an over-eager refactor.
+- Outstanding routine-backlog candidates I did NOT take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30 lines
+    of listing-render code — deferred again because the menu render
+    is load-bearing TUI UX and the open PR backlog already contains
+    multiple deploy-script touches that would conflict on a rebase.
+  - **Behavioral invariants for `prepare_wim.ps1` / `refresh_usb.ps1`
+    / `first-login.ps1`** — flagged as follow-up in PR #172's log
+    entry; same pattern as #172 (and #52) could be applied. Lower
+    priority because they have less destructive-path surface.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

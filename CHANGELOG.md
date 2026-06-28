@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added
+- **`scripts/build_iso.ps1` now validates `-BitLockerPin` length at
+  build time.** Previously, an out-of-range PIN (e.g. 5 chars or 21+
+  chars) was embedded as-is into the ISO's generated `deploy.args`
+  and only rejected at first boot by the deploy script's runtime
+  validation gate — wasting an ISO build, distribution, and a
+  partial deploy attempt. `build_iso.ps1` now throws with the same
+  6-20 character message before any file copy. Same length window
+  the deploy script enforces (`unified_winpe_deploy.ps1`: "BitLockerPin
+  must be 6-20 characters"); same removal of content/character-class
+  policy that PR #49 documented (length-only check, no
+  forbidden-list paternalism).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

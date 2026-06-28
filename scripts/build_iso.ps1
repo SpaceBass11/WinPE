@@ -203,6 +203,13 @@ if ($UnattendFile) {
 }
 
 if ($BitLockerPin) {
+    # Same 6-20 char window the deploy script enforces at runtime
+    # (unified_winpe_deploy.ps1: "BitLockerPin must be 6-20 characters").
+    # Catching it here avoids burning a multi-GB ISO whose deploy.args
+    # would fail at the first-boot validation gate on the target laptop.
+    if ($BitLockerPin.Length -lt 6 -or $BitLockerPin.Length -gt 20) {
+        throw "BitLockerPin must be 6-20 characters (Enhanced PIN policy enforced by unified_winpe_deploy.ps1). Got length: $($BitLockerPin.Length)."
+    }
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
     }
