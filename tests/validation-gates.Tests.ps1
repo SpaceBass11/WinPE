@@ -99,6 +99,92 @@ Describe "v4.7.0 default configuration (must stay opt-in)" {
 
 }
 
+Describe "Test-FinalWipeConfirmation typed-confirmation parser" {
+    # Test-FinalWipeConfirmation is the LAST line of defense before any
+    # destructive disk op: every typed-ERASE / typed-DELETE ALL DATA prompt
+    # routes through it. A silent regression here (matching a broader pattern,
+    # forgetting Trim/ToUpperInvariant, accepting a substring) lets through
+    # typed input the operator didn't intend as a confirmation. No behavioral
+    # test existed before this block - test_parse.ps1 only checks the
+    # function exists, not how it answers.
+
+    It "Accepts the canonical 'ERASE' string" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE' }
+        $r | Should -BeTrue
+    }
+
+    It "Accepts the canonical 'DELETE ALL DATA' string" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE ALL DATA' }
+        $r | Should -BeTrue
+    }
+
+    It "Accepts case-insensitive variants (lowercase)" {
+        $r1 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'erase' }
+        $r2 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'delete all data' }
+        $r1 | Should -BeTrue
+        $r2 | Should -BeTrue
+    }
+
+    It "Accepts case-insensitive variants (mixed case)" {
+        $r1 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'Erase' }
+        $r2 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'Delete All Data' }
+        $r1 | Should -BeTrue
+        $r2 | Should -BeTrue
+    }
+
+    It "Tolerates leading/trailing whitespace" {
+        $r1 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '  ERASE  ' }
+        $r2 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText "`tDELETE ALL DATA`r`n" }
+        $r1 | Should -BeTrue
+        $r2 | Should -BeTrue
+    }
+
+    It "Rejects empty string" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects `$null input (coerced to empty by [string] param)" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText $null }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects whitespace-only input" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '   ' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects substring matches (no prefix/suffix tolerance)" {
+        # Guards against -in @('ERASE',...) ever being relaxed to -match or -like
+        $r1 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASEME' }
+        $r2 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'PLEASE ERASE' }
+        $r3 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE ALL DATA NOW' }
+        $r1 | Should -BeFalse
+        $r2 | Should -BeFalse
+        $r3 | Should -BeFalse
+    }
+
+    It "Rejects unrelated confirmation keywords used elsewhere in the script" {
+        # WIPE DATA / WIPE ALL / DESTROY SYSTEM each gate a different operation
+        # and must not be accepted here in place of the target-disk wipe word.
+        $r1 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'WIPE DATA' }
+        $r2 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'WIPE ALL' }
+        $r3 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DESTROY SYSTEM' }
+        $r1 | Should -BeFalse
+        $r2 | Should -BeFalse
+        $r3 | Should -BeFalse
+    }
+
+    It "Rejects common typos" {
+        $r1 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERAZE' }
+        $r2 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE DATA' }
+        $r3 = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETEALLDATA' }
+        $r1 | Should -BeFalse
+        $r2 | Should -BeFalse
+        $r3 | Should -BeFalse
+    }
+}
+
 Describe "Resolve-BitLockerKeyPath escrow precedence" {
 
     AfterEach {

@@ -5,6 +5,106 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — Pester coverage for `Test-FinalWipeConfirmation`
+
+**Investigated:** the open PR backlog (30+ open routine PRs from
+recent runs: build_iso, refresh_usb, BitLocker, unattend XML
+validation, disk-size math, image-path validation, additional-wipe
+exclusions, etc.), the maintenance log's recurring "next recommended
+improvement" callouts, and `tests/validation-gates.Tests.ps1`
+against the actual destructive-confirmation parsers in
+`unified_winpe_deploy.ps1`. Specifically grepped open PR titles for
+`Test-FinalWipeConfirmation`, `final-wipe`, `erase confirm`, and
+`DESTROY SYSTEM` to make sure no in-flight PR was already covering
+this.
+
+**Found:** `Test-FinalWipeConfirmation` is the *single* function
+that decides whether a typed-confirmation string at the WinPE TUI
+clears the gate for every destructive disk operation. The
+`'ERASE'` and `'DELETE ALL DATA'` strings flow through it from
+six call sites in `Select-TargetDisk`, the additional-wipe
+flow, and `Test-FinalWipeConfirmation`'s own consumer in the
+silent-mode validation block. It was added in v4.5.0 with the
+`-WipeDisks` work and was lifted to a shared helper so the
+ERASE / DELETE ALL DATA accept-set is defined exactly once.
+
+But: `test_parse.ps1` Test 5 only asserts the function *exists*
+(by name), not what it answers. A silent regression that swapped
+`-in @('ERASE','DELETE ALL DATA')` for `-match` or `-like`, or
+dropped the `Trim()`, or removed `ToUpperInvariant()`, would let
+substrings (`ERASEME`, `PLEASE ERASE`) or different-case input
+flip the gate the operator didn't intend — and CI would still be
+green because the existing test only checks the symbol is
+defined. The Pester suite covers BitLocker / data-disk gates,
+`Resolve-BitLockerKeyPath` precedence, and
+`New-DiskpartScript` source-drive protection, but never reached
+the typed-confirmation parser itself. This is the last untested
+safety-critical parser in the deploy script.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — added a new
+  `Describe "Test-FinalWipeConfirmation typed-confirmation parser"`
+  block with 11 `It`-blocks / 20 assertions, covering: exact match
+  for both `ERASE` and `DELETE ALL DATA`; case-insensitivity
+  (lowercase + Mixed Case); leading/trailing whitespace tolerance
+  including tab + CRLF; empty / `$null` / whitespace-only rejection;
+  substring rejection (`ERASEME`, `PLEASE ERASE`,
+  `DELETE ALL DATA NOW`); rejection of the *other* destructive
+  confirmation keywords (`WIPE DATA`, `WIPE ALL`, `DESTROY SYSTEM`)
+  so a copy-paste from a sibling prompt can't slip through; and
+  common typos (`ERAZE`, `DELETE DATA`, `DELETEALLDATA`). Uses
+  the same `& $script:DeployModule { ... }` pattern as the
+  existing `Resolve-BitLockerKeyPath` block.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the coverage extension.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed /
+  0 failed (unchanged — that test parses the deploy script and
+  the five wrapper scripts, not the Pester suite, so this edit
+  is invisible to it).
+- `[System.Management.Automation.PSParser]::Tokenize` on the
+  updated Pester file → "Parse OK" (no syntax error introduced
+  by the new `Describe` block).
+- Manual smoke: extracted just the `Test-FinalWipeConfirmation`
+  function via regex from the deploy script and re-ran all 20
+  test cases against the live function. All 20 passed. The
+  assertions encoded into the Pester block match the function's
+  actual runtime behavior.
+- Pester itself can't run locally: per CLAUDE.md the web
+  container's network policy blocks PSGallery (verified
+  `Install-Module Pester` returns "No match was found..."), so
+  the Pester suite runs only in CI. The smoke above gives high
+  confidence that the new `Describe` block will go green
+  immediately on the `pester` job rather than red — no
+  expected-vs-actual mismatch left to discover at CI time.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. No
+  new dependencies. New block mirrors the established
+  `Resolve-BitLockerKeyPath` pattern exactly, including the
+  `& $script:DeployModule { ... }` invocation form, the
+  `Should -BeTrue` / `Should -BeFalse` assertions, and the
+  comment-up-top justification for what the block is guarding.
+- Outstanding routine-backlog candidates from prior entries
+  that I did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines
+    of listing-render code that could be factored out — cleanup
+    only, deferred across many routine entries because the menu
+    render is load-bearing TUI UX. Not the right pass for it
+    given the volume of in-flight PRs already touching
+    user-visible UX.
+  - **Pester coverage for `Initialize-BitLockerSetup` literal
+    PIN escaping.** The `-replace "'", "''"` PIN escape on the
+    here-string that becomes `bitlocker-setup.ps1` has no
+    regression test — a PIN containing a single quote could
+    bypass escaping and corrupt the staged script. Would need
+    a small read-back test of the rendered staging script.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

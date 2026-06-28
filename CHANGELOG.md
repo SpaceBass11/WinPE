@@ -9,6 +9,21 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Test-FinalWipeConfirmation` typed-confirmation parser now has
+  Pester coverage.** New `Describe` block in
+  `tests/validation-gates.Tests.ps1` exercises 11 behavioral
+  invariants (20 assertions) around the function that gates every
+  destructive disk op via the typed `ERASE` / `DELETE ALL DATA`
+  prompt: exact match, case-insensitivity, leading/trailing
+  whitespace tolerance, null/empty/whitespace rejection,
+  substring rejection (no `ERASEME` / `PLEASE ERASE` /
+  `DELETE ALL DATA NOW` slipping through), and rejection of the
+  other confirmation keywords used elsewhere in the script
+  (`WIPE DATA`, `WIPE ALL`, `DESTROY SYSTEM`). Locks in the
+  `-in @('ERASE','DELETE ALL DATA')` exact-match semantics so a
+  future regex/`-like` regression fails CI instead of letting an
+  unintended typed string clear the last line of defense before
+  diskpart runs. Test-only; no production code touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
