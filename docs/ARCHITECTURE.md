@@ -1,8 +1,13 @@
 # Architecture
 
 High-level design notes for `unified_winpe_deploy.ps1`,
-`scripts/build_boot_wim.ps1`, and `scripts/prepare_wim.ps1`. For
-parameter / function reference, see
+`scripts/build_boot_wim.ps1`, and `scripts/prepare_wim.ps1` — the
+three core programs. `scripts/refresh_usb.ps1` and
+`scripts/build_iso.ps1` are workflow wrappers around their outputs
+(re-build the USB after a new ISO drop; package WinPE + WIM into one
+ISO for end-user Rufus burns respectively). `scripts/first-login.ps1`
+runs on the deployed machine, not in WinPE — see "File Layout" below
+for the full inventory. For parameter / function reference, see
 [SCRIPT_REFERENCE.md](SCRIPT_REFERENCE.md).
 
 ## Three Programs, One Product
@@ -42,7 +47,13 @@ have a compatible boot.wim.
                                            → powershell -File X:\scripts\...ps1
 
 [Deploy]  Administrator check
-        → Silent-mode contract check (if -Silent: -WimFile/-TargetDisk/-Force/-WipeDisks format)
+        → BitLocker param validation (if -EnableBitLocker:
+             ├── -BitLockerPin required, prompts at WinPE console in non-silent mode
+             ├── -BitLockerPin enforced to 6-20 chars (Windows Enhanced PIN window)
+             └── -BitLockerPin without -EnableBitLocker → warn (PIN ignored))
+        → Silent-mode contract check (if -Silent: -WimFile/-TargetDisk/-Force,
+             -WipeDisks format, -DataDiskNumber requires -Force)
+        → -UnattendFile validation (path exists AND parses as XML)
         → Image discovery
              ├── -WimFile?          → direct path
              ├── -ImagePath?        → search directory
@@ -59,19 +70,29 @@ have a compatible boot.wim.
         → TUI: select target disk
              ├── system disk?       → type DESTROY SYSTEM
              ├── -TargetDisk only?  → type ERASE
-             └── final confirm      → type ERASE
+             └── final confirm      → type ERASE (or DELETE ALL DATA)
+        → -DataDiskNumber gate (if set)
+             ├── must be real, non-USB, non-system, non-target
+             └── type WIPE DATA (skipped by -Force)
         → TUI: optional additional-wipe disks
+             ├── overlap with -DataDiskNumber → abort
              └── single WIPE ALL    → clean-only preamble in same diskpart session
-        → Disk size vs image size validation
-        → Free C: / S: drive letters (never system drive)
+        → Disk size vs image size validation (uncompressed when DISM exposes it)
+        → Free C: / S: (and D: when -DataDiskNumber set) drive letters
+             └── refuses to release the WIM source drive
         → diskpart: [extra disk cleans] + clean + GPT + EFI 300MB (S:) + MSR 16MB + NTFS (C:)
-        → Post-diskpart: verify S: and C: exist
+             └── + clean + GPT + NTFS (D:) when -DataDiskNumber set
+        → Post-diskpart: verify S: and C: (and D:) exist
         → dism /apply-image /CheckIntegrity (inline progress)
         → Post-deploy: verify C:\Windows\System32 exists
         → Unattend staging (if -UnattendFile): copy to C:\Windows\Panther\unattend.xml
+        → BitLocker staging (if -EnableBitLocker):
+             ├── write bitlocker-setup.ps1 + SetupComplete.cmd to C:\Windows\Setup\Scripts\
+             └── first boot enables TPM+PIN on C: (and recovery-key + auto-unlock on D:)
         → bcdboot C:\Windows /s S: /f UEFI
         → Optional shutdown prompt → final reboot activates queued CCTK BIOS
-             └── Windows Setup reads unattend.xml on first boot (OOBE, domain join, etc.)
+             ├── Windows Setup reads unattend.xml on first boot (OOBE, domain join, etc.)
+             └── SetupComplete.cmd runs bitlocker-setup.ps1 after OOBE
 ```
 
 ## Why These Choices
@@ -124,12 +145,23 @@ the fix on WinPE restart. Bake it in once; forget about it.
 
 ## Safety Model
 
-The safety chain is **typed confirmations at every destructive step**.
-`-Force` bypasses the final "ERASE" prompt. `-Silent` requires all
-inputs up front. *Neither* ever bypasses the system-disk "DESTROY
-SYSTEM" prompt — that requires the exact string typed by a human,
-always. The rationale: any automation that has wandered into wiping
-the host it's running on is by definition broken, and should halt.
+The safety chain is **typed confirmations at every destructive step**:
+
+| Trigger | Typed string | Bypassed by `-Force`? |
+|---------|--------------|-----------------------|
+| Final target-disk wipe | `ERASE` (or `DELETE ALL DATA`) | Yes |
+| Target disk is the system disk | `DESTROY SYSTEM` | **No, never** |
+| Additional disks (`-WipeDisks` / interactive picker) | `WIPE ALL` | Yes |
+| Data-disk format (`-DataDiskNumber`) | `WIPE DATA` | Yes |
+| Run outside WinPE | `CONTINUE ANYWAY` | No (refused in `-Silent`) |
+
+`-Silent` requires all inputs up front and *never* bypasses the
+system-disk `DESTROY SYSTEM` prompt — that requires the exact string
+typed by a human, always. The rationale: any automation that has
+wandered into wiping the host it's running on is by definition broken,
+and should halt. `-Silent` combined with `-DataDiskNumber` requires
+`-Force` for the same reason in reverse — the `WIPE DATA` prompt
+cannot run unattended, so silent + data-disk has to be explicit twice.
 
 ## Failure Mode Philosophy
 
@@ -140,12 +172,25 @@ Fail loud and early:
   running on a production host is the most common way to cause harm
 - `-Silent` contract: missing inputs exit immediately, not after
   auto-discovery finds something plausible
-- Diskpart: verify S: and C: exist after "success", because exit 0
-  lies
+- BitLocker param pre-flight: missing PIN, out-of-range PIN, or PIN
+  without `-EnableBitLocker` surface before any disk is touched —
+  catching this at first boot would mean a successfully-wiped disk
+  with broken encryption
+- `-UnattendFile` pre-flight: file must exist *and* parse as XML
+  (Windows Setup silently ignores a malformed answer file and falls
+  through to manual OOBE; catching it here saves a wipe + redeploy)
+- CCTK pre-apply: non-zero exit aborts before partitioning, because a
+  half-configured BIOS is worse than failing loud
+- Diskpart: verify S:, C:, and D: (when staged) exist after "success",
+  because exit 0 lies
 - DISM: `/CheckIntegrity` catches WIM corruption up front instead of
-  mid-apply as "Incorrect function"
+  mid-apply as "Incorrect function"; recovery guidance is per-known
+  exit code (1, 2, 11, 50, 87, 112, 1168, 1392)
 - Post-apply: verify `C:\Windows\System32` exists before bcdboot, so
   BCDBoot failure vs. no-Windows-on-disk are distinguishable
+- BCDBoot: on non-zero exit, surface `bcdboot`'s own stderr plus a
+  diagnostics block (`bootmgfw.efi` presence, `S:` mount state, free
+  space) instead of just the numeric exit code
 
 ## File Layout
 
@@ -154,17 +199,30 @@ Fail loud and early:
 | `unified_winpe_deploy.ps1` | The deploy script. Runs inside WinPE. |
 | `scripts/prepare_wim.ps1` | WIM prep tool. ISO → debloated/customized install.wim (admin Windows workstation). |
 | `scripts/build_boot_wim.ps1` | Build-time WinPE builder. Runs on Windows with ADK. |
+| `scripts/build_iso.ps1` | Packages WinPE media + WIM into one bootable ISO for end-user Rufus burns. |
 | `scripts/refresh_usb.ps1` | Workflow wrapper: new ISO → prep + (optional) boot rebuild. |
-| `tests/test_parse.ps1` | PowerShell syntax validation. Runs in CI. |
+| `scripts/first-login.ps1` | Per-user HKCU debloat + UX tweaks staged into the image by `prepare_wim.ps1 -DisableExtraBloat`; runs on the deployed machine, not in WinPE. |
+| `tests/test_parse.ps1` | PowerShell syntax validation for every shipped pipeline script. Runs in CI. |
+| `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` regex parser used by `Get-WimImageInfo`. Runs in CI. |
+| `tests/test_disk_enumeration.ps1` | Fixture test for `Get-SystemDisks` disk-filter + partition rendering (Linux/LVM-as-empty regression guard). Runs in CI. |
+| `tests/validation-gates.Tests.ps1` | Pester v5 suite covering BitLocker/data-disk defaults, escrow precedence, `New-DiskpartScript` source-drive protection, and `Start-Deployment` validation gates. CI-only (PSGallery network access required to install Pester). |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule config. Used locally and in CI. |
+| `configs/deploy.args.example` | Template for the per-USB `deploy.args` file consumed by `startnet.cmd`. |
 | `docs/USB_SETUP.md` | User-facing: how to prepare the boot USB. |
+| `docs/END_USER_DEPLOY.md` | User-facing: Rufus-based single-ISO workflow for non-IT recipients. |
 | `docs/SCRIPT_REFERENCE.md` | User-facing: parameters and functions. |
 | `docs/TROUBLESHOOTING.md` | User-facing: failure modes, fixes, and known caveats. |
 | `docs/ARCHITECTURE.md` | This file. Design rationale. |
 | `docs/CCTK.md` | User-facing: Dell CCTK pre-apply BIOS configuration. |
+| `docs/BITLOCKER.md` | User-facing: opt-in BitLocker + data-disk staging. |
+| `docs/DEPLOY_ARGS.md` | User-facing: per-USB `deploy.args` file format and `startnet.cmd` integration. |
+| `docs/UNATTEND.md` | User-facing: `-UnattendFile` integration and answer-file authoring tips. |
+| `docs/RELEASE_VALIDATION.md` | Manual hardware-validation checklist run before tagging. |
 | `docs/SIGNING.md` | User-facing: enterprise code-signing of the deploy script. |
+| `docs/claude-routine-log.md` | Maintenance log written by the autonomous routine agent. |
 | `.claude/MASTERIZE.md` | Internal: release-audit playbook (per-release, not per-session). |
 | `CLAUDE.md` | Contributor-facing: project conventions and safety rules. |
+| `AGENTS.md` | Portable pointer to `CLAUDE.md` for agents that don't read it by name. |
 | `CHANGELOG.md` | Release history (keepachangelog). |
 
 ## Non-Goals
@@ -182,5 +240,10 @@ them:
 - Driver injection — pre-bake into WIM via `prepare_wim.ps1 -DriverPath`
 - Unattend.xml / first-boot orchestration — via `-UnattendFile`
 - Domain join — via an answer file with `JoinDomain` in the `specialize` pass
+- BitLocker / data-disk staging — opt-in via `-EnableBitLocker` and
+  `-DataDiskNumber` (off by default; see [`BITLOCKER.md`](BITLOCKER.md))
+- Dell BIOS pre-apply — embed `cctk.exe` via the builder and ship
+  per-machine `.ini` configs on the IMAGES partition (see
+  [`CCTK.md`](CCTK.md))
 
 If you want network deployment or full MDT orchestration, you want a different tool.

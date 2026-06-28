@@ -9,6 +9,21 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/ARCHITECTURE.md` resynced to v4.7.1.** The Runtime Data
+  Flow diagram now covers the BitLocker param pre-flight, the
+  `-UnattendFile` XML pre-flight, the `WIPE DATA` / `WIPE ALL`
+  prompts, the WIM-source drive protection in `New-DiskpartScript`,
+  the optional `D:` data-volume partitioning, and the BitLocker
+  staging step. Safety Model is now a table covering all five typed
+  confirmations (was prose covering only `ERASE` / `DESTROY SYSTEM`).
+  Failure Mode Philosophy picks up the BitLocker / unattend / CCTK
+  pre-flights, the per-DISM-exit-code recovery guidance, and the
+  BCDBoot diagnostics block. File Layout adds the eleven files that
+  shipped since v4.4.0 (`build_iso.ps1`, `first-login.ps1`, the
+  three new test files, `BITLOCKER.md`, `DEPLOY_ARGS.md`,
+  `UNATTEND.md`, `END_USER_DEPLOY.md`, `RELEASE_VALIDATION.md`,
+  `claude-routine-log.md`, `AGENTS.md`, `configs/deploy.args.example`).
+  Non-Goals "now supported" list adds BitLocker and CCTK. Docs-only.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -5,6 +5,98 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `docs/ARCHITECTURE.md` resync to v4.7.1
+
+**Investigated:** the 30 open routine PRs (#146-#175) and their stated
+scopes, the repository's actual file inventory under `scripts/`,
+`tests/`, `docs/`, and the deploy script's current runtime flow. Was
+looking for a high-value, low-risk improvement that no in-flight PR
+duplicates.
+
+**Found:** `docs/ARCHITECTURE.md` is significantly behind v4.7.1, in
+ways that mirror the gap PR #163 closed for `SCRIPT_REFERENCE.md`:
+
+- **Header scope statement** lists three scripts and stops there. The
+  repo ships five `.ps1` files under `scripts/` plus `first-login.ps1`
+  staged into deployed images; readers looking up `build_iso.ps1` or
+  `refresh_usb.ps1` from the architecture doc find nothing.
+- **Runtime Data Flow diagram** skips the BitLocker param pre-flight,
+  the `-UnattendFile` XML pre-flight, the `WIPE DATA` data-disk gate,
+  the `WIPE ALL` extra-wipe confirmation, the WIM-source drive
+  protection in `New-DiskpartScript`, the optional D: partitioning,
+  and the BitLocker staging step. Eight v4.5-v4.7.1 features missing.
+- **Safety Model** is prose that names only `ERASE` and
+  `DESTROY SYSTEM`. `WIPE DATA`, `WIPE ALL`, and `CONTINUE ANYWAY`
+  are all in the deploy script but absent here.
+- **Failure Mode Philosophy** doesn't mention the BitLocker param
+  pre-flight, the unattend XML pre-flight, the CCTK pre-apply abort,
+  the per-DISM-exit-code recovery table, or the BCDBoot diagnostics
+  block. Each was added separately over v4.5-v4.7.1.
+- **File Layout table** is missing eleven files: `build_iso.ps1`,
+  `first-login.ps1`, `test_wim_parser.ps1`, `test_disk_enumeration.ps1`,
+  `validation-gates.Tests.ps1`, `BITLOCKER.md`, `DEPLOY_ARGS.md`,
+  `UNATTEND.md`, `END_USER_DEPLOY.md`, `RELEASE_VALIDATION.md`,
+  `claude-routine-log.md`, `AGENTS.md`, `configs/deploy.args.example`.
+- **Non-Goals "now supported" list** doesn't mention BitLocker or
+  CCTK, the two largest v4.5+ feature additions.
+
+No open PR touches `docs/ARCHITECTURE.md`. The masterize CI's version
+consistency check (#1) only verifies CHANGELOG / CLAUDE / README, so
+this doc drifted silently the same way SCRIPT_REFERENCE.md did before
+PR #163.
+
+**Changed:**
+- `docs/ARCHITECTURE.md`:
+  - Header expanded to acknowledge all five `scripts/*.ps1` files plus
+    `first-login.ps1`, with brief role-of-each notes.
+  - Runtime Data Flow rewritten to cover the eight missing flow steps
+    listed above.
+  - Safety Model rewritten as a five-row typed-confirmation table
+    (was prose), plus a paragraph on why `-Silent -DataDiskNumber`
+    requires `-Force`.
+  - Failure Mode Philosophy adds bullets for BitLocker / unattend /
+    CCTK pre-flights, DISM per-exit-code recovery, and BCDBoot
+    diagnostics.
+  - File Layout adds eleven missing files with one-line role
+    descriptions.
+  - Non-Goals "now supported" list adds BitLocker and CCTK.
+  - "Three Programs" diagram left intact — still architecturally
+    accurate (the wrappers/staged scripts ship around it).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the resync. No version bump (docs-only, no `$Script:Config`
+  touch, no `.VERSION` block change).
+
+**Verification:**
+- `pwsh` already not present in this Linux session; would need the
+  install dance from CLAUDE.md to run the test suite. Since this
+  change touches zero `.ps1` files, the `pwsh` tests have nothing to
+  exercise — `test_parse.ps1`, `test_wim_parser.ps1`,
+  `test_disk_enumeration.ps1`, and `validation-gates.Tests.ps1`
+  results are unchanged by definition. Skipped the install.
+- Markdown cross-checks: every backticked file path in the new File
+  Layout rows verified against `ls scripts/ tests/ docs/ configs/` and
+  the repo root. Every cross-doc link (`BITLOCKER.md`, `CCTK.md`,
+  `SCRIPT_REFERENCE.md`) verified to resolve.
+- Read the rendered file end-to-end to confirm structure (headings,
+  code-block fencing, table alignment) survived intact.
+
+**Risks / follow-ups:**
+- Minimal. Documentation-only change; production scripts and tests
+  untouched.
+- Outstanding from prior entries that I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` shared listing-render
+    extraction — repeatedly deferred because the TUI menu is
+    load-bearing.
+  - BitLocker recovery-key writability pre-flight in
+    `Initialize-BitLockerSetup`'s staged first-boot script — if
+    `New-Item` fails on the recovery dir, the staged script logs a
+    WARN and proceeds to `Enable-BitLocker` anyway, leaving C: with
+    TPM+PIN but no escrowed recovery key. Open PR #159 is restructuring
+    the staged-script try/finally surrounding the same code, so this
+    fix should wait for #159 to land before piling on.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
