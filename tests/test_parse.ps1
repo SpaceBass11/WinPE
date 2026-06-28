@@ -122,7 +122,32 @@ Write-Result -Test "CmdletBinding attribute present" -Pass $hasCmdletBinding
 $hasRequires = $content -match '#Requires\s+-RunAsAdministrator'
 Write-Result -Test "#Requires -RunAsAdministrator present" -Pass $hasRequires
 
-# Test 9: build_boot_wim.ps1 — syntax + key behavioral invariants
+# Test 9: Apply-WindowsImage DISM exit-code recovery switch drift guard
+# The switch table in Apply-WindowsImage (added in the 2026-05-16 routine
+# entry) gives the operator a one-liner recovery hint for each common DISM
+# apply failure. The arms have no behavioral test — silent removal of any
+# would leave the operator with only the bare "DISM failed with exit code N"
+# line and a wiped target disk. Each arm prints a unique "Exit code N (...)"
+# string; assert each string is present and that the default arm still
+# points at docs/TROUBLESHOOTING.md.
+$dismExitArms = @(
+    @{ Code = 1;    Phrase = "Exit code 1 ('Incorrect function')" }
+    @{ Code = 2;    Phrase = "Exit code 2 ('File not found')" }
+    @{ Code = 11;   Phrase = "Exit code 11 ('Invalid image index')" }
+    @{ Code = 50;   Phrase = "Exit code 50 ('Request not supported')" }
+    @{ Code = 87;   Phrase = "Exit code 87 ('Invalid parameter')" }
+    @{ Code = 112;  Phrase = "Exit code 112 ('Disk full')" }
+    @{ Code = 1168; Phrase = "Exit code 1168 ('Element not found')" }
+    @{ Code = 1392; Phrase = "Exit code 1392 ('File or directory is corrupted and unreadable')" }
+)
+foreach ($arm in $dismExitArms) {
+    Write-Result -Test "Apply-WindowsImage: DISM exit-code $($arm.Code) recovery guidance present" `
+        -Pass ($content.Contains($arm.Phrase))
+}
+Write-Result -Test "Apply-WindowsImage: DISM default-arm points at docs/TROUBLESHOOTING.md" `
+    -Pass ($content -match 'See docs/TROUBLESHOOTING\.md.*exit code')
+
+# Test 10: build_boot_wim.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_boot_wim.ps1 ---" -ForegroundColor Cyan
 $builderOk = Test-ScriptSyntax -Path $builderPath -Label "Builder"
 if ($builderOk) {
@@ -138,19 +163,19 @@ if ($builderOk) {
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
 }
 
-# Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)
+# Test 11: prepare_wim.ps1 (syntax only - companion WIM prep script)
 Write-Host "`n--- scripts/prepare_wim.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 
-# Test 11: refresh_usb.ps1 (syntax only - workflow wrapper)
+# Test 12: refresh_usb.ps1 (syntax only - workflow wrapper)
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 
-# Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
+# Test 13: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
 
-# Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
+# Test 14: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $firstLoginPath -Label "First-login tweaks" | Out-Null
 

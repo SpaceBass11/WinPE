@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Apply-WindowsImage` DISM exit-code recovery switch now has
+  drift-guard coverage.** `tests/test_parse.ps1` asserts that each
+  of the eight bespoke exit-code arms (1, 2, 11, 50, 87, 112, 1168,
+  1392) is present in `unified_winpe_deploy.ps1`, and that the
+  `default` arm still points the operator at `docs/TROUBLESHOOTING.md`.
+  The recovery-guidance switch was added in the 2026-05-16 routine
+  entry but had no regression test; a refactor that silently deleted
+  any arm would have left the operator with only the bare "DISM
+  failed with exit code N" line over a wiped target disk. Test-only
+  change; no production code touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

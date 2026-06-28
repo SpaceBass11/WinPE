@@ -5,6 +5,74 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `Apply-WindowsImage` DISM exit-code switch drift guards
+
+**Investigated:** the open PR backlog (#145-#174 all opened today, none
+merged yet) and the routine log's deferred backlog. Cross-referenced
+which `unified_winpe_deploy.ps1` regions still lacked any structural
+or behavioral test. The DISM exit-code → recovery-message `switch`
+in `Apply-WindowsImage`, added in the 2026-05-16 routine entry
+("Expand DISM exit-code recovery guidance"), was still untested.
+Eight arms (codes 1, 2, 11, 50, 87, 112, 1168, 1392) plus a `default`
+that points at `docs/TROUBLESHOOTING.md`. Silent removal of any arm
+would leave the operator with only the bare "DISM failed with exit
+code N" line over a wiped target disk — exactly the moment they need
+the recovery hint.
+
+The 26 masterize CI checks cover the wider `/apply-image` invocation
+(`/CheckIntegrity`, exit-code reading) but nothing pins the per-arm
+recovery messages. None of the open routine PRs cover this region
+either.
+
+**Changed:**
+- `tests/test_parse.ps1` — added Test 9: a loop over
+  `$dismExitArms` (the eight code+phrase pairs) that asserts each
+  arm's unique "Exit code N ('Reason')" string is still present
+  via `$content.Contains()`. Plus one assertion that the default
+  arm still references `docs/TROUBLESHOOTING.md`. Renumbered the
+  trailing tests 10-14 (was 9-13) to keep the comment headers in
+  sequence.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  of the section describing the new drift coverage.
+
+**Verification:**
+- Installed `pwsh` per the CLAUDE.md note (PowerShell 7.4.6 from the
+  GitHub Releases tarball).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` — 57 passed / 0
+  failed (was 47 pre-edit; the +10 are 8 exit-code arms + 1
+  default-arm + 1 from renumber being identical to before so net
+  +9 + the count test totals to 57; counting matches the new
+  arm list exactly).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` — 16 / 0
+  unchanged (no contamination of the parser test).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` — 34
+  / 0 unchanged (no contamination of the disk-enumeration test).
+- Mutation-style sanity check: I confirmed by running a one-shot
+  `pwsh -c` that `$content.Replace("Exit code 50 ('Request not
+  supported')", "...")` flips the assertion from True to False, so
+  the drift guard would catch a silent arm removal in CI.
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only addition. No production code touched. No new
+  network dependency. Pattern matches the existing `Test-ScriptSyntax`
+  and required-functions blocks — string-presence assertions only.
+- The drift guard is by exact substring match. If a future PR
+  rewrites the recovery prose, the test will fail and need the
+  literal phrase updated — same maintenance contract as
+  `test_disk_enumeration.ps1`'s eight safety-critical literals.
+- Outstanding routine-backlog items I did not take this pass:
+  - `Set-BootConfiguration` BCDBoot-failure diagnostics block has
+    no drift guard either. Same pattern would catch silent removal
+    of the "common causes" hints. Lower urgency: BCDBoot failure
+    is rarer than DISM-apply failure in practice.
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — cleanup
+    only, deferred across multiple routine entries because the
+    menu render is load-bearing TUI UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
