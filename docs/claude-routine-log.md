@@ -5,6 +5,94 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — Pester coverage for the `-WipeDisks` regex validation gate
+
+**Investigated:** open PRs (#145–#164, 20 in flight), grouping by topic
+to find a non-overlapping gap. PR #154 explicitly listed this as its
+"next recommended improvement": *"Pester case asserting the new
+`-WipeDisks`-ignored warning fires (parallel to PR #137's PIN-ignored
+coverage). Test-only, minimal scope, would close the symmetry."*
+
+That ask was about the *new* warning PR #154 introduces (not yet merged),
+but the same logic surfaced an older gap: the silent-mode `-WipeDisks`
+regex validation gate at `unified_winpe_deploy.ps1:1714` (pattern
+`^\s*\d+(\s*,\s*\d+)*\s*$`) has been on `main` since v4.5.0 and is the
+*only* thing standing between a malformed string and
+`Select-AdditionalWipeDisks`'s `$nums = @($WipeDisks -split ','
+| ForEach-Object { [int]($_.Trim()) })` (line 1391), which would throw
+a cryptic `InvalidCastException` mid-deploy after the operator has
+already typed `-Force`. No existing test pins this gate; a refactor
+that loosens the character class or silently removes the silent-mode
+check would slip through.
+
+Cross-checked `tests/validation-gates.Tests.ps1` — the `Start-Deployment
+validation gates` Describe block covers `-DataDiskNumber`,
+`-EnableBitLocker`, `-BitLockerPin`, and `-Silent -DataDiskNumber
+without -Force`, but not `-WipeDisks`. Confirmed via
+`grep -n WipeDisks tests/*.ps1`: only the BeforeEach reset and the
+Select-AdditionalWipeDisks mock declaration mention it, no assertions.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — six new `It` blocks appended to
+  the existing `Start-Deployment validation gates` Describe, all
+  reusing the BeforeEach mock topology (no new mocks needed).
+  Asserts:
+  - `'abc'` (non-digit) rejected, no `Invoke-Diskpart` / `Apply-WindowsImage`
+  - `'1,abc'` (mixed) rejected
+  - `'1,'` (trailing comma) rejected
+  - `'1,2'` (canonical) accepted, reaches `Invoke-Diskpart`
+  - `'1 , 2'` (inner whitespace) accepted (the pattern's `\s*,\s*` allows it)
+  - `'1'` (single) accepted
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the test coverage. No version bump (test-only change).
+
+**Verification:**
+- `pwsh` v7.4.6 installed in-session per the CLAUDE.md note
+  (`/opt/pwsh/pwsh`, GitHub-Releases tarball).
+- Baseline:
+  - `tests/test_parse.ps1` → 48 / 0
+  - `tests/test_wim_parser.ps1` → 16 / 0
+  - `tests/test_disk_enumeration.ps1` → 34 / 0
+- Post-edit:
+  - `tests/test_parse.ps1` → 48 / 0 unchanged
+  - `tests/test_wim_parser.ps1` → 16 / 0 unchanged
+  - `tests/test_disk_enumeration.ps1` → 34 / 0 unchanged
+- `PSParser::Tokenize` on the modified Pester file: 0 parse errors.
+- Sanity-checked the regex directly via
+  `pwsh -c "'abc' -match '^\s*\d+...'"` — all six test cases match
+  the expected outcomes (rejected: `abc`, `1,abc`, `1,`, `''`,
+  `'1,,2'`, `'a,1'`; accepted: `1,2`, `1 , 2`, `1`, `1,2,3`). The
+  six chosen test cases are the highest-signal subset.
+- Pester suite is CI-only per the CLAUDE.md note (PSGallery is
+  blocked in the web container, so `Install-Module Pester` fails
+  with "No match was found"). The CI `pester` job on `windows-latest`
+  runs the suite end-to-end on push.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. No new
+  mocks; reuses the existing BeforeEach topology. Pattern matches
+  the existing `Start-Deployment validation gates` cases verbatim
+  (same `Should -BeFalse` + `Should -Invoke -Times 0` shape).
+- The six cases cover the regex's character class (digit-only)
+  and structure (comma-separated, leading/trailing whitespace
+  tolerated, inner whitespace tolerated). They do NOT cover the
+  downstream `[int]` cast in `Select-AdditionalWipeDisks` —
+  that's pre-validated by these gates, so the cast is unreachable
+  on a malformed input. If the gate is removed in a future
+  refactor, these tests will flip red before any cast regression
+  surfaces in production.
+- Outstanding follow-ups from recent routine entries that I did
+  not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — deferred
+    across many entries because the menu render is load-bearing
+    TUI UX.
+  - A Pester case for the `-WipeDisks`-without-`-Silent`
+    *warning* (the one PR #154 introduces) would close the
+    symmetry once that PR merges.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

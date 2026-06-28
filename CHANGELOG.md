@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-WipeDisks` regex validation gate now has Pester coverage.** Six
+  new cases under `tests/validation-gates.Tests.ps1` exercise the
+  pattern at `unified_winpe_deploy.ps1:1714`: malformed (`abc`, `1,abc`,
+  `1,`) is rejected before any destructive op, canonical (`1,2`),
+  whitespace-tolerant (`1 , 2`), and single-disk (`1`) are accepted.
+  Regression guard: a refactor that loosens the character class or
+  silently drops the silent-mode gate would surface here instead of
+  reaching `Select-AdditionalWipeDisks`'s `[int]$_.Trim()` cast and
+  throwing an unhelpful exception mid-deploy. No production code
+  changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

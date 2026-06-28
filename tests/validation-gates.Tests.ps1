@@ -416,4 +416,101 @@ Describe "Start-Deployment validation gates" {
         $val = & $script:DeployModule { $Script:Config.BitLockerPin }
         $val | Should -Be 'goodpin42'
     }
+
+    # -----------------------------------------------------------------------
+    # -WipeDisks regex validation (silent-mode gate). The pattern at
+    # unified_winpe_deploy.ps1:1714 is the only thing standing between a
+    # malformed -WipeDisks string and Select-AdditionalWipeDisks's
+    # `[int]$_.Trim()` parse, which would throw a confusing
+    # InvalidCastException mid-deploy. A regex regression here (e.g. a
+    # refactor that loosens the character class) would let garbage slip
+    # through to the parse and surface as a cryptic exception after the
+    # operator has already typed -Force.
+    # -----------------------------------------------------------------------
+
+    It "Rejects malformed -WipeDisks 'abc' (non-digit) before any destructive op" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = 'abc'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects mixed -WipeDisks '1,abc' (one bad token) before any destructive op" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1,abc'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+    }
+
+    It "Rejects -WipeDisks with trailing comma '1,'" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1,'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It "Accepts canonical -WipeDisks '1,2' and reaches diskpart" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1,2'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 1
+    }
+
+    It "Accepts spaced -WipeDisks '1 , 2' (the pattern tolerates inner whitespace)" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1 , 2'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -BeNullOrEmpty
+    }
+
+    It "Accepts single-disk -WipeDisks '1'" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+    }
 }
