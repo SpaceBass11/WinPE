@@ -136,6 +136,15 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # -UsbDrive must reject $env:SystemDrive before any xcopy / mountvol runs.
+    # Without this guard, `xcopy` would scatter WinPE artifacts (Boot\, sources\,
+    # efi\, etc.) across the host system drive root and `-ReleaseUsbLetter`
+    # would attempt `mountvol <SystemDrive> /d`. Both happen long after the
+    # initial Test-Path success that the prior guard only checked.
+    Write-Result -Test 'Builder: -UsbDrive rejects $env:SystemDrive' `
+        -Pass ($bc -match '\$UsbDrive\.ToUpperInvariant\(\)\s*-eq\s*\$env:SystemDrive\.ToUpperInvariant\(\)' -and
+               $bc -match 'is the running system drive')
 }
 
 # Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)

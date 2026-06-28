@@ -136,6 +136,12 @@ if ($UsbDrive) {
     if ($UsbDrive -notmatch '^[A-Za-z]:$') {
         throw "-UsbDrive must be a drive letter like 'P:' (got '$UsbDrive')"
     }
+    # Refuse to clobber the running Windows host. xcopy below would scatter
+    # Boot\, sources\, and efi\ trees across the system drive root, and
+    # -ReleaseUsbLetter would then attempt `mountvol <SystemDrive> /d`.
+    if ($env:SystemDrive -and ($UsbDrive.ToUpperInvariant() -eq $env:SystemDrive.ToUpperInvariant())) {
+        throw "-UsbDrive $UsbDrive is the running system drive - refusing to xcopy WinPE media onto the host. Assign a different letter to the USB boot partition (see docs/USB_SETUP.md Step 4)."
+    }
     if (-not (Test-Path "$UsbDrive\")) {
         throw "USB drive $UsbDrive is not accessible - partition and assign the letter per docs/USB_SETUP.md Step 4 first."
     }

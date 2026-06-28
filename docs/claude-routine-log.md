@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `build_boot_wim.ps1` `-UsbDrive` system-drive guard
+
+**Investigated:** every shipped `.ps1` script for unguarded destructive
+paths against the running Windows host, cross-referenced against the
+~50 open `claude/routine-*` PRs to avoid duplication. The 20-odd open
+`build_iso.ps1`/`refresh_usb.ps1`/`unified_winpe_deploy.ps1` PRs
+already cover most parameter-shape and confirmation-string regressions
+I could find; the one untouched destructive seam was
+`scripts/build_boot_wim.ps1`'s `-UsbDrive` handling.
+
+**Found:** `-UsbDrive` was validated for drive-letter format and
+`Test-Path` accessibility, but not against `$env:SystemDrive`. A
+typo'd `.\scripts\build_boot_wim.ps1 -UsbDrive C: -ReleaseUsbLetter`
+on the workstation would pass both checks and then:
+  1. `xcopy.exe /s /e /y "$mediaDir\*.*" "C:\"` — scatters
+     `Boot\`, `sources\`, `efi\microsoft\boot\`, etc. trees across
+     the host's C:\ root (line 330).
+  2. `mountvol.exe C: /d` — attempts to unmount the host's system
+     drive (line 336). Windows blocks this for the live system drive
+     but the prior xcopy pollution has already happened by then.
+
+There's no companion check in `refresh_usb.ps1 -BootUsbDrive` either
+but it passes its value straight through to `build_boot_wim.ps1`, so
+adding the guard in the builder covers the wrapper transitively.
+
+**Changed:**
+- `scripts/build_boot_wim.ps1` — added a case-insensitive equality
+  check (`$UsbDrive.ToUpperInvariant() -eq $env:SystemDrive.ToUpperInvariant()`)
+  right after the drive-letter format validation, before the
+  `Test-Path` check. Throws with a pointer to `docs/USB_SETUP.md`
+  Step 4 telling the operator to assign a different letter.
+- `tests/test_parse.ps1` — added a behavioral assertion under the
+  existing `--- scripts/build_boot_wim.ps1 ---` block. Two regex
+  checks: the comparison literal and the throw message ("is the
+  running system drive"). Either drifting alone would fail the
+  test, forcing the guard to stay in shape.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the
+  top describing the guard + the test. No script-version bump
+  (builder-side input validation only; no runtime deploy behavior
+  changes).
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed before edits.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 49
+  passed / 0 failed (+1 for the new behavioral assertion).
+- Sanity: `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` →
+  16/0 unchanged. `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1`
+  → 34/0 unchanged.
+- Manual exercise of the new throw in `pwsh -NoProfile -Command`:
+  with `$env:SystemDrive='C:'` and `$UsbDrive='c:'` the guard
+  fires (case-insensitive); with `$UsbDrive='P:'` it passes through.
+
+**Risks / follow-ups:**
+- Minimal. The guard is a pre-flight throw — no destructive code
+  path moved, no new dependencies, no public-parameter rename.
+  Existing CI masterize checks (Phase 1B, items 24-26) target
+  startnet.cmd invariants and are untouched.
+- The same class of guard could live in `refresh_usb.ps1`
+  (`-BootUsbDrive` default `'P:'`) to surface the error before
+  `prepare_wim.ps1` runs its 20-minute image prep. Deferred: the
+  builder's throw is reached well before any destructive op, and
+  the operator only spends the prepare-time on success — failures
+  surface in the same session, not after a wipe.
+- Outstanding routine-backlog candidates from prior entries that
+  I did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** code factoring —
+    cleanup-only, deferred multiple times because the menu render
+    is load-bearing TUI UX.
+  - **WinPE source-drive guard for `Test-WinPEEnvironment`** — the
+    `($env:SystemDrive -eq 'X:') -or (Test-Path 'X:\Windows')`
+    check is permissive on hosts with a mounted WinPE image. Low
+    priority; unlikely real-world hit.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_boot_wim.ps1` now refuses `-UsbDrive` equal to
+  the running system drive.** Previously a typo'd `-UsbDrive C:`
+  passed the `Test-Path` check and proceeded to `xcopy` WinPE media
+  (`Boot\`, `sources\`, `efi\`, etc.) into the workstation's C:\
+  root, and (with `-ReleaseUsbLetter`) attempted `mountvol C: /d`
+  on the host. The new guard runs right after the drive-letter
+  format check, before any copy or mountvol step, and tells the
+  operator to assign a different letter to the USB boot partition.
+  Test assertion added to `tests/test_parse.ps1` so the guard can't
+  silently regress.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
