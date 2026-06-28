@@ -8,6 +8,20 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added
+- **WIM-source-disk safety gate in `Start-Deployment`.** New
+  `Get-DiskNumberForDriveLetter` WMI helper resolves the WIM source
+  drive letter to its hosting physical disk; the deploy now aborts
+  before `New-DiskpartScript` runs if that disk is the `-TargetDisk`,
+  the `-DataDiskNumber`, or in the `-WipeDisks` list. Closes a gap
+  where the existing letter-level mountvol guard would let diskpart
+  `clean` wipe the WIM source partition table mid-deploy when the
+  operator staged a WIM on an internal disk (instead of the usual
+  USB). USB-hosted WIMs are unaffected because USB disks are already
+  filtered out of `Get-SystemDisks`. Four new Pester cases in
+  `tests/validation-gates.Tests.ps1` cover the three abort paths plus
+  two pass-through cases (USB and X:-RAM-disk-hosted WIMs).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

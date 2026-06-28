@@ -5,6 +5,108 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — WIM-source-disk safety gate in `Start-Deployment`
+
+**Investigated:** open PR queue (#151-#170 — all single-issue safety/
+test/doc fixes, none touching the WIM-source-disk topic), plus the
+existing `New-DiskpartScript -ProtectedSourceDrive` plumbing and its
+Pester coverage. The current guard only stops `mountvol /d` from
+unmounting the WIM source DRIVE LETTER during the letter-free pass; it
+does not stop the diskpart script itself from running `clean` on the
+underlying PHYSICAL DISK when the operator picks that disk as
+`-TargetDisk`, `-DataDiskNumber`, or an `-WipeDisks` entry.
+
+USB-hosted WIMs (the documented common case) are filtered out of
+`Get-SystemDisks` so the gap is invisible there. But when the operator
+stages a WIM on an internal disk — refresh-via-second-drive-bay, the
+single-ISO Hyper-V test path, or any non-USB source — that disk
+appears in the picker. Pick it, and diskpart `clean` wipes the WIM
+source partition table before DISM can read the file. Net effect:
+target gets partitioned but `Apply-WindowsImage` fails on a now-
+inaccessible source, and the operator is left with a half-deployed
+box. The existing "DISM failed with exit 1" recovery hint doesn't
+diagnose this case.
+
+**Changed:**
+
+- `unified_winpe_deploy.ps1`
+  - New `Get-DiskNumberForDriveLetter` helper (next to
+    `Get-SystemDisks`): WMI associator walk
+    `Win32_LogicalDisk → Win32_LogicalDiskToPartition →
+    Win32_DiskPartition → Win32_DiskDriveToDiskPartition → Win32_DiskDrive`.
+    Returns `$null` when the letter doesn't resolve (WinPE X: RAM
+    disk, network mapping, missing letter, spanned/dynamic volume).
+    PSv5.1-safe; no Storage-module dependency.
+  - New validation block in `Start-Deployment` between
+    `$sourceDrive = ...` and `New-DiskpartScript`: resolves
+    `$sourceDiskNum`, then aborts with a clear error when it equals
+    the target disk, the `-DataDiskNumber`, or any disk in the
+    `$extraWipeDisks` list. Pure-additive; no change to the success
+    path or to any destructive code.
+- `tests/validation-gates.Tests.ps1`
+  - Five new Pester cases in the `Start-Deployment validation gates`
+    describe: three abort paths (target / data / wipe overlap), and
+    two pass-through cases (USB-mapped disk number outside the wipe
+    set, and `$null` return for X: RAM disk). Each abort case
+    `Should -Invoke Invoke-Diskpart -Times 0` so a future regression
+    that lets execution slip past the gate is caught.
+- `CHANGELOG.md` — `## Unreleased / ### Added` bullet at top.
+
+**Verification:**
+
+- `pwsh` installed from the GitHub-Releases v7.4.6 tarball per
+  CLAUDE.md's PSGallery-blocked note.
+- `tests/test_parse.ps1` → 48 pass / 0 fail (baseline) → 48 pass / 0
+  fail (post-edit). Same count because the new function is internal;
+  the parse pass tokenizes the whole script.
+- `tests/test_wim_parser.ps1` → 16 / 0 unchanged.
+- `tests/test_disk_enumeration.ps1` → 34 / 0 unchanged.
+- `PSParser::Tokenize` on both `unified_winpe_deploy.ps1` and
+  `tests/validation-gates.Tests.ps1` → no errors.
+- Brace + region balance: open=414 close=414, regions=10 endregions=10
+  (was 405/405 before; +9/+9 from the new function + the new
+  validation block, all internal to existing `try`/`function` shells).
+- Pester suite (`tests/validation-gates.Tests.ps1`) runs in CI only —
+  PSGallery is blocked by the container's network policy, per
+  CLAUDE.md. The five new cases follow the existing
+  `BeforeEach { ... Mock ... }` pattern verbatim; the only new mock
+  target is `Get-DiskNumberForDriveLetter`, which has a single call
+  site in `Start-Deployment`.
+
+**Risks:**
+
+- Low. The new gate is additive and runs before any destructive op
+  (mountvol, diskpart, DISM, BCDBoot). The function returns `$null`
+  on any WMI failure or unmapped letter, which causes the gate to
+  skip silently — matching the existing letter-level guard's
+  fail-open behavior for unrecognized inputs.
+- One behavior change: an operator who staged a WIM on an internal
+  disk and then picked that disk in the TUI menu would previously
+  see a partial deploy and a "DISM failed with exit 1" message; they
+  now see a clear "Target disk N hosts the WIM source drive X: -
+  aborting" before anything is wiped. Opt-in scenarios (silent
+  `-DataDiskNumber` / `-WipeDisks` with the same overlap) get the
+  same early abort instead of silent corruption.
+- USB-hosted WIM flows (the documented common case in
+  `docs/END_USER_DEPLOY.md` and `docs/USB_SETUP.md`) are unchanged —
+  USB disks are excluded from `Get-SystemDisks` and so cannot
+  appear in any of the three overlap checks.
+
+**Next recommended improvement:**
+
+- `Search-DirectoryForImages` reads `$MinImageSizeMB` via PowerShell
+  dynamic scope rather than a parameter. Works today but is a
+  fragile coupling; threading it through as a parameter would
+  match the explicit-parameter style used in the
+  `Get-WimImageInfo` test refactor (see 2026-05-16 entry).
+- `Show-ImageList` / `Show-ImageSelection` still share ~30 lines of
+  listing-render code, called out across several routine entries.
+  Pure cleanup, no behavior change — deferred again because the
+  menu render is load-bearing TUI UX and the duplication is
+  tolerable.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

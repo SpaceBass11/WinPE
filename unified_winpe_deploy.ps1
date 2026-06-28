@@ -673,6 +673,35 @@ function Get-SystemDisks {
     }
 }
 
+function Get-DiskNumberForDriveLetter {
+    # Map a drive letter ('D:', 'D:\', or bare 'D') to its hosting physical
+    # disk number via WMI associators. Returns $null when the letter doesn't
+    # resolve to a Win32_DiskDrive - e.g. WinPE's X: RAM disk, network
+    # mappings, dynamic/spanned volumes, or a letter that simply isn't
+    # mounted. PSv5.1-safe; no Storage module dependency.
+    param(
+        [Parameter(Mandatory)]
+        [string]$DriveLetter
+    )
+
+    $L = ($DriveLetter -replace '[^A-Za-z]', '').ToUpperInvariant()
+    if ($L.Length -lt 1) { return $null }
+    $L = $L.Substring(0, 1)
+
+    try {
+        $parts = Get-WmiObject -Query "ASSOCIATORS OF {Win32_LogicalDisk.DeviceID='${L}:'} WHERE AssocClass=Win32_LogicalDiskToPartition" -ErrorAction Stop
+        foreach ($part in $parts) {
+            $drives = Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='$($part.DeviceID)'} WHERE AssocClass=Win32_DiskDriveToDiskPartition" -ErrorAction SilentlyContinue
+            foreach ($d in $drives) {
+                if ($null -ne $d.Index) { return [int]$d.Index }
+            }
+        }
+    } catch {
+        return $null
+    }
+    return $null
+}
+
 function Show-DiskMenu {
     param([array]$Disks)
 
@@ -1873,6 +1902,33 @@ function Start-Deployment {
     # Partition disk (plus any requested additional disk cleans). Pass the
     # WIM source drive so the letter-free pass won't unmount it mid-deploy.
     $sourceDrive = if ($selectedImage.Path) { Split-Path -Qualifier $selectedImage.Path } else { $null }
+
+    # Belt-and-braces: the letter-level protection in New-DiskpartScript stops
+    # mountvol /d from unmounting the WIM source, but diskpart 'clean' on the
+    # underlying physical disk would still wipe the WIM source partition table
+    # before DISM gets to read the file. USB-hosted WIMs (the common case) are
+    # filtered out of Get-SystemDisks entirely, so this guard only fires when
+    # the operator staged a WIM on an internal disk that's also being
+    # targeted, named as -DataDiskNumber, or listed in -WipeDisks. Aborting
+    # here avoids leaving a half-partitioned, unbootable target.
+    $sourceDiskNum = if ($sourceDrive) { Get-DiskNumberForDriveLetter -DriveLetter $sourceDrive } else { $null }
+    if ($null -ne $sourceDiskNum) {
+        if ($sourceDiskNum -eq $targetDisk.Number) {
+            Write-Log "Target disk $($targetDisk.Number) hosts the WIM source drive $sourceDrive - aborting" -Level Error
+            Write-Log "  diskpart would wipe the WIM source before DISM could read it." -Level Error
+            Write-Log "  Move the WIM to a different drive (USB or another internal disk) and re-run." -Level Error
+            return $false
+        }
+        if ($Script:Config.DataDiskNumber -ge 0 -and $sourceDiskNum -eq $Script:Config.DataDiskNumber) {
+            Write-Log "-DataDiskNumber $($Script:Config.DataDiskNumber) hosts the WIM source drive $sourceDrive - aborting" -Level Error
+            return $false
+        }
+        if ($extraWipeDisks | Where-Object { $_.Number -eq $sourceDiskNum }) {
+            Write-Log "-WipeDisks contains disk $sourceDiskNum which hosts the WIM source drive $sourceDrive - aborting" -Level Error
+            return $false
+        }
+    }
+
     if (-not (New-DiskpartScript -DiskNumber $targetDisk.Number -ExtraWipeDisks $extraWipeDisks -ProtectedSourceDrive $sourceDrive)) { return $false }
     if (-not (Invoke-Diskpart)) { return $false }
 
