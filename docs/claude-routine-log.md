@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — `-WimFile` relative-path silently disables source-drive protection
+
+**Investigated:** open PRs (#128-#167 — 40 routine PRs already in
+flight) plus the deploy script's `-WimFile` handling vs. how
+`$selectedImage.Path` gets consumed downstream in `Start-Deployment`.
+Confirmed the bug surface isn't covered by any open PR (closest is
+#133, which resolved `-UnattendFile` to absolute path; nothing
+equivalent for `-WimFile`).
+
+**Found:** `Find-ImageFiles` (`unified_winpe_deploy.ps1` lines 295-317)
+stores the raw `$WimFile` parameter in the returned hashtable's `Path`
+field. If the operator passes a relative path, three things go wrong
+later:
+
+1. **Scary red error mid-deploy.** At line 1875,
+   `Split-Path -Qualifier 'images/Win11.wim'` writes
+   `Cannot parse path because path 'images/Win11.wim' does not have a
+   qualifier specified.` to the WinPE console after the target disk
+   is already selected but before partitioning.
+2. **Source-drive protection silently disabled.** That same line
+   assigns the result to `$sourceDrive`, which becomes `$null` when
+   `Split-Path -Qualifier` fails. `New-DiskpartScript` then receives
+   `$null` for `-ProtectedSourceDrive`; its `if ($ProtectedSourceDrive)`
+   guard is false, so the guard at line 955 never fires. With
+   `-DataDiskNumber` also set, diskpart can issue `mountvol D: /d` on
+   the WIM source.
+3. **DISM `/apply-image` fed a relative path.** Lines 1908 and 1913
+   pass `$selectedImage.Path` ("images/Win11.wim") to DISM, which only
+   works if `dism.exe`'s CWD happens to be the parent. After diskpart
+   mucked with mounts, that's not guaranteed.
+
+Verified on PowerShell 7.4.6 (`Split-Path -Qualifier` behavior is the
+same on PSv5.1 Windows, where the script actually runs).
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Find-ImageFiles` `-WimFile` branch
+  now uses `Get-Item -LiteralPath $WimFile` and stores `$item.FullName`
+  / `$item.Name` instead of the raw parameter. Log line updated to
+  show the resolved absolute path. Added a comment explaining why
+  the resolve is required.
+- `tests/validation-gates.Tests.ps1` — new `Describe` block
+  ("Find-ImageFiles -WimFile path resolution") with a Pester
+  regression test that creates a real fake WIM in `$TestDrive`,
+  `Push-Location $TestDrive`s into it, calls `Find-ImageFiles` with a
+  relative `-WimFile`, and asserts the returned `Path` is rooted and
+  equals the expected absolute path. Loads the deploy script via the
+  same dynamic-module pattern used by the existing tests in the file.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry at the top.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per CLAUDE.md guidance.
+- `tests/test_parse.ps1` — 48 passed / 0 failed (was 48 / 0).
+- `tests/test_wim_parser.ps1` — 16 passed / 0 failed (unchanged).
+- `tests/test_disk_enumeration.ps1` — 34 passed / 0 failed (unchanged).
+- Manual functional repro: loaded the deploy script as a dynamic
+  module, `Push-Location` to a tempdir, called `Find-ImageFiles`
+  with relative `-WimFile 'test_image.wim'` — pre-fix returned
+  `Path = 'test_image.wim'`; post-fix returns the absolute path
+  matching the tempdir.
+- Pester suite (`validation-gates.Tests.ps1`) can't run locally —
+  PSGallery is blocked in this container, same constraint flagged
+  in CLAUDE.md and previous routine entries. CI's `pester` job on
+  windows-latest will run the new test plus all 14 pre-existing
+  ones.
+- Parse-checked the updated test file via `PSParser::Tokenize`
+  before commit.
+
+**Risks / follow-ups:**
+- Low. The fix swaps one literal (`$WimFile` / `Split-Path -Leaf $WimFile`)
+  for `$item.FullName` / `$item.Name` inside an existing valid
+  branch — same hashtable shape, same caller contract. The
+  `Get-Item -LiteralPath` upgrade also hardens against paths
+  containing `[` / `]` (rare on Windows, but free defensive win).
+- The `-ImagePath` (directory) flow already returns absolute paths
+  via `Get-ChildItem ... | $_.FullName`, so no parallel fix needed.
+  PR #166 already rejects `-ImagePath` pointing at a file.
+- Outstanding routine-backlog items still open across the 40 in-flight
+  PRs (the `Show-ImageList` / `Show-ImageSelection` factoring is the
+  longest-standing deferred cleanup; it's load-bearing TUI UX, so it
+  keeps getting deferred).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

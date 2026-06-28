@@ -8,6 +8,28 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`-WimFile` relative paths now resolve to absolute before any
+  destructive op.** `Find-ImageFiles` previously stored the raw
+  `-WimFile` parameter as `$selectedImage.Path`. If the operator
+  passed a relative path (e.g. `-WimFile images/Win11.wim`),
+  downstream code in `Start-Deployment` called
+  `Split-Path -Qualifier` on it, which (a) printed a scary red
+  `Cannot parse path … does not have a qualifier specified` error
+  to the WinPE console during a destructive deploy and (b) silently
+  set the WIM source drive to `$null`, disabling
+  `New-DiskpartScript`'s `-ProtectedSourceDrive` safety guard. With
+  `-DataDiskNumber` also set to a disk whose letter happened to
+  match the relative WIM's drive, diskpart could unmount the WIM
+  source mid-deploy and DISM `/apply-image` would then fail trying
+  to read its source. The fix resolves to absolute via
+  `Get-Item -LiteralPath ... | $_.FullName` inside `Find-ImageFiles`,
+  so every downstream consumer (DISM `/Get-WimInfo`, DISM
+  `/apply-image`, `Split-Path -Qualifier`, the recovery-guidance
+  log line) sees a rooted path. Pester regression covers the
+  relative-path case under
+  `tests/validation-gates.Tests.ps1`.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

@@ -298,11 +298,17 @@ function Find-ImageFiles {
     # If specific WIM file provided, use it
     if ($WimFile) {
         if ((Test-Path $WimFile -PathType Leaf) -and ([IO.Path]::GetExtension($WimFile).ToLowerInvariant() -in @('.wim', '.esd'))) {
-            Write-Log "Using specified WIM file: $WimFile" -Level Success
-            $item = Get-Item $WimFile
+            # Resolve to absolute path before storing. A relative -WimFile
+            # (e.g. 'images/Win11.wim') would later make Split-Path -Qualifier
+            # in Start-Deployment return an empty string, silently disabling
+            # the WIM-source-drive protection in New-DiskpartScript - and
+            # would feed a relative path to DISM /apply-image after diskpart
+            # may have changed which drive letters are mounted.
+            $item = Get-Item -LiteralPath $WimFile
+            Write-Log "Using specified WIM file: $($item.FullName)" -Level Success
             return @(@{
-                Path = $WimFile
-                Name = Split-Path -Leaf $WimFile
+                Path = $item.FullName
+                Name = $item.Name
                 Size = $item.Length
                 Type = 'Specified'
                 LastModified = $item.LastWriteTime
