@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — Pester coverage for `Resolve-BitLockerKeyPath` v4.7.1 `LookupMode` contract
+
+**Investigated:** the 30+ open routine PRs (build_iso safety, refresh_usb,
+BitLocker first-boot wipe-on-failure, unattend XML validation, disk-size
+math, image-path validation, additional-wipe exclusions, etc.), the
+maintenance log backlog, and the existing `Describe
+"Resolve-BitLockerKeyPath escrow precedence"` block in
+`tests/validation-gates.Tests.ps1` against the actual function in
+`unified_winpe_deploy.ps1` (lines 1471-1499). Grepped open PR titles for
+`Resolve-BitLockerKeyPath`, `LookupMode`, `ImagesLabel`, and
+`escrow` to make sure no in-flight PR was already covering this.
+
+**Found:** v4.7.1 added a third field to `Resolve-BitLockerKeyPath`'s
+return hashtable - `LookupMode` - which drives which branch of
+`Initialize-BitLockerSetup` writes into the first-boot staging script.
+`ImagesLabel` bakes a runtime `Get-Volume -FileSystemLabel 'IMAGES'`
+lookup into `bitlocker-setup.ps1` so recovery key escrow still finds the
+USB after Windows reassigns its drive letter; `Literal` bakes the path
+verbatim (for the operator override and the C:\Windows\Setup
+fallback). The existing three `It`-blocks tested `.Path` and `.Source`
+only - a regression that dropped `LookupMode` from the return,
+mis-spelled the string, or flipped a branch would silently revert the
+v4.7.1 fix and CI would still be green. PR #174's claude-routine-log
+entry listed "outstanding routine-backlog candidates" and the
+LookupMode contract was not among them, so this is genuinely novel.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — appended four new `It`-blocks to
+  the existing `Resolve-BitLockerKeyPath` Describe block, one per
+  precedence path: override-only (`Literal`), override-plus-env
+  (precedence guard: override wins, mode stays `Literal`), env-only
+  (`ImagesLabel`), and final fallback (`Literal`). Uses the same
+  `& $script:DeployModule { ... }` pattern as the existing block,
+  including the `AfterEach` env-var/param cleanup that's already
+  shared at the Describe level.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the coverage extension and what regression class it guards.
+
+**Verification:**
+- `pwsh` installed per CLAUDE.md note (PowerShell 7.4.6 tarball).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0,
+  `test_wim_parser.ps1` → 16/0, `test_disk_enumeration.ps1` → 34/0
+  (all unchanged after my edit — Pester suite is a separate file).
+- Syntax check on the Pester file:
+  `[System.Management.Automation.PSParser]::Tokenize` → no errors.
+- Manual smoke: loaded `unified_winpe_deploy.ps1` as a dynamic module
+  using the same `New-Module` pattern the Pester suite uses, then
+  invoked `Resolve-BitLockerKeyPath` directly under each of the four
+  precedence paths. Observed runtime values: Case 1 (override only)
+  → `LookupMode=Literal`; Case 2 (override + env) → `LookupMode=Literal`;
+  Case 3 (env only) → `LookupMode=ImagesLabel`; Case 4 (fallback)
+  → `LookupMode=Literal`. All four match the new `Should -Be`
+  assertions exactly. Highly confident the block will go green on
+  CI's `pester` job rather than red.
+- Pester itself cannot run locally: CLAUDE.md flags PSGallery as
+  blocked in the web container's network policy (re-verified with
+  `Install-Module Pester` → "No match was found..."). The smoke
+  above gives the same confidence as a real Pester run.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. No new
+  dependencies. New `It`-blocks mirror the established three-block
+  pattern in the same Describe, including the cleanup contract.
+- Outstanding routine-backlog candidates from prior entries:
+  - **End-to-end staging-script readback test.** A Pester block that
+    actually invokes `Initialize-BitLockerSetup` against a mocked
+    `Set-Content` and asserts the generated `bitlocker-setup.ps1`
+    contains the IMAGES-label `Get-Volume` lookup when
+    LookupMode='ImagesLabel' (and conversely the literal path when
+    'Literal') would close the contract end-to-end. Skipped this
+    pass because it touches a much larger surface and would need
+    Pester mock plumbing the current suite doesn't yet have.
+  - **`Show-ImageList` / `Show-ImageSelection`** still share ~30
+    lines of listing-render code that could be factored out — same
+    UX-load-bearing deferral as prior entries.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

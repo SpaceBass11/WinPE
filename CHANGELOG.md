@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Resolve-BitLockerKeyPath` v4.7.1 `LookupMode` contract now has
+  Pester coverage.** Four new `It`-blocks in
+  `tests/validation-gates.Tests.ps1` pin the `LookupMode` field that
+  drives which branch of `Initialize-BitLockerSetup` writes into the
+  first-boot staging script: `Literal` for the `-BitLockerKeyPath`
+  override and the C:\Windows\Setup\BitLockerKeys fallback,
+  `ImagesLabel` only when `DEPLOY_IMAGE_DRIVE` is set with no
+  override. Includes a precedence guard for the case where both
+  override and env var are set (override wins, mode stays Literal).
+  A regression that drops the field, mis-spells the value, or flips
+  a branch would silently break the v4.7.1 escrow fix - recovery
+  keys would fail to write to the USB on first boot when Windows
+  reassigns the USB drive letter. Test-only; no production code touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
