@@ -8,6 +8,17 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Docs: dropped stale "placeholder PIN rejected at runtime" claims.**
+  `README.md` parameter table and `docs/BITLOCKER.md` confirmation-chain
+  table both still described a BitLocker PIN content policy that was
+  removed under `## Unreleased / ### Removed` (the
+  `ForbiddenBitLockerPins` list strip). Both rows now describe the
+  actual current behavior: only the Windows 6-20 character window is
+  enforced; PIN content is the admin's call. README.md line 397
+  already had the correct description, so the parameter table was
+  contradicting itself.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

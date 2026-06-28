@@ -356,7 +356,7 @@ Full reference with examples lives in [docs/SCRIPT_REFERENCE.md](docs/SCRIPT_REF
 |-----------|------|-------------|
 | `-DataDiskNumber` | Int | Disk number to wipe and format as NTFS `D:`. Off by default (`-1`). Requires typed `WIPE DATA` confirmation. |
 | `-EnableBitLocker` | Switch | Stage `SetupComplete.cmd` to enable BitLocker on first boot. Requires `-BitLockerPin`. |
-| `-BitLockerPin` | String | Startup PIN for the TPM+PIN protector on `C:`. 6–20 characters. Placeholder PINs are rejected at runtime. |
+| `-BitLockerPin` | String | Startup PIN for the TPM+PIN protector on `C:`. 6–20 characters (Windows Enhanced PIN window — the only thing the script enforces; PIN content is the admin's call). In non-silent mode the script prompts at the WinPE console if omitted. |
 | `-BitLockerKeyPath` | String | Override recovery-key escrow path. Default: `<IMAGES>\BitLockerKeys`. |
 
 ---

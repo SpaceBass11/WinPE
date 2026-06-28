@@ -5,6 +5,98 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-06-28 — Stale "placeholder PIN rejected" docs after PR #49
+
+**Investigated:** Surveyed the 20 currently-open Claude routine PRs
+(#147-#166) via `mcp__github__list_pull_requests` and the recently-merged
+set (`#33`–`#52` per `git log --oneline -20`). Spot-checked diffs for
+the ones that touch BitLocker or PIN handling (#153, #159) to confirm
+non-overlap. None of the open PRs touch the two doc lines below.
+
+Then `grep -rn "placeholder.*PIN\|PIN.*rejected"` across `docs/` +
+`README.md` + `CHANGELOG.md`.
+
+**Found:** PR #49 (commit `1fd1937`, merged) removed the
+`ForbiddenBitLockerPins` list and the entire PIN content policy. The
+script now enforces only the Windows-mandated 6-20 character window
+(`unified_winpe_deploy.ps1` line 1691-1695 — the single length check is
+the only PIN-content gate). The `.PARAMETER BitLockerPin` header
+comment (lines 60-67) is accurate: "PIN content is the admin's call -
+the script enforces only the Windows length policy."
+
+Two operator-facing docs were never updated when PR #49 landed:
+
+1. `README.md` line 359 (the `-BitLockerPin` parameter table row):
+   "Placeholder PINs are rejected at runtime." — contradicts the
+   actual behavior. The README contradicted itself, since line 397 of
+   the same file already had the correct description ("PIN content is
+   the admin's call — the script enforces only Windows' 6-20 character
+   window").
+2. `docs/BITLOCKER.md` line 54 (the "Confirmation chain" table row):
+   "`-EnableBitLocker` with placeholder PIN | (refused outright) | No"
+   — same stale claim, presented as a hard safety gate.
+
+The drift was invisible to CI (no doc-vs-code consistency check covers
+these strings) and to the masterize checks (the corresponding masterize
+check #21 was deleted in PR #49 — see the CHANGELOG ### Removed bullet
+"Removed the corresponding Pester rows and CI masterize check #21").
+
+**Changed:**
+- `README.md` — parameter table row for `-BitLockerPin`. Replaced the
+  stale "Placeholder PINs are rejected" sentence with the same
+  language the `docs/BITLOCKER.md` parameter table row at line 35
+  already uses, plus a one-clause note about the TUI prompt fallback
+  in non-silent mode. The two parameter tables now match.
+- `docs/BITLOCKER.md` — Confirmation chain table row. Replaced the
+  stale "placeholder PIN (refused outright)" row with the actual
+  hard-fail gate ("PIN outside the 6-20 char window"), keeping the
+  bypassable-by-`-Force` column at "No" because the length check
+  predates `-Force` resolution in `Start-Deployment`.
+- `CHANGELOG.md` — added `### Fixed` bullet under `## Unreleased`
+  describing the docs drift and the contradicting-itself condition.
+  No version bump (docs-only fix; no behavior change, no script
+  parameter surface change).
+
+**Verification:**
+- Docs-only change; no PowerShell to validate. The deploy script and
+  every other `.ps1` are untouched.
+- Read pass on the surrounding sections of both files to confirm the
+  edits sit at the right table rows and don't break Markdown table
+  alignment (both edits replace one cell of one row).
+- Re-ran the grep that surfaced the issue
+  (`placeholder.*PIN\|PIN.*rejected`) over the same paths after the
+  edits: only matches now sit in `CHANGELOG.md` line 25-34 (the
+  `### Removed` bullet that describes the original policy strip) and
+  in this new routine-log entry. Both expected.
+- Cross-check: greps for `forbidden\|refused outright` over `docs/` +
+  `README.md` return no remaining stale references to the PIN-content
+  policy.
+- Confirmed no open PR (#147-#166) touches `README.md` line 359 or
+  `docs/BITLOCKER.md` line 54 via spot-checks of #149, #153, #159,
+  #163 diffs (the BitLocker / docs PRs).
+
+**Risks / follow-ups:**
+- Minimal. Docs-only edits; no code, no tests, no parameter surface,
+  no destructive code paths touched. The README's
+  description-of-current-behavior (line 397) is unchanged — it was
+  already correct.
+- Outstanding routine-backlog items I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line listing
+    duplication — flagged across many prior entries; deferred again
+    because the menu render is load-bearing TUI UX.
+  - The 20 open routine PRs continue to overlap. A one-off triage
+    pass to surface duplicate intent before more accumulate would
+    help future routine runs choose untouched ground faster.
+
+**Next recommended improvement:** A small masterize/CI Phase 1B grep
+to assert that `README.md` and `docs/BITLOCKER.md` agree on the
+BitLocker PIN policy wording (e.g. a single `rg "Placeholder PINs"`
+that fails the build if it has any hits). Skipped this pass to keep
+the change minimal; the drift took a year to surface and one fix
+is cheap.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
