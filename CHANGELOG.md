@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Masterize CI check #27 pins `-NoNewWindow` on every `Start-Process`
+  in `unified_winpe_deploy.ps1`.** Adds a Phase 1B grep that fails the
+  build if any `Start-Process` line drops the `-NoNewWindow` flag. Guards
+  the regression class that PR #25 fixed on `bcdboot`: hidden external
+  windows silently swallow the process's own stderr, so the operator
+  sees only "exit code N" with no diagnostic. All three current calls
+  (diskpart, dism, bcdboot) already comply; check catches any that drift
+  or any new destructive-binary call added later. CI-only change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

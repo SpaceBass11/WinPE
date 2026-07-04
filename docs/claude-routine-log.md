@@ -5,6 +5,94 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — Masterize CI check #27: `-NoNewWindow` on every `Start-Process`
+
+**Investigated:** Surveyed the 50 currently-open Claude routine PRs
+(#137-#186) via `mcp__github__list_pull_requests`. Grepped their titles
+and bodies for `NoNewWindow`, `Start-Process`, `Get-CimInstance`,
+`System.Windows.Forms`, `WindowStyle` — no hits, so this ground is open.
+
+Then re-read `CLAUDE.md`'s "Known Constraints" and "When Modifying the
+Script" sections against the Phase 1B masterize checks (#8–#26) in
+`.github/workflows/ci.yml`. Cross-referenced the list of documented
+WinPE-compat invariants against the checks that already enforce them:
+
+- Documented + enforced: version consistency (#1), `-Force` system-disk
+  guard (#8), `mountvol /d` guard (#9), no `Stop-Computer` (#10),
+  `/English` on `Get-WimInfo` (#11), `/CheckIntegrity` on `/apply-image`
+  (#12), diskpart layout (#15–17), unattend ordering (#14), BitLocker
+  opt-in defaults (#20), `WIPE DATA` (#22), typed confirmations (#19),
+  BitLocker PIN prompt guarding (#26), startnet.cmd wiring (#24–25).
+- Documented but NOT enforced: `Get-CimInstance` not used (WinPE
+  compat), `System.Windows.Forms` `Add-Type` wrapped in try/catch
+  (WinPE compat), `Start-Process ... -NoNewWindow` (WinPE reliability
+  + stderr visibility).
+
+**Found:** The `-NoNewWindow` invariant is the highest-value of the three
+because it guards against a regression class that has *already* bitten
+this codebase once. PR #25 (bcdboot exit-code diagnostics, 2026-05-17)
+fixed exactly this bug: `Start-Process -FilePath 'bcdboot.exe' ...
+-WindowStyle Hidden` silently swallowed bcdboot's own stderr (`Failure
+when attempting to copy boot files`, BFSVC errors), so a failed boot
+config surfaced only `bcdboot failed with exit code N` and the operator
+had no diagnostic to act on. The fix flipped it to `-NoNewWindow` to
+match diskpart and dism. The rationale lives in an in-line comment at
+`unified_winpe_deploy.ps1:1215-1217` but nothing enforces it — a future
+refactor that reintroduces `-WindowStyle Hidden` or drops the flag
+entirely would silently re-regress bcdboot (or a newly added
+Start-Process call for a fourth destructive binary).
+
+All three current invocations (`diskpart.exe` at line 1039, `dism.exe`
+at 1135, `bcdboot.exe` at 1218) already comply.
+
+**Changed:**
+
+- `.github/workflows/ci.yml` — new Phase 1B check #27, patterned after
+  the surrounding grep checks. Fails the build if
+  `grep -n 'Start-Process' unified_winpe_deploy.ps1 |
+   grep -v -- '-NoNewWindow'` returns anything.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing the
+  new check. No version bump (CI-only change).
+
+**Verification:**
+
+- Ran the check's grep against `unified_winpe_deploy.ps1` locally:
+  `grep -n 'Start-Process' unified_winpe_deploy.ps1 | grep -v -- '-NoNewWindow'`
+  returns empty → check would pass on `main` as-is (the intent is to
+  guard the invariant, not to fix a live regression).
+- Confirmed only three `Start-Process` lines in the deploy script, all
+  three include `-NoNewWindow`.
+- Grepped the deploy script for any comment-only `Start-Process`
+  references that might trigger a false-positive on the check: none
+  (only three matches, all in code).
+- YAML sanity: added the new check as an `echo`/`grep`/`if` block
+  matching the shape of check #26 above; single `exit $fail` at the
+  end of Phase 1B is untouched.
+
+**Risks / follow-ups:**
+
+- Minimal. CI-only change. No production code, docs, or test-runtime
+  behavior touched. Adds one grep pass on one file.
+- The check is intentionally scoped to `unified_winpe_deploy.ps1` — the
+  same pattern in `scripts/build_boot_wim.ps1` uses `xcopy.exe` and
+  `mountvol.exe` via `&` invocation, not `Start-Process`, so extending
+  the check there isn't necessary today.
+- Outstanding routine-backlog candidates I did not take this pass (all
+  from the "documented but not enforced" list above):
+  - **Masterize check for `Get-CimInstance` absence** in the deploy
+    script (WinPE compat — CLAUDE.md line ~156, PSSA rule already
+    excluded in `PSScriptAnalyzerSettings.psd1`). Same shape as check
+    #27 — single grep.
+  - **Masterize check that `Add-Type -AssemblyName System.Windows.Forms`
+    is wrapped in a try/catch** (WinPE compat — script handles Forms
+    absence gracefully per CLAUDE.md). Slightly harder grep because
+    it needs to verify the try/catch structure, not just a token.
+  - **`Show-ImageList` / `Show-ImageSelection` factor-out** — flagged
+    across many prior entries; deferred again because the menu render
+    is load-bearing TUI UX and any factoring risks subtle drift.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
