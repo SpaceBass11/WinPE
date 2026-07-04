@@ -5,6 +5,74 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `-ImagePath` file-vs-directory error hint
+
+**Investigated:** Open PRs (~140 in flight, pages 1-5 of the GitHub PR
+list). Cross-referenced their titles against outstanding follow-ups in
+prior routine entries. Confirmed the two long-standing candidates —
+`Get-SystemDisks` fixture test and `Show-ImageSelection` → `Show-ImageList`
+render factoring — are both already claimed (`tests/test_disk_enumeration.ps1`
+merged; PR #56 open). Went hunting for a small pre-flight in the deploy
+script that isn't already the subject of an open PR.
+
+**Found:** `Find-ImageFiles` (unified_winpe_deploy.ps1 line 331) treats
+`-ImagePath` as "any path that exists" via a bare `Test-Path $ImagePath`.
+If the operator makes the common typo of passing a `.wim` / `.esd` file
+to `-ImagePath` (instead of the correct `-WimFile`), the file passes the
+existence check and `Search-DirectoryForImages` is called on a file path.
+`Get-ChildItem -Path <file> -Filter *.wim -Recurse` returns the file
+itself if the extension matches — but the surrounding "auto-discovery"
+banner + "No Windows image files found!" fallback message on a nearby
+non-matching pattern combine to produce a confusing UX: the operator
+sees "0 images found" for a file they can see on screen.
+
+None of the open PRs touch this specific `Test-Path` call. `-WimFile`
+already checks `-PathType Leaf` on line 300; `-ImagePath` should
+symmetrically check `-PathType Container`.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Find-ImageFiles`:
+  - `Test-Path $ImagePath` → `Test-Path $ImagePath -PathType Container`.
+  - New arm for `Test-Path $ImagePath -PathType Leaf` that logs
+    "-ImagePath expects a directory but got a file: <path>" and a
+    one-line pointer at `-WimFile`, then returns `@()` before any
+    destructive work.
+  - "Not found" message unchanged for the truly-missing case.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet at the top.
+
+**Verification:**
+- Brace balance on `unified_winpe_deploy.ps1`: 398 open / 398 close
+  (was 397 / 397; +1 / +1 from the new `if` block, balanced).
+- Region balance: 10 / 10 (unchanged).
+- Paren balance: 643 / 643 (was 641 / 641; +2 / +2 from the new
+  `Test-Path` + `Write-Log` calls, balanced).
+- Structural review of the diff: new block sits inside the existing
+  `if ($ImagePath)` body at the same indent, between the Container
+  check and the "not found" fallback. Falls through to the existing
+  `return @()` on both new arms — no destructive code path reached.
+- `pwsh` is not available in this Linux session (the ADK / PSGallery
+  download endpoints are blocked by the container network policy;
+  `curl` returns 403 for `github.com/PowerShell/Releases/*`). CI's
+  `syntax` job on `windows-latest` runs `PSParser::Tokenize`,
+  `tests/test_parse.ps1`, `tests/test_wim_parser.ps1`, and
+  `tests/test_disk_enumeration.ps1` on push and is the source of
+  truth. Masterize checks 8-26 (Phase 1B) will also run.
+
+**Risks / follow-ups:**
+- Minimal. The Container check is stricter than the previous bare
+  `Test-Path`, so the only behavior change on directories that pass
+  today is: unchanged. The Leaf branch converts a previously silent
+  "0 found" into a specific error message. No parameter binding
+  changes, no destructive code path touched.
+- Outstanding candidates from prior entries not addressed this pass:
+  - **`Show-ImageList` / `Show-ImageSelection` factoring** — open in
+    PR #56 (test: refactor Show-ImageSelection delegates render to
+    Show-ImageList). Deferred here to avoid conflicts.
+  - No other high-confidence, small-scope items I could confirm are
+    genuinely unclaimed after scanning ~140 open PRs.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -329,8 +329,16 @@ function Find-ImageFiles {
 
     # If specific image path provided, search there
     if ($ImagePath) {
-        if (Test-Path $ImagePath) {
+        if (Test-Path $ImagePath -PathType Container) {
             return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
+        }
+        if (Test-Path $ImagePath -PathType Leaf) {
+            # Common typo: passing a .wim / .esd to -ImagePath. Steer to -WimFile
+            # so the operator doesn't stare at "0 images found" wondering why
+            # the file they can clearly see wasn't picked up.
+            Write-Log "-ImagePath expects a directory but got a file: $ImagePath" -Level Error
+            Write-Log "Use -WimFile for a single image file, or -ImagePath for a directory to search." -Level Info
+            return @()
         }
         Write-Log "Specified image path not found: $ImagePath" -Level Error
         return @()

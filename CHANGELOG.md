@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`-ImagePath` given a file now fails loudly with a fix-it hint.**
+  `Find-ImageFiles` previously called `Test-Path $ImagePath` with no
+  `-PathType`, so passing a `.wim` / `.esd` file to `-ImagePath` (a
+  common typo when the operator meant `-WimFile`) fell through to
+  `Search-DirectoryForImages` and produced "No Windows image files
+  found!" on a file the operator could clearly see on screen. The
+  check now distinguishes Container vs Leaf: a directory works as
+  before; a file surfaces `-ImagePath expects a directory but got a
+  file` plus a one-line pointer at `-WimFile`. Non-existent paths
+  still fall through to the existing "Specified image path not
+  found" message.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
