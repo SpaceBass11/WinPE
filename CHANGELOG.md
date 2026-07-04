@@ -9,6 +9,21 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Fatal `catch` now emits script position and stack trace.**
+  The outer `try/catch` in `unified_winpe_deploy.ps1` previously logged
+  only `$_.Exception.Message` on a critical error, then exited. Every
+  risky in-flow operation (Get-WimImageInfo, Invoke-Diskpart,
+  Apply-WindowsImage, Set-BootConfiguration, Initialize-BitLockerSetup)
+  already returns `$false` via its own inner `try/catch` on expected
+  failure modes, so what reaches the outer catch is almost always a
+  programming defect (null-ref, missing property, unbound var) where
+  the message alone doesn't tell the operator which of ~2000 lines
+  raised it. Now dumps `$_.InvocationInfo.PositionMessage` (script
+  file / line / column / highlighted source) and `$_.ScriptStackTrace`
+  (function call chain) before the log-path and exit hints — matches
+  the diagnostic-block pattern used by `Invoke-Diskpart` and
+  `Set-BootConfiguration` on their own failure paths. No behavior
+  change on success paths.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

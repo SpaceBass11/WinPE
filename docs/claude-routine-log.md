@@ -5,6 +5,83 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — Fatal `catch` emits script position + stack trace
+
+**Investigated:** all 44+ open Claude routine PRs (#154-#198) to avoid
+duplicating in-flight work, then read the outer `try/catch` in
+`unified_winpe_deploy.ps1` (lines 1974-1998). Every risky in-flow
+operation — `Get-WimImageInfo`, `Invoke-Diskpart`, `Apply-WindowsImage`,
+`Set-BootConfiguration`, `Initialize-BitLockerSetup` — already handles
+its expected failures through its own inner `try/catch` and returns
+`$false`, which routes through the `-not $success` branch that logs
+`Full log: ...` and exits 1. The outer `catch` is exclusively for
+programming defects (null-ref, unbound var, bad property access, typo'd
+key on `$Script:Config`). On those, the current output is one line:
+`Critical error: <Exception.Message>`. That is enough to identify the
+class of error but never enough to identify where in ~2000 lines it
+came from — the operator has to send the full log to whoever wrote the
+script and hope. Independently confirmed no open PR touches this block
+(`PositionMessage` / `ScriptStackTrace` / `"critical error"` searches
+all returned 0 results across open PRs).
+
+**Changed:**
+
+- `unified_winpe_deploy.ps1` — outer `catch` at line 1984 now dumps
+  `$_.InvocationInfo.PositionMessage` (multi-line "At file:line:col +
+  highlighted source" pointer, same shape as the standard PowerShell
+  error dump) and `$_.ScriptStackTrace` (function call chain) after
+  the existing `Critical error: ...` line and before `Full log: ...`.
+  Guarded on each field being non-null so no `Level Error` no-op line
+  fires if PowerShell surfaces an anemic exception object. Uses the
+  same `foreach ($line in ($string -split "\`n")) { Write-Log "  $line" }`
+  indent pattern that `Invoke-Diskpart`'s output-dump uses (lines
+  1046-1049 and 1059-1062), keeping the log format consistent.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed` at the
+  top of the section, ahead of the `Get-SystemDisks` fixture entry.
+
+**Verification:**
+
+- **Structural.** `pwsh` bootstrap per the CLAUDE.md snippet fails from
+  this container's egress proxy (HTTP 403 on
+  `github.com/PowerShell/PowerShell/releases/...`), same failure class
+  documented in every routine PR back to 2026-05-11 and the deep
+  review's Validation Notes. Fell back to structural review.
+- Raw character brace balance on `unified_winpe_deploy.ps1`:
+  **403 open / 403 close** (was 397/397; +6/+6 from three new `if` /
+  `foreach` blocks, matches the count of added `{`/`}` tokens).
+- Region balance: **10 `#region` / 10 `#endregion`** (unchanged).
+- Verified `$_.InvocationInfo.PositionMessage` and `$_.ScriptStackTrace`
+  are documented in PSv5.1+ (PowerShell 3+ for both). WinPE ships PSv5.1;
+  no compatibility risk.
+- Verified the two properties exist on the caught `ErrorRecord` in every
+  standard PowerShell exception path (`throw`, unhandled cmdlet errors,
+  runtime .NET exceptions). They can be `$null` on synthesized
+  `ErrorRecord` objects (rare), which is why the code guards on each.
+
+**Risks / follow-ups:**
+
+- **Minimal.** Additive-only logging on an already-fatal path — the
+  process was going to `exit 1` in the next few lines either way. No
+  effect on success paths, no destructive operation touched, no
+  parameter surface changed. Worst realistic case: PowerShell version
+  or exception source produces an unexpected shape for
+  `PositionMessage` / `ScriptStackTrace` and the `foreach` loop emits
+  ugly-but-harmless output; the `$_.InvocationInfo -and
+  $_.InvocationInfo.PositionMessage` and `$_.ScriptStackTrace` guards
+  drop each block cleanly if the field is null or empty.
+- **Not a version bump.** Behavior-preserving diagnostic enrichment on
+  an existing code path — same category as the 2026-05-16 "Log path
+  reminder on fatal exit" routine entry, which also declined a bump.
+- **Follow-ups from the open backlog that I did not take this pass:**
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out (deferred across
+    multiple routine passes; the menu render is load-bearing UX).
+  - A masterize CI check pinning `-ErrorAction Stop` on any I/O cmdlet
+    inside a `try/catch` would close the entire silent-fallthrough
+    class permanently (flagged in PR #194's routine entry).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
