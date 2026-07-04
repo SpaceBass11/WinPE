@@ -5,6 +5,127 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — Preserve deploy log to `C:\Windows\Panther\WinPE-Deploy\` on reboot
+
+**Investigated:** the 10 open Claude routine PRs (#181-#190) and their
+subject files, then the routine backlog. PRs #182-#190 concentrate on
+test_parse invariants, docs, masterize CI checks, build_iso pre-flight,
+and `deploy.args.example` — none touch the deploy-log lifecycle. PR
+#189's "Next recommended improvement" bullet explicitly flagged: "the
+deploy log lives in `X:\Windows\Temp` (RAM disk), so it's lost the
+moment the operator picks 'shutdown'" — same gap I saw when walking
+`Start-Deployment`'s tail.
+
+**Found:** `$Script:SystemPaths.LogFile` is set to
+`Join-Path $TempDir "deploy_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"`
+at `unified_winpe_deploy.ps1:285-286` and `$TempDir` almost always
+resolves to `X:\Windows\Temp` in WinPE (the first fallback candidate at
+line 260). `X:` is the WinPE RAM disk. The success path prompts
+"Shutdown the system now?" at line 1962 and the log is gone the
+moment that reboot fires. The fatal-exit paths at 1979/1987 print the
+log path and immediately `exit 1` — same problem the second the
+operator reboots to try recovery. Meanwhile `C:\Windows\Panther\`
+already exists on the target the moment DISM apply completes (line
+1929 verifies it), and the unattend.xml step at line 1933 already
+lands answer files there, so it's a natural home for forensic
+artifacts that need to survive into the deployed OS.
+
+The failure case is the more valuable one: on success the log is
+mostly confirmation, but on failure the operator wants to know what
+went wrong AND may want to run recovery from the deployed image. Both
+matter.
+
+**Changed:**
+
+- `unified_winpe_deploy.ps1` — new `Save-DeployLogToTarget` helper
+  inserted at the end of the Core Functions region (after
+  `Show-MessageBox`, before `#endregion` at what was line 246). Guards
+  on `$Script:SystemPaths.LogFile` being set, the source log file
+  existing, and `C:\Windows` existing as a container. Creates
+  `C:\Windows\Panther\WinPE-Deploy\` if missing, copies the log with
+  its original filename preserved, logs "Deploy log preserved to
+  target: <path>" on success and a Warning-level message on any
+  I/O error. All errors are swallowed — preservation must never
+  break a successful deploy or add noise to a fatal exit. Called
+  from three sites: (1) success path in `Start-Deployment` right
+  before the shutdown prompt (previously line 1962), (2) the outer
+  `if (-not $success)` fatal-exit block after the "Full log:"
+  hint, (3) the outer `catch` block on unhandled exceptions.
+- `docs/TROUBLESHOOTING.md` — new "Reading the deploy log after
+  reboot" subsection under "Getting Debug Info" documenting both
+  paths (`X:\Windows\Temp\` during the WinPE session,
+  `C:\Windows\Panther\WinPE-Deploy\` post-first-boot) and what an
+  empty `WinPE-Deploy\` directory means (failure before DISM apply
+  — inspect `X:` in the still-running session).
+- `CHANGELOG.md` — new `### Added` bullet under `## Unreleased`
+  describing the behavior. No `$Script:Config.ScriptVersion` bump:
+  the change is additive observability, not a bug fix, and prior
+  routine entries have taken the same "no version bump for pure
+  observability adds" posture (see the 2026-05-16 "Log path
+  reminder on fatal exit" entry).
+
+**Verification:**
+
+- **Chose the variable name `$logTargetDir` inside the helper to
+  avoid tripping masterize CI check #14** (`.github/workflows/ci.yml`
+  line 277: `panther=$(grep -n 'pantherDir.*Panther' $script | head -1)`).
+  The check finds the FIRST `pantherDir.*Panther` match and asserts
+  `verifyPaths < panther < Set-BootConfiguration` ordering. My new
+  helper contains the literal string `C:\Windows\Panther\WinPE-Deploy`
+  but NO occurrence of `pantherDir`, so the grep still latches onto
+  the existing `$pantherDir = 'C:\Windows\Panther'` line at ~1933 and
+  the ordering assertion still holds. Verified by hand:
+  `grep -n 'pantherDir.*Panther' unified_winpe_deploy.ps1` returns
+  exactly the two existing lines (the assignment and the reference),
+  both after the deployment-verification block.
+- Brace / paren balance on `unified_winpe_deploy.ps1` walked by hand:
+  the helper adds one `try { ... } catch { ... }` (+2 open / +2
+  close) plus two nested `if (...)  { ... }` bodies used for the
+  short-circuit returns (+2/+2 more). Call sites at the three
+  invocation points add no braces. Region markers unchanged
+  (still 10 `#region` / 10 `#endregion`).
+- No new imports, no new modules, no new external calls. The helper
+  uses only `Test-Path`, `New-Item`, `Split-Path`, `Join-Path`,
+  `Copy-Item`, `Write-Log` — all PSv5.1-safe and WinPE-available.
+- `-LiteralPath` used on every Test-Path/Copy-Item/New-Item call so
+  a log filename that happens to contain wildcard metachars can't
+  cause a mismatch (the shipped filename format
+  `deploy_YYYYMMDD_HHMMSS.log` has none, but the pattern is defensive).
+- `pwsh` bootstrap attempted per CLAUDE.md's documented recipe
+  (`curl -fsSL https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/...`)
+  — the egress proxy blocked it with 403 (documented constraint in
+  every prior routine entry). Structural review only. CI's `syntax`
+  job on `windows-latest` runs `PSParser::Tokenize` and
+  `tests/test_parse.ps1` end-to-end on push and is the source of
+  truth.
+
+**Risks / follow-ups:**
+
+- Low. The change is additive: a helper that no-ops when its
+  prerequisites (`LogFile`, source file, `C:\Windows`) aren't
+  satisfied, plus three call sites that unconditionally invoke it.
+  Worst-case outcome is a single `Write-Log ... Warning` line on
+  first-boot forensic-loss (which the operator wouldn't notice
+  anyway because the log was already lost).
+- The Warning-level "Could not preserve deploy log" line is written
+  AFTER the copy attempt, so it lands in the X: log but not in the
+  target-copied log (if partial). That's the correct tradeoff —
+  making the log preservation self-report inside the file it's
+  trying to preserve would require re-copying after the message,
+  and single-line drift isn't worth the complexity.
+- Outstanding backlog from prior entries:
+  - `Show-ImageList` / `Show-ImageSelection` code duplication —
+    deferred again; load-bearing TUI, no reported defect.
+  - Pester coverage for `prepare_wim.ps1` parameter-set binding —
+    needs a full Pester harness for `[CmdletBinding(DefaultParameterSetName='FromIso')]`.
+  - A follow-up test for `Save-DeployLogToTarget`'s C:\Windows
+    guard could live in `tests/test_parse.ps1` as an invariant
+    grep (e.g. "helper checks for `C:\Windows` existence before
+    the Copy-Item"). Deferred here to keep the change small; the
+    guard is code-review-obvious as written.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -243,6 +243,30 @@ function Show-MessageBox {
         return 'OK'
     }
 }
+
+function Save-DeployLogToTarget {
+    # Copy the WinPE deploy log from the RAM disk (X:\Windows\Temp) to
+    # C:\Windows\Panther\WinPE-Deploy\ so it survives the shutdown/reboot into
+    # the deployed Windows. Silent no-op when the log file is unset or C:\Windows
+    # doesn't exist yet (deploy failed before DISM apply). All errors are
+    # swallowed - preserving the log must never block a successful deploy or
+    # add noise to a fatal exit.
+    if (-not $Script:SystemPaths.LogFile) { return }
+    if (-not (Test-Path -LiteralPath $Script:SystemPaths.LogFile -PathType Leaf)) { return }
+    if (-not (Test-Path -LiteralPath 'C:\Windows' -PathType Container)) { return }
+
+    try {
+        $logTargetDir = 'C:\Windows\Panther\WinPE-Deploy'
+        if (-not (Test-Path -LiteralPath $logTargetDir)) {
+            New-Item -ItemType Directory -Path $logTargetDir -Force -ErrorAction Stop | Out-Null
+        }
+        $dest = Join-Path $logTargetDir (Split-Path -Leaf $Script:SystemPaths.LogFile)
+        Copy-Item -LiteralPath $Script:SystemPaths.LogFile -Destination $dest -Force -ErrorAction Stop
+        Write-Log "Deploy log preserved to target: $dest" -Level Success
+    } catch {
+        Write-Log "Could not preserve deploy log to C:\Windows\Panther\WinPE-Deploy\: $($_.Exception.Message)" -Level Warning
+    }
+}
 #endregion
 
 #region System Discovery
@@ -1958,6 +1982,11 @@ function Start-Deployment {
     Write-Banner "DEPLOYMENT COMPLETED SUCCESSFULLY"
     Write-Log "Windows image has been deployed and is ready for first boot" -Level Success
 
+    # Preserve deploy log on target - X:\Windows\Temp is a RAM disk and
+    # vanishes on reboot; the operator loses forensic value the moment
+    # they pick "shutdown" below.
+    Save-DeployLogToTarget
+
     if (-not $Silent) {
         $result = Show-MessageBox -Message "Deployment completed successfully!`n`nShutdown the system now?" -Title "Success" -Buttons "YesNo" -Icon "Information"
         if ($result -eq 'Yes') {
@@ -1979,6 +2008,9 @@ try {
         if ($Script:SystemPaths.LogFile) {
             Write-Log "Full log: $($Script:SystemPaths.LogFile)" -Level Info
         }
+        # If DISM already applied the image before the failure, preserve the
+        # log on the target so it survives a reboot (no-op otherwise).
+        Save-DeployLogToTarget
         exit 1
     }
 } catch {
@@ -1986,6 +2018,7 @@ try {
     if ($Script:SystemPaths.LogFile) {
         Write-Log "Full log: $($Script:SystemPaths.LogFile)" -Level Info
     }
+    Save-DeployLogToTarget
     if (-not $Silent) {
         Read-Host "Press Enter to exit"
     }

@@ -8,6 +8,21 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added
+- **Deploy log now survives reboot into the deployed Windows.** The
+  session log has always lived at `X:\Windows\Temp\deploy_YYYYMMDD_HHMMSS.log`
+  on the WinPE RAM disk, which vanishes the moment the operator picks
+  "shutdown" at the success prompt. A new `Save-DeployLogToTarget`
+  helper copies the log to
+  `C:\Windows\Panther\WinPE-Deploy\deploy_YYYYMMDD_HHMMSS.log` on the
+  target so it survives into the deployed OS as a provenance artifact
+  (colocated with the unattend.xml that already lands in Panther).
+  Called on the success path just before the shutdown prompt, and
+  from the outer fatal-exit paths in case DISM applied the image
+  before the failure. Silent no-op when `C:\Windows` doesn't exist
+  yet (deploy failed before DISM apply); errors are swallowed so
+  preservation cannot break a successful deploy.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
