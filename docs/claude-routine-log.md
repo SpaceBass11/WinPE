@@ -5,6 +5,102 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `-UnattendFile` copy failure printed a false success
+
+**Investigated:** open PRs (10 in flight, none overlapping this area),
+the routine log's backlog, and the post-DISM staging block for
+`-UnattendFile` in `unified_winpe_deploy.ps1`. Compared to
+`Initialize-BitLockerSetup`, which wraps `Set-Content` in a
+`try/catch` and returns `$false` on failure — the unattend block was
+the odd one out.
+
+**Found:** lines 1931-1939 (pre-edit) staged `unattend.xml` with a
+bare `Copy-Item -Path $UnattendFile -Destination "$pantherDir\unattend.xml" -Force`
+followed unconditionally by
+`Write-Log "Unattend file staged: ..." -Level Success`. `Copy-Item`
+raises a *non-terminating* error unless `-ErrorAction Stop`, so with
+the script's default `$ErrorActionPreference = 'Continue'`, a
+permission-denied / disk-full / path failure printed a red PowerShell
+line but did NOT abort the subsequent success log. The `New-Item -Force`
+for `C:\Windows\Panther` above it had the same shape. Downstream,
+Windows Setup silently ignores a missing `C:\Windows\Panther\unattend.xml`
+and OOBE prompts on first boot — the exact silent-fallthrough class
+that PR #47's pre-flight XML well-formedness check was written to
+prevent. And this failure mode wasn't caught by any existing test.
+
+**Changed:**
+
+- `unified_winpe_deploy.ps1` — wrapped the staging block in
+  `try { New-Item ... -ErrorAction Stop; Copy-Item ... -ErrorAction Stop;
+  Write-Log "Unattend file staged" } catch { Write-Log ... }`. Catch
+  block logs the exception, the OOBE consequence, and two operator
+  recovery paths (complete OOBE manually, OR re-boot WinPE and re-copy
+  the file before first boot). BCDBoot still runs so the target stays
+  bootable — aborting after DISM apply would leave a half-configured
+  disk that can't even reach OOBE.
+- `tests/test_parse.ps1` — added Test 8b (two drift guards):
+  `Copy-Item -Path $UnattendFile ... -ErrorAction Stop` regex and the
+  literal `First boot will land in manual OOBE` recovery-guidance
+  line. Matches the invariant-pin pattern used by Test 9
+  (`build_boot_wim`, PR #52) and the currently-open PR #182
+  (`first-login`). Uses `\`$UnattendFile` to escape the `$` in the
+  test's own string literal so PowerShell doesn't expand it.
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of `## Unreleased`,
+  short prose matching the tone of neighbouring 4.7.0-era entries.
+  No script-version bump (behaviour-preserving bug fix on an existing
+  code path; new safeguard on a rare failure mode).
+
+**Verification:**
+
+- `pwsh` install per CLAUDE.md's one-liner failed today — the proxy
+  returns `403` on `github.com/PowerShell/PowerShell/releases/...`
+  (same class of block as PSGallery access documented in CLAUDE.md).
+  Documented in the failure classes at `/root/.ccr/README.md`; not a
+  problem I can route around.
+- Structural check done in Python instead: brace count 400/400 in
+  `unified_winpe_deploy.ps1`, 25/25 in `tests/test_parse.ps1` (both
+  unchanged from pre-edit). Both new-test regex patterns
+  (`Copy-Item -Path $UnattendFile ... -ErrorAction Stop` and
+  `First boot will land in manual OOBE`) verified to match the
+  post-edit source in one Python `re.search` pass — so the guards go
+  from missing-to-green, not missing-to-red.
+- CI runs the real `[System.Management.Automation.PSParser]::Tokenize`
+  and Pester suite on push. If the try/catch shape is wrong or the
+  regex doesn't match on real PSv5.1, the syntax job fails on the
+  first push — same feedback loop that caught the analogous drift in
+  PR #50.
+
+**Risks / follow-ups:**
+
+- Minimal. Behaviour on the happy path is unchanged: successful
+  `Copy-Item` still logs `Unattend file staged: ...` and continues to
+  `Initialize-BitLockerSetup` and `Set-BootConfiguration`. The only
+  behavioural difference is on the (rare) failure path, and there
+  the change is strictly additive: an explicit error message replaces
+  a silent false-success.
+- The parallel `Copy-Item` in `New-DiskpartScript` / `Invoke-Diskpart`
+  isn't here — those already run their own exit-code checks. The
+  post-apply `Copy-Item` was the only silently-uncaught one.
+- Deferred backlog still in the log: `Show-ImageList` / `Show-ImageSelection`
+  ~30-line render refactor (load-bearing TUI UX; not urgent). No
+  new items surfaced this pass.
+
+**Next recommended improvement:**
+
+- The BitLocker setup script embeds `Set-Content -Path
+  "$scriptsDir\bitlocker-setup.ps1" -Value $bitlockerScript -Encoding
+  UTF8 -Force`. That is wrapped in `try/catch` at
+  `Initialize-BitLockerSetup`, but the `New-Item -ItemType Directory
+  -Path $scriptsDir -Force` at line 1526 is not — a `New-Item`
+  failure there would raise up to the enclosing `try` inside
+  `Initialize-BitLockerSetup`, so it's structurally safe today, but
+  worth spot-checking on the next audit pass to confirm the exception
+  actually flows through the two-line `if (-not (Test-Path)) {
+  New-Item ... -Force | Out-Null }` shape and not just the inner
+  `Set-Content`.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

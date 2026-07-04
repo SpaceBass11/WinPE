@@ -8,6 +8,25 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Unattend staging no longer prints a false success on `Copy-Item` failure.**
+  The post-apply `-UnattendFile` staging block ran
+  `Copy-Item -Path $UnattendFile -Destination $pantherDir\unattend.xml -Force`
+  with default `-ErrorAction Continue`, then unconditionally logged
+  `Unattend file staged: ...` on the next line. A permission /
+  disk-full / path failure printed a red error line but the summary
+  still claimed success, and Windows Setup silently ignored the
+  missing file — the target then landed in manual OOBE at first boot,
+  the exact failure mode the pre-flight XML well-formedness check was
+  added to prevent. `New-Item` and `Copy-Item` now use
+  `-ErrorAction Stop` inside a `try/catch`; on failure the script
+  logs the exception, the OOBE consequence, and two recovery paths
+  (complete OOBE manually, or boot back into WinPE and re-copy the
+  file before first boot). BCDBoot still runs so the system stays
+  bootable. New `tests/test_parse.ps1` drift guards (8b) pin
+  `-ErrorAction Stop` on the copy and the recovery-guidance line so a
+  future refactor can't quietly drop either.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
