@@ -5,6 +5,90 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `docs/SCRIPT_REFERENCE.md` refresh for v4.7.x BitLocker params
+
+**Investigated:** open PRs (#186–#195, 10 in flight), maintenance-log
+backlog items, and doc coverage of every runtime parameter in
+`unified_winpe_deploy.ps1`. Cross-referenced the script's
+`[CmdletBinding()] param(...)` block (13 parameters) against the
+Parameters section of `docs/SCRIPT_REFERENCE.md` (9 parameters).
+
+**Found:** the four BitLocker / data-disk parameters introduced in
+v4.7.0 (`-DataDiskNumber`, `-EnableBitLocker`, `-BitLockerPin`,
+`-BitLockerKeyPath`) are documented in `docs/BITLOCKER.md` but were
+never added to `docs/SCRIPT_REFERENCE.md` — the file CLAUDE.md calls
+"Full parameter and function reference." The reference file's
+`$Script:Config` example block also still showed `ScriptVersion =
+'4.6.0'` and omitted the four v4.7.x config keys
+(`BitLockerPin`, `BitLockerKeyDir`, `DataDiskNumber`,
+`EnableBitLocker`). The Safety Chain diagram skipped the BitLocker
+parameter-validation gate, the `WIPE DATA` prompt, the D:-format hop
+inside diskpart, and the BitLocker staging step between unattend copy
+and BCDBoot. None of the 10 open PRs touch this file (grepped titles
++ bodies), so no in-flight work to duplicate.
+
+**Changed:**
+
+- `docs/SCRIPT_REFERENCE.md`:
+  - Added parameter sections for `-DataDiskNumber`, `-EnableBitLocker`,
+    `-BitLockerPin`, `-BitLockerKeyPath` after `-ListOnly`. Each links
+    back to `BITLOCKER.md` for full behavior, mirrors the
+    `.PARAMETER` help in the script header, and includes a working
+    example invocation for the two that materially change the deploy
+    (`-DataDiskNumber` and `-BitLockerPin`).
+  - Bumped the sample `$Script:Config` block from `'4.6.0'` to
+    `'4.7.1'` and added the four BitLocker / data-disk keys with the
+    same comment the script uses inline.
+  - Added a **BitLocker Staging** table (2 rows:
+    `Resolve-BitLockerKeyPath`, `Initialize-BitLockerSetup`) between
+    the existing BIOS Configuration and Image Index Selection
+    sections.
+  - Added a `Test-FinalWipeConfirmation` row to Disk Management (was
+    a v4.7.0 addition previously called out in the routine log's
+    "not yet documented" list).
+  - Expanded the Safety Chain diagram to reflect the current runtime
+    flow.
+- `CHANGELOG.md`: bullet under `## Unreleased / ### Changed`
+  describing the coverage refresh.
+
+**Verification:**
+
+- Doc-only change; no PowerShell files touched, so
+  `tests/test_parse.ps1` has nothing new to cover here. `pwsh`
+  install per the CLAUDE.md note wasn't needed for this change.
+- Cross-file version consistency (masterize CI check #1): `grep -c
+  4.7.1` for `CLAUDE.md`, `CHANGELOG.md`, `README.md`,
+  `unified_winpe_deploy.ps1` → 2 / 4 / 1 / 2 respectively (all
+  non-zero). The CHANGELOG bump adds an occurrence in the
+  Unreleased-Changed bullet body; the reference bump replaces a
+  `'4.6.0'` with `'4.7.1'` inside the sample Config block.
+- Markdown sanity: fenced code block count is 30 (even) and no
+  unclosed blocks at EOF. All inline links (`BITLOCKER.md`,
+  `CCTK.md`) resolve — files exist under `docs/`.
+- Parameter descriptions cross-checked against the script's
+  `.PARAMETER` help (lines 46-79 of `unified_winpe_deploy.ps1`) and
+  against `docs/BITLOCKER.md`. Defaults, validation constraints, and
+  interactive-vs-silent behavior match.
+
+**Risks:** Minimal — this is documentation only. No destructive code
+paths, no CI-invariant strings touched. Worst case is a wording nit
+someone catches in review.
+
+**Next recommended improvement:**
+
+- `Show-ImageList` / `Show-ImageSelection` still share ~30 lines of
+  listing-render code (routine backlog since at least 2026-05-16).
+  Deferred because the menu render is load-bearing TUI UX; a
+  refactor would need a hardware-run screenshot pass to confirm no
+  spacing regressions.
+- `docs/SCRIPT_REFERENCE.md` still doesn't cover `scripts/build_iso.ps1`
+  parameters (added in PR #35). That's the biggest remaining doc-drift
+  gap in this file; a follow-up run could add a `build_iso.ps1`
+  section paralleling the existing `build_boot_wim.ps1` and
+  `prepare_wim.ps1` sections.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

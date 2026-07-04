@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/SCRIPT_REFERENCE.md` refreshed for v4.7.x.** Added parameter
+  sections for `-DataDiskNumber`, `-EnableBitLocker`, `-BitLockerPin`,
+  and `-BitLockerKeyPath` (all introduced in v4.7.0 but never
+  documented in the reference). Bumped the sample `$Script:Config`
+  block from `'4.6.0'` to `'4.7.1'` and added the four BitLocker /
+  data-disk config keys. Added a **BitLocker Staging** row to the
+  Functions section for `Resolve-BitLockerKeyPath` and
+  `Initialize-BitLockerSetup`, and a `Test-FinalWipeConfirmation` row
+  to Disk Management. Expanded the Safety Chain diagram to include the
+  BitLocker parameter-validation gate, the `WIPE DATA` prompt, the
+  D:-format hop inside diskpart, and the BitLocker staging step
+  between unattend copy and BCDBoot. Doc-only; no script change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
