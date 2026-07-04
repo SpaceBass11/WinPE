@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/build_iso.ps1` now cross-validates silent-mode disk
+  parameters before staging any files.** The three collisions that
+  `unified_winpe_deploy.ps1` rejects at boot — `-WipeDisks` containing
+  the primary `-TargetDisk`, `-WipeDisks` containing `-DataDiskNumber`,
+  and `-DataDiskNumber` equal to `-TargetDisk` — are now caught at ISO
+  build time instead of on the end-user's laptop after the ISO has been
+  shipped. The `-WipeDisks` format regex, previously buried inside the
+  deploy.args generation branch (which runs after the WIM has already
+  been robocopied into staging), moved into the same pre-flight block.
+  Interactive-mode ISOs ignore all three parameters (operator picks at
+  the TUI), so the checks are silent-only.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

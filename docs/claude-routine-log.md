@@ -5,6 +5,86 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `build_iso.ps1` early-fail on silent-mode disk collisions
+
+**Investigated:** the 10 open Claude routine PRs (#178-#187) to avoid
+duplicating in-flight work, then the `build_iso.ps1` -> `deploy.args` ->
+`unified_winpe_deploy.ps1` end-to-end path. Open PRs cover: masterize
+CI invariants (#187, #184), `-ImagePath` file guard (#186),
+`build_boot_wim` renames + safety (#185, #179), first-login docs +
+parse invariants (#183, #182, #181), `prepare_wim` invariants (#180),
+BitLocker LookupMode Pester (#178). None touch `build_iso.ps1`.
+
+**Found:** `unified_winpe_deploy.ps1` rejects three disk-number
+collisions at boot time — `-DataDiskNumber` equal to `-TargetDisk`
+(line 1797), `-WipeDisks` containing `-TargetDisk` (via the candidate
+filter at line 1385 → rejection at line 1395), and `-WipeDisks`
+containing `-DataDiskNumber` (line 1830-1831). `build_iso.ps1` validates
+none of them: it happily writes a `deploy.args` that will fail at boot,
+after the operator has already produced and shipped an ISO. Worse,
+the one format check it does perform (`-WipeDisks` comma-separated regex,
+line 287) runs inside the deploy.args generation branch — *after* the
+staging step has already robocopied the WIM into the work directory.
+So `-WipeDisks 'garbage'` on a 6 GB WIM makes the operator wait for the
+full copy before the format error surfaces.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a `--- Silent-mode disk parameter
+  cross-checks ---` block after the existing input-validation phase
+  (right after the `$BitLockerPin`/`$UnattendFile` warning, before the
+  output-dir resolve). Guarded on `-not $Interactive` because
+  interactive mode ignores all three parameters (the TUI picks). Runs
+  the `-WipeDisks` format regex first, then intersects the parsed
+  numeric list with `$TargetDisk` and `$DataDiskNumber`, and finally
+  checks `$DataDiskNumber -eq $TargetDisk` directly. Each failure
+  `throw`s with a message that names the exact colliding numbers and
+  points at which parameter to change. The pre-existing regex check
+  inside the deploy.args generation branch dropped (superseded); left
+  a one-line comment pointing at the new pre-flight so a future reader
+  doesn't re-add it.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing the
+  new gate and why it's silent-only.
+
+**Verification:**
+- Brace balance on `scripts/build_iso.ps1`: 44 open / 44 close (net
+  +2 / +2 from the new nested `if` block, minus the removed one).
+- Manual walk-through of five collision cases against the new block:
+  `-WipeDisks '0,1' -TargetDisk 0` → throws "target disk 0"; `-WipeDisks
+  '1,2' -TargetDisk 0 -DataDiskNumber 1` → throws "-DataDiskNumber 1";
+  `-DataDiskNumber 0 -TargetDisk 0` → throws "same as -TargetDisk";
+  `-WipeDisks 'abc'` → throws format error; happy path
+  `-TargetDisk 0 -DataDiskNumber 2 -WipeDisks '1,3'` → no throw.
+- Confirmed each rejected case corresponds 1:1 with an existing
+  deploy-script runtime rejection (line 1395, 1797, 1830-1831) so the
+  new checks don't over-reject relative to runtime behavior.
+- Interactive-mode path unchanged: `$argsLine = "-ImagePath ..."`
+  branch is not touched; the pre-flight is guarded on `-not
+  $Interactive`, and my read of the interactive TUI (`Select-TargetDisk`,
+  `Select-AdditionalWipeDisks`, `Start-Deployment` around line
+  1791-1830) confirms all three collisions are still caught there too.
+- `pwsh` isn't installable in this session (the container's network
+  policy currently returns 403 for the GitHub-Releases tarball URL
+  documented in CLAUDE.md, so `Install-Module`/`Test-Path pwsh` can't
+  bootstrap). CI's `syntax` job on `windows-latest` runs the real
+  `PSParser::Tokenize` on push — same fallback as PRs #23-#48.
+
+**Risks / follow-ups:**
+- Minimal. Additive input validation on a build-time script; no
+  runtime deploy path touched, no destructive code changed. Worst-case
+  regression is a false-positive rejection at ISO build time — visible
+  immediately to the operator, easy to work around with `-Interactive`.
+- The `-BitLockerPin` length (6-20 chars) is another runtime rejection
+  in the deploy script that `build_iso.ps1` doesn't pre-check; deferred
+  because CHANGELOG's `### Removed` entry says PIN *content* policy is
+  intentionally admin-owned. Length is a different category (Windows-
+  mandated, not a policy choice), so a future pass could move it too —
+  but keeping this change small.
+- No new `tests/test_parse.ps1` invariants added. Adding drift-guard
+  greps for the new throw messages would follow the `build_boot_wim`
+  invariant pattern (test_parse Test 9); reasonable next-pass item.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
