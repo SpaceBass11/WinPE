@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Doc-drift fix: `CLAUDE.md` + `AGENTS.md` reference the fourth
+  test file.** The `test_disk_enumeration.ps1` fixture landed in PR
+  #50 and is wired into the CI `syntax` job, but `CLAUDE.md`'s
+  "Running Checks" table still said the repo had "three test files"
+  and neither doc listed the new `pwsh -NoProfile -File
+  ./tests/test_disk_enumeration.ps1` command a local reviewer would
+  run. Same edit updates the stale "Phase 1B, checks 8-19" pointer
+  to "8-26" so it matches the current `masterize` check inventory
+  (checks 20 and 22-26 landed after that pointer was written).
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

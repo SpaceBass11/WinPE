@@ -108,23 +108,25 @@ Use `/review` to run a comprehensive check of the deployment script covering:
 
 ### Running Checks
 
-The repo has three test files; know which is which before changing one:
+The repo has four test files; know which is which before changing one:
 
 | File | What it covers | Where it runs |
 |------|----------------|---------------|
 | `tests/test_parse.ps1` | PowerShell syntax + function presence + version consistency across every shipped pipeline script (`unified_winpe_deploy.ps1` + the five under `scripts/`) | Anywhere with `pwsh` (also CI) |
 | `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` regex parser used by `Get-WimImageInfo` — guards against silent edition mis-attribution | Anywhere with `pwsh` (also CI) |
+| `tests/test_disk_enumeration.ps1` | Fixture test for `Get-SystemDisks` — USB/CD/removable filter and `Win32_DiskDrive.Partitions` precedence so Linux/LVM disks aren't silently rendered as empty in the target-disk menu | Anywhere with `pwsh` (also CI) |
 | `tests/validation-gates.Tests.ps1` | **Pester suite.** v4.7.0 BitLocker default-config invariants, `Resolve-BitLockerKeyPath` precedence, `New-DiskpartScript` source-drive protection, `Start-Deployment` validation gates | **CI only** — see Pester note below |
 
 ```bash
 # Syntax + parser fixtures - runs anywhere with pwsh installed
 pwsh -NoProfile -File ./tests/test_parse.ps1
 pwsh -NoProfile -File ./tests/test_wim_parser.ps1
+pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1
 ```
 
 The deeper safety/diskpart/BCDBoot greps that used to live in
 `validate_script.ps1` are now in the masterize CI job (Phase 1B,
-checks 8-19). They run on every push — no local replica needed.
+checks 8-26). They run on every push — no local replica needed.
 
 **Pester (`tests/validation-gates.Tests.ps1`) runs in CI only.** The
 Claude Code on the Web container's network policy typically blocks

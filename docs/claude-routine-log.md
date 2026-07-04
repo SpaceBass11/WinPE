@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — CLAUDE.md + AGENTS.md drift after PR #50 (`test_disk_enumeration.ps1`)
+
+**Investigated:** open PR list (#173-#192, twenty in flight and covering
+`build_iso` PIN length, `build_boot_wim` UsbDrive vs SystemDrive, unattend
+copy-errors, deploy log preservation, refresh_usb delegation invariants,
+deploy.args example comment, ImagePath file guard, and several
+masterize/Pester coverage extensions) to avoid duplication. Then walked
+the `.github/workflows/ci.yml` `syntax` job vs the doc-facing test tables
+in CLAUDE.md, AGENTS.md, and the PR template.
+
+**Found:** PR #50 (May 27) added `tests/test_disk_enumeration.ps1`,
+wired it into the CI `syntax` job as a third step, and recorded it in
+CHANGELOG.md. The doc surface never caught up:
+- `CLAUDE.md` line 111 still said "The repo has three test files"
+  (four now).
+- The Running Checks table (lines 113-118) omitted the new fixture,
+  and the runnable-commands block (lines 120-125) only listed the
+  two older tests. An operator following CLAUDE.md would run 2/3 of
+  the local-runnable suite.
+- `AGENTS.md`'s "Required validation before pushing" block (lines
+  56-59) had the same omission.
+- The "Phase 1B, checks 8-19" pointer in CLAUDE.md line 128 was also
+  stale — grep of `.github/workflows/ci.yml` shows the range now runs
+  1-20 and 22-26 (check 21 was the removed `ForbiddenBitLockerPins`
+  policy, recorded in CHANGELOG's Removed block). Fixing both drifts
+  in one commit since they're two symptoms of the same "docs lag CI"
+  problem.
+
+No open PR touched any of this — the closest one is #190 (refresh_usb
+delegation invariants) which adds a *new* assertion inside
+`test_parse.ps1` rather than documenting the disk-enumeration test.
+
+**Changed:**
+- `CLAUDE.md` — "three" → "four", added a `test_disk_enumeration.ps1`
+  row to the Running Checks table describing the USB/CD/removable
+  filter and the `Win32_DiskDrive.Partitions` precedence guard,
+  added the `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1`
+  invocation to the runnable-commands block, and updated the stale
+  masterize check range from `8-19` to `8-26`.
+- `AGENTS.md` — added the `pwsh -NoProfile -File
+  ./tests/test_disk_enumeration.ps1` line to the required-validation
+  block.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet on top
+  describing the doc-drift fix. Kept short; no version bump (docs
+  only, no `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- Doc-only change; no PowerShell logic touched. `pwsh` install into
+  `/opt/pwsh/` failed with HTTP 403 in this session's proxy state
+  (network policy blocked the GitHub Releases download that the
+  CLAUDE.md snippet uses), so `tests/test_parse.ps1` couldn't run
+  locally — same constraint captured in the deep-review's Validation
+  Notes. CI's `syntax` job on `windows-latest` runs all three
+  scripts on push.
+- Cross-checked the new table row against the actual `.SYNOPSIS`
+  block of `tests/test_disk_enumeration.ps1` (safety properties: (1)
+  USB/CD/removable exclusion, (2) `Win32_DiskDrive.Partitions` as
+  source of truth for Linux/LVM disks).
+- Confirmed the "checks 8-26" range against `grep -oE '=== [0-9]+\.'
+  .github/workflows/ci.yml` output (1-20, 22-26 — 21 was removed
+  when the PIN-content policy was stripped).
+- Confirmed no stray "three test files" or "checks 8-19" references
+  remain by grepping the repo.
+
+**Risks / follow-ups:**
+- Minimal. Doc-only edit. No production code touched. No new network
+  dependencies. Same category as the 2026-05-24 doc-drift fix that
+  synced the test-parse table with the six shipped scripts.
+- `.github/PULL_REQUEST_TEMPLATE.md` line 35 also only mentions
+  `test_parse.ps1` in its "Test plan" checklist. Left it alone this
+  pass — it's a template checklist, not a running-guide, and adding
+  two more required checkboxes changes the PR-submission UX. Worth
+  a separate think.
+- `README.md` line 413 ("Syntax validation for all scripts") lists
+  only `test_parse.ps1`; the README table is a marketing overview
+  rather than a validation guide, so leaving it as a summary row is
+  reasonable. Not fixed here.
+- Outstanding routine-backlog candidate from prior entries that I
+  did not take this pass: `Show-ImageList` / `Show-ImageSelection`
+  ~30-line dedupe — still load-bearing TUI UX, still deferred.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
