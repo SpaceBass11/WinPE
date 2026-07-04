@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Test-FinalWipeConfirmation` gains behavior-test coverage.**
+  New `Describe` block in `tests/validation-gates.Tests.ps1` pins the
+  normalization + exact-match semantics of the shared final-wipe typed-
+  confirmation parser used by `Select-TargetDisk`. Covers positive
+  cases (`ERASE` / `DELETE ALL DATA`, case variants, leading/trailing
+  whitespace) and negative cases (empty, whitespace-only, prefixes
+  like `ER` / `ERAS`, suffixes like `ERASE X` / `ERASED`, partial
+  matches like `DELETE ALL`, and the four other typed-confirmation
+  strings in the script: `WIPE ALL`, `WIPE DATA`, `DESTROY SYSTEM`,
+  `CONTINUE ANYWAY`). Masterize CI check #19 already guards the
+  literal strings; this closes the parser-behavior gap - a regression
+  that dropped `.Trim()` or loosened `-in` to `-match` would slip the
+  static grep but fail here. Test-only; no production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

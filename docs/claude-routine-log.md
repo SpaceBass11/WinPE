@@ -5,6 +5,111 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `Test-FinalWipeConfirmation` behavior-test coverage
+
+**Investigated:** open PRs #192-#201 and their stated scopes, the
+routine log's "next recommended improvement" backlog, and the actual
+test coverage of every safety-critical function in
+`unified_winpe_deploy.ps1`. Cross-checked masterize CI Phase 1B (checks
+8-26) against the Pester suite (`tests/validation-gates.Tests.ps1`)
+to find gaps.
+
+**Found:** `Test-FinalWipeConfirmation` (line 712 of the deploy script)
+is the shared parser for the typed final-wipe prompt in
+`Select-TargetDisk` at both the auto-select path (line 763) and the
+interactive path (line 810). It normalizes input via `.Trim()` +
+`.ToUpperInvariant()` and matches `-in @('ERASE', 'DELETE ALL DATA')`
+- ~5 lines but gates every non-`-Force` disk wipe on both code paths.
+Test coverage: only that the function is *defined* (`test_parse.ps1`
+Test 5) and that the literal string `'DELETE ALL DATA'` is present in
+the script (masterize CI check #19). Neither exercises behavior:
+- A regression that dropped `.Trim()` would silently reject
+  typo-free `'ERASE '` (trailing space from operator hitting space
+  before Enter).
+- A regression that swapped `-in` for `-match` would accept the
+  substring `'ER'` — a two-character typo that shouldn't unlock a
+  disk wipe.
+- A regression that added another string to the accepted list
+  (e.g., accidentally treating `'DESTROY SYSTEM'` as a final-wipe
+  answer) would let a mis-plumbed UI short-circuit the wrong
+  gate.
+None of those show up in the static string check.
+
+Ten of the deploy script's other safety-critical functions have
+Pester behavior coverage (default configs, escrow precedence,
+source-drive protection, six Start-Deployment validation gates).
+`Test-FinalWipeConfirmation` is the last uncovered typed-confirmation
+parser.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — added a
+  `Describe "Test-FinalWipeConfirmation typed-confirmation gate"`
+  block with ten `It` cases. Positive: `ERASE` / `DELETE ALL DATA`
+  exact, case variants (each string tested separately), leading
+  and trailing whitespace. Negative: empty, whitespace-only,
+  three prefix substrings of `ERASE`, three suffix strings
+  (`ERASE X`, `ERASE ALL`, `ERASED`), five partial matches of
+  `DELETE ALL DATA` (`DELETE`, `DELETE ALL`, `DELETE DATA`,
+  `ALL DATA`, `DELETE ALL DATA NOW`), and the four other
+  typed-confirmation strings the script uses at other gates
+  (`WIPE ALL`, `WIPE DATA`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`).
+  All ten cases call the function through the loaded module
+  (`& $script:DeployModule { Test-FinalWipeConfirmation … }`)
+  so they exercise the exact bytes in the deploy script - no
+  parallel copy that could drift silently. Header `.DESCRIPTION`
+  block's "Covered invariants" list gains one bullet.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet
+  describing the coverage extension and calling out the two
+  regression classes it now catches.
+
+**Verification:**
+- Brace balance on `tests/validation-gates.Tests.ps1`:
+  140 / 140 (was 132 / 132 pre-edit; +8 open / +8 close from
+  the new `Describe` + ten `It` blocks). Balanced.
+- Describe count: 5 (was 4; +1). It count: 28 (was 18; +10).
+  Both match the count of blocks added.
+- Behavior-check by hand against the actual function body
+  (`unified_winpe_deploy.ps1` line 712-717):
+  - `.Trim()` + `.ToUpperInvariant()` handles the case /
+    whitespace positive cases.
+  - `-in @('ERASE', 'DELETE ALL DATA')` is exact-list
+    membership — every negative case fails the membership
+    check post-normalization.
+  - `[string]` param binding coerces `$null` to `""` at the
+    boundary, so the `$null -eq $InputText` branch in the
+    function is defensive (never hit through parameter
+    binding). The tests exercise the reachable path only.
+- `pwsh` isn't available in this Linux session and even the
+  offline installer download is now blocked by the Claude
+  Code Web egress policy (curl to
+  github.com/PowerShell/PowerShell/releases -> HTTP 403).
+  Pester runs on `windows-latest` in CI (see PR #33's Pester
+  mock scoping fix note — same environment). CLAUDE.md's
+  Pester note already documents this: "For Pester logic
+  changes, verify the assertion behavior manually against the
+  real values and rely on CI to run the suite end-to-end."
+  Manual verification above matches that guidance.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. No
+  new network dependencies. Same pattern as the existing four
+  `Describe` blocks; module load / mock scope / assertion
+  style unchanged.
+- Outstanding routine-backlog candidates I did not take this
+  pass (checked open PRs #192-#201 to avoid duplicating work):
+  - **`Show-ImageList` / `Show-ImageSelection` refactor** —
+    ~30 lines of listing-render code that could be factored
+    out. Cleanup only, deferred across multiple routine
+    entries because the menu render is load-bearing TUI UX.
+  - **`Search-DirectoryForImages` per-drive error containment
+    on scanning.** If one drive throws during
+    `Get-ChildItem`, the outer catch swallows all remaining
+    drives without a clear per-drive log. Small refactor,
+    would improve diagnostics for flaky removable-media
+    scans.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

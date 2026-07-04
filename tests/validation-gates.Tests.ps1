@@ -15,6 +15,9 @@
       - DataDiskNumber default off (-1)
       - EnableBitLocker default off ($false)
       - BitLockerPin default $null
+      - Test-FinalWipeConfirmation accepts 'ERASE' / 'DELETE ALL DATA'
+        (case-insensitive, trim-tolerant) and rejects prefix / suffix /
+        other typed-confirmation strings
       - Resolve-BitLockerKeyPath precedence (param > IMAGES > fallback,
         never D:\BitLocker)
       - New-DiskpartScript refuses to mountvol /d the WIM source drive
@@ -95,6 +98,78 @@ Describe "v4.7.0 default configuration (must stay opt-in)" {
     It "BitLockerPin default is `$null" {
         $val = & $script:DeployModule { $Script:Config.BitLockerPin }
         $val | Should -BeNullOrEmpty
+    }
+
+}
+
+Describe "Test-FinalWipeConfirmation typed-confirmation gate" {
+
+    # Test-FinalWipeConfirmation is the shared parser for the final
+    # "type this to wipe the disk" prompt in Select-TargetDisk. The
+    # masterize CI check #19 verifies the literal strings 'DELETE ALL DATA'
+    # and 'DESTROY SYSTEM' are still present in the script, but a static
+    # grep doesn't catch behavior drift - e.g. a regression that dropped
+    # .Trim() (rejecting typo-free 'ERASE ' with a trailing space) or
+    # loosened the match to -match (accepting the prefix 'ER'). These
+    # tests pin the normalization + exact-match semantics.
+
+    It "Accepts 'ERASE' exactly" {
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE' }) | Should -BeTrue
+    }
+
+    It "Accepts 'DELETE ALL DATA' exactly" {
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE ALL DATA' }) | Should -BeTrue
+    }
+
+    It "Accepts case variants of 'ERASE' (case-insensitive)" {
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'erase' })  | Should -BeTrue
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'Erase' })  | Should -BeTrue
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'eRaSe' })  | Should -BeTrue
+    }
+
+    It "Accepts case variants of 'DELETE ALL DATA'" {
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'delete all data' }) | Should -BeTrue
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'Delete All Data' }) | Should -BeTrue
+    }
+
+    It "Tolerates leading/trailing whitespace (operator typo forgiveness)" {
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText '  ERASE  ' })      | Should -BeTrue
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText " DELETE ALL DATA " }) | Should -BeTrue
+    }
+
+    It "Rejects empty and whitespace-only input" {
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText '' })    | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText '   ' }) | Should -BeFalse
+    }
+
+    It "Rejects prefix substrings of 'ERASE'" {
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'E' })    | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ER' })   | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERAS' }) | Should -BeFalse
+    }
+
+    It "Rejects strings with extra characters after 'ERASE'" {
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE X' })   | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE ALL' }) | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASED' })    | Should -BeFalse
+    }
+
+    It "Rejects partial matches of 'DELETE ALL DATA'" {
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE' })         | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE ALL' })     | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE DATA' })    | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ALL DATA' })       | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE ALL DATA NOW' }) | Should -BeFalse
+    }
+
+    It "Rejects the other typed-confirmation strings (each gate has its own parser)" {
+        # WIPE ALL / WIPE DATA / DESTROY SYSTEM / CONTINUE ANYWAY belong to
+        # other prompts. Accepting any of them here would let a mis-plumbed
+        # UI short-circuit the wrong confirmation.
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'WIPE ALL' })        | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'WIPE DATA' })       | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DESTROY SYSTEM' })  | Should -BeFalse
+        (& $script:DeployModule { Test-FinalWipeConfirmation -InputText 'CONTINUE ANYWAY' }) | Should -BeFalse
     }
 
 }
