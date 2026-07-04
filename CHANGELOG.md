@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Masterize CI check #19 now pins the full typed-confirmation set
+  (`ERASE`, `DELETE ALL DATA`, `DESTROY SYSTEM`, `WIPE ALL`,
+  `CONTINUE ANYWAY`).** Previously only `DELETE ALL DATA` and
+  `DESTROY SYSTEM` were verified; a refactor that removed the
+  target-disk `ERASE` prompt, the additional-wipe-group `WIPE ALL`
+  prompt, or the non-WinPE `CONTINUE ANYWAY` override would have
+  passed CI silently. Test-FinalWipeConfirmation Pester coverage
+  (PR #174) exercises the parser but not the prompt strings.
+  `WIPE DATA` is already covered by check #22. Pattern now matches
+  the single-quoted literal (`'ERASE'`) to avoid false positives
+  on the substring appearing in doc-strings or comments.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

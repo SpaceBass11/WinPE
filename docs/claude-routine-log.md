@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — masterize CI #19 misses `ERASE` / `WIPE ALL` / `CONTINUE ANYWAY`
+
+**Investigated:** the open routine PR fleet (#164–#183) to avoid duplicating
+in-flight work, then the masterize CI's Phase 1B check #19 ("Safety
+confirmation strings present") in `.github/workflows/ci.yml` against the
+full set of typed-confirmation strings the deploy script gates on.
+
+**Found:** check #19 only grep-pins `DELETE ALL DATA` and `DESTROY SYSTEM`.
+The deploy script uses **six** typed-confirmation strings across its safety
+chain: `ERASE` (target-disk wipe, `Test-FinalWipeConfirmation` and prompt),
+`DELETE ALL DATA` (parser alternative), `DESTROY SYSTEM` (system-disk wipe,
+not `-Force`-bypassable), `WIPE ALL` (additional-wipe-group), `WIPE DATA`
+(data-disk format), `CONTINUE ANYWAY` (non-WinPE override). Of those, only
+`DELETE ALL DATA` and `DESTROY SYSTEM` were in #19; `WIPE DATA` is
+separately verified by check #22. That left `ERASE`, `WIPE ALL`, and
+`CONTINUE ANYWAY` silently unchecked in masterize.
+
+The Pester coverage for `Test-FinalWipeConfirmation` (open PR #174)
+exercises the parser semantics but not the actual `Read-Host` prompt
+strings — a refactor that renamed `Type 'ERASE' to proceed` to
+`Type 'WIPE' to proceed` and updated the parser in lockstep would
+weaken the observable safety contract while still passing every test.
+The extra `-Force` guard in check #8 and the Pester `-Silent`/`-Force`
+gates in `validation-gates.Tests.ps1` do not check prompt-string
+presence either.
+
+**Changed:**
+- `.github/workflows/ci.yml` — check #19 body now iterates
+  `'ERASE' 'DELETE ALL DATA' 'DESTROY SYSTEM' 'WIPE ALL' 'CONTINUE ANYWAY'`
+  and asserts each single-quoted literal (`'ERASE'`) is present via
+  `grep -qF`. Quoting the pattern avoids false positives on unrelated
+  substring hits in comments or documentation prose. Header updated to
+  list the five strings. Explanatory comment block above the loop
+  describes what each gate protects and why parser coverage isn't
+  sufficient.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` entry at the top.
+
+**Verification:**
+- `pwsh` install skipped this pass — the change is CI-only (`ci.yml`),
+  no `.ps1` files touched, so `tests/test_parse.ps1`, `test_wim_parser.ps1`,
+  `test_disk_enumeration.ps1` results are unchanged by definition. The
+  masterize job runs on `ubuntu-latest` with plain shell — no PowerShell
+  involvement.
+- YAML validity: `python3 -c "import yaml;
+  yaml.safe_load(open('.github/workflows/ci.yml'))"` parses clean.
+- Baseline simulation of check #19 against unmodified `unified_winpe_deploy.ps1`
+  → `OK` (all five strings present in single-quoted form).
+- Mutation simulation: replaced every `'WIPE ALL'` with `'WIPEALLBROKEN'`
+  in a scratch copy and re-ran the loop → `missing: 'WIPE ALL'` +
+  `FAIL: confirmation strings drifted`. Confirms the check catches the
+  regression it's designed to catch.
+- Count verification: each of the five strings has ≥1 single-quoted
+  occurrence in the script today (`'ERASE'`: 3, `'DELETE ALL DATA'`: 1,
+  `'DESTROY SYSTEM'`: 6, `'WIPE ALL'`: 2, `'CONTINUE ANYWAY'`: 2), so
+  the new check turns green on push without additional edits.
+
+**Risks / follow-ups:**
+- Minimal. CI-only change; three strings added to an existing loop in
+  the ubuntu-latest masterize job. POSIX `grep -qF` (fixed-string) so
+  no regex pitfalls. No production PowerShell touched, no Pester or
+  syntax-test change. No new dependencies.
+- Coordination with open PRs: PR #169 (`ci(masterize): pin .VERSION
+  block top entry`) modifies check #1 body only; no overlap with check
+  #19 lines. No other open PR (#164-#183) touches `.github/workflows/ci.yml`.
+- Outstanding routine-backlog candidates I deferred this pass:
+  - `Set-BootConfiguration` BCDBoot exit-code arm text has the same
+    untested-prose risk PR #175 fixed for `Apply-WindowsImage`
+    (flagged in #175's own risks block). Waiting for #175 to land so
+    the sibling test block can adopt the same pattern without merge
+    friction.
+  - `Show-ImageList` / `Show-ImageSelection` shared listing-render
+    extraction — repeatedly deferred because the menu render is
+    load-bearing TUI UX.
+  - BitLocker recovery-key writability pre-flight in
+    `Initialize-BitLockerSetup` — deferred by PR #176's risks block
+    until PR #159 lands (which restructures the same try/finally).
+
+**Next recommended improvement:** wait for PR #175 to merge, then
+add drift-guard coverage for `Set-BootConfiguration`'s BCDBoot
+exit-code arms following the same substring-match pattern.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
