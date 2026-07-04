@@ -5,6 +5,78 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — Fix stale placeholder-PIN docs in README + BITLOCKER.md
+
+**Investigated:** open PRs (60+ from #137 - #196) to avoid duplicating
+in-flight work; the recent CHANGELOG `## Unreleased / ### Removed`
+entry that dropped the `ForbiddenBitLockerPins` list and PIN content
+policy; cross-referenced the deploy script's actual current PIN gate.
+
+**Found:** the code now only enforces the Windows 6-20 character
+length window at `unified_winpe_deploy.ps1:1691-1694` — the
+placeholder / forbidden-PIN list is gone. But two operator-facing
+docs still described the removed behavior as current:
+
+- `README.md:359` — parameter table row for `-BitLockerPin` ended with
+  "Placeholder PINs are rejected at runtime."
+- `docs/BITLOCKER.md:54` — confirmation-chain table listed
+  "`-EnableBitLocker` with placeholder PIN | (refused outright) | No".
+
+An admin reading either doc as the source of truth would believe the
+script still blocks a shortlist of dictionary PINs. It doesn't — a
+PIN like `password` sails through the length check now. Cross-checked
+against the existing "PIN content is the admin's call" phrasing at
+README.md:397 and docs/BITLOCKER.md:35 (already correct), so the drift
+is only in the two rows above.
+
+The `unified_winpe_deploy.ps1:94` reference to "placeholder PIN
+rejected at runtime" is in the historical `.VERSION 4.7.0` release
+note describing what changed at that release. Left alone — historical
+release notes are frozen chronology, not a description of current
+state.
+
+No open PR was touching this area (verified against the #137-#196
+range).
+
+**Changed:**
+- `README.md` — Parameter table `-BitLockerPin` row: swapped the
+  stale trailing sentence for "PIN content is the admin's call —
+  only the Windows length window is enforced", matching the phrasing
+  already used in the Safety Features section (line 397).
+- `docs/BITLOCKER.md` — Confirmation-chain table: renamed the row
+  from "placeholder PIN" to "PIN outside 6-20 chars" so it describes
+  the actual current gate.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` entry at the top of
+  the Unreleased section describing the doc drift and its fix.
+
+**Verification:**
+- `git diff --stat`: only `CHANGELOG.md`, `README.md`, and
+  `docs/BITLOCKER.md` changed. No PowerShell code touched.
+- `grep 'placeholder' unified_winpe_deploy.ps1 README.md docs/BITLOCKER.md`
+  post-edit: only the historical `.VERSION 4.7.0` note remains (intentional).
+- Version-consistency invariant (masterize CI check #1) still holds:
+  `4.7.1` present in CHANGELOG.md, CLAUDE.md, and README.md.
+- `pwsh` not needed — no `.ps1` file changed, so
+  `tests/test_parse.ps1`, `tests/test_wim_parser.ps1`, and
+  `tests/test_disk_enumeration.ps1` cannot be affected.
+
+**Risks / follow-ups:**
+- Minimal. Doc-only, no runtime behavior change, no cross-file wiring
+  changes.
+- Outstanding backlog items I did not take this pass (60+ open PRs
+  already cover much of the plausible surface area — noting only what
+  remains untouched by any current PR that I could see):
+  - The `.VERSION 4.7.0` block still records the removed
+    placeholder-PIN check as if current. Historical notes don't
+    typically get rewritten after subsequent changes, but if a future
+    pass wants to add "(removed in a later revision)" to that line,
+    the CHANGELOG already has the removal entry to point at.
+  - No unit test for `Test-FinalWipeConfirmation`'s accept set
+    (`ERASE`, `DELETE ALL DATA`) — PR #142 is open and covers this,
+    so leave it alone.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

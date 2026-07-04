@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Documentation drift on placeholder-PIN rejection.** `README.md`
+  parameter table and `docs/BITLOCKER.md` confirmation-chain table
+  still described `-BitLockerPin` as rejecting "placeholder PINs at
+  runtime" after the `ForbiddenBitLockerPins` policy was removed
+  (see the entry under `### Removed` below). Reworded the README
+  cell to match the "PIN content is the admin's call — only the
+  Windows length window is enforced" phrasing already used in the
+  Safety Features section; retitled the BITLOCKER.md confirmation-
+  chain row to describe the actual current gate (PIN outside 6-20
+  chars is refused). No code change.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
