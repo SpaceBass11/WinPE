@@ -8,6 +8,16 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added
+- **`scripts/build_iso.ps1` pre-flight config sanity.** A silent ISO
+  bakes `-TargetDisk` / `-WipeDisks` / `-DataDiskNumber` / `-BitLockerPin`
+  in at build time; conflicts that would abort the deploy at runtime
+  (data disk == target, `WipeDisks` overlaps target or data disk,
+  malformed `WipeDisks`, PIN not in the 6-20 char window) are now
+  refused up-front so the operator doesn't ship a guaranteed-to-fail
+  image to an end user. The runtime checks in `unified_winpe_deploy.ps1`
+  remain — this is a build-time front-stop, not a replacement.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

@@ -5,6 +5,100 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `build_iso.ps1` pre-flight disk / PIN sanity
+
+**Investigated:** open PRs #190-#199 and their topics (all deploy-script
+diagnostics, unattend copy failure, BitLocker docs, Set-Content traps,
+log preservation, refresh_usb tests, docs sync). None touch
+`scripts/build_iso.ps1`, so it was fair game. Read the file end-to-end
+and cross-referenced its parameter surface with the runtime validation
+in `Start-Deployment` (`unified_winpe_deploy.ps1` lines 1682-1833) to
+find what the ISO builder could catch at build time that the deploy
+script currently only catches at runtime on the end-user's hardware.
+
+**Found:** four operator-authored config conflicts are deterministic
+from build-time inputs but silently roll through to a shipped-but-
+broken ISO:
+1. `-DataDiskNumber == -TargetDisk` — caught by deploy line 1796 at
+   runtime, aborts on the target machine.
+2. `-TargetDisk` present in `-WipeDisks` — deploy's
+   `Select-AdditionalWipeDisks` excludes the target from candidates and
+   reports the requested disk as "not a valid non-target disk", aborts
+   on the target machine.
+3. `-DataDiskNumber` present in `-WipeDisks` — caught by deploy line
+   1829, aborts on the target machine.
+4. `-BitLockerPin` outside Windows Enhanced PIN's 6-20 char window —
+   caught by deploy line 1691, aborts on the target machine.
+
+All four are pure build-time inputs (no hardware dependency), so a
+silent-mode ISO shipped by an IT admin with any of these mistakes
+wastes an end-user boot cycle and a diskpart clean, and then leaves
+the user staring at a WinPE prompt they don't understand. The `-WipeDisks`
+format check that already lives inside the args-writer (line 287-289
+pre-edit) fires late for the same reason — after building most of the
+staging tree.
+
+**Changed:**
+- `scripts/build_iso.ps1` — new "Silent-mode config sanity" block after
+  the existing `$UnattendFile` / `$BitLockerPin` guards, before the
+  oscdimg path lookup / staging tree copy. Rules:
+  - `-WipeDisks` format (regex) checked unconditionally so downstream
+    integer split is safe.
+  - Under `-not $Interactive`: DataDiskNumber-vs-TargetDisk overlap,
+    TargetDisk-in-WipeDisks, DataDiskNumber-in-WipeDisks.
+  - `-BitLockerPin` length (6-20) checked unconditionally (whether
+    used in interactive or silent, the PIN itself is baked in).
+  Existing runtime checks in `unified_winpe_deploy.ps1` are NOT
+  removed — this is a front-stop, not a replacement, so an ISO built
+  with a stale `build_iso.ps1` still fails safely on the deploy side.
+- `scripts/build_iso.ps1` — dropped the now-duplicate `-WipeDisks`
+  format check inside the args-writer's else branch (line 287-289
+  pre-edit). Replaced with a one-line comment pointing at the
+  up-front check.
+- `CHANGELOG.md` — new `## Unreleased / ### Added` bullet, brief
+  problem statement + explicit note that runtime checks stay.
+
+**Verification:**
+- pwsh 7.4.6 tarball download from github.com/PowerShell blocked by
+  the container network policy (curl exit 22, HTTP 403 through the
+  agent proxy) — same constraint documented in CLAUDE.md's "Running
+  Checks" section. `tests/test_parse.ps1` cannot run locally.
+- Structural sanity (Python `re`-based rough strip of strings +
+  comments) on `scripts/build_iso.ps1`:
+  braces 44/44, parens 73/73, brackets 26/26 — all balanced.
+  Pre-edit values matter less than the fact that they match; the
+  edit is a self-contained `if`/`if` block that opens and closes
+  the same number of each.
+- Visual review of the new block: five `throw` sites all inside
+  existing script scope; no new function definitions; no touch to
+  the staging / oscdimg / deploy.args-writer code paths downstream.
+  The single removal (duplicate WipeDisks regex) is inside the same
+  else-branch as the string it replaces — one-for-one.
+- Cross-check against runtime rules: mirrors the four deploy-script
+  gates verbatim except for the 6-20 PIN window, which build_iso now
+  short-circuits by string length before even running length-based
+  string ops on a `$null` (already-guarded by `-and`).
+- CI's Windows runner will run the real `PSParser::Tokenize` on
+  `test_parse.ps1` Test 12 (build_iso.ps1 syntax) on push.
+
+**Risks / follow-ups:**
+- Low. Additive validation; no destructive code paths (diskpart, DISM,
+  BCDBoot, staging) touched. Worst case is a valid config being
+  rejected by an over-eager regex — the format regex is copied verbatim
+  from the deploy script's silent-mode gate at line 1714, so anything
+  the deploy accepts, the builder accepts.
+- The existing `BitLockerPin`/`UnattendFile` warning (line 205-208) is
+  arguably stale — the deploy script's `Initialize-BitLockerSetup` +
+  `SetupComplete.cmd` staging does not need an unattend to auto-run
+  the PIN setup on first boot. Deferred: PR #197 is already reshaping
+  BitLocker docs and that warning's wording belongs in the same pass.
+- Outstanding routine-backlog items from prior entries:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — deferred across
+    multiple runs because the menu render is load-bearing TUI UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

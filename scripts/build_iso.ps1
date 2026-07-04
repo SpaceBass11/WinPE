@@ -208,6 +208,33 @@ if ($BitLockerPin) {
     }
 }
 
+# --- Silent-mode config sanity ---
+# A silent ISO bakes -TargetDisk / -WipeDisks / -DataDiskNumber / -BitLockerPin
+# in at build time. Conflicts (data disk == target, wipe list overlaps either,
+# malformed WipeDisks, bad-length PIN) are deterministic from build-time inputs
+# but only surface when someone boots the ISO on the end-user machine. Fail
+# here instead of shipping a guaranteed-to-abort image.
+if ($WipeDisks -and $WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
+    throw "-WipeDisks must be comma-separated disk numbers (e.g. '1,2'). Got: '$WipeDisks'"
+}
+if (-not $Interactive) {
+    if ($DataDiskNumber -ge 0 -and $DataDiskNumber -eq $TargetDisk) {
+        throw "-DataDiskNumber ($DataDiskNumber) must not equal -TargetDisk ($TargetDisk) - deploy would abort at runtime"
+    }
+    if ($WipeDisks) {
+        $wipeNums = @($WipeDisks -split ',' | ForEach-Object { [int]($_.Trim()) })
+        if ($wipeNums -contains $TargetDisk) {
+            throw "-WipeDisks '$WipeDisks' contains the target disk ($TargetDisk) - remove it, target is always wiped"
+        }
+        if ($DataDiskNumber -ge 0 -and $wipeNums -contains $DataDiskNumber) {
+            throw "-WipeDisks '$WipeDisks' contains -DataDiskNumber ($DataDiskNumber) - drop one"
+        }
+    }
+}
+if ($BitLockerPin -and ($BitLockerPin.Length -lt 6 -or $BitLockerPin.Length -gt 20)) {
+    throw "-BitLockerPin must be 6-20 characters (Enhanced PIN policy). Got $($BitLockerPin.Length)."
+}
+
 # Resolve output directory
 $outputDir = Split-Path -Parent $OutputIso
 if ($outputDir -and -not (Test-Path $outputDir)) {
@@ -283,10 +310,7 @@ if ($Interactive) {
     }
 
     if ($WipeDisks) {
-        # Validate format before embedding
-        if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
-            throw "-WipeDisks must be comma-separated disk numbers (e.g. '1,2'). Got: '$WipeDisks'"
-        }
+        # Format + conflict already validated up-front in silent-mode config sanity
         $argsLine += " -WipeDisks `"$WipeDisks`""
     }
 
