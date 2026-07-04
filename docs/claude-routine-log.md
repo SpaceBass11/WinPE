@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — Agent-facing typed-confirmation lists resync
+
+**Investigated:** open + closed PRs (100 open routine PRs at the time
+of this run, all against `main`; see the routine backlog). Cross-
+referenced the actual runtime typed prompts in `unified_winpe_deploy.ps1`
+against the agent-facing safety contracts.
+
+**Found:** two agent-facing docs list a *subset* of the typed-
+confirmation strings the deploy script actually gates on. Grep across
+the deploy script shows five canonical typed prompts:
+
+| Prompt          | Source                                        |
+|-----------------|-----------------------------------------------|
+| `ERASE`         | `Test-FinalWipeConfirmation` (target disk)    |
+| `DESTROY SYSTEM`| System-disk override (`-Force` cannot skip)   |
+| `WIPE ALL`      | Additional-disk cleanup prompt                |
+| `WIPE DATA`     | `-DataDiskNumber` format confirmation         |
+| `CONTINUE ANYWAY` | `Test-WinPEEnvironment` fallthrough         |
+
+But:
+
+- `.github/PULL_REQUEST_TEMPLATE.md` safety checklist lists only
+  `ERASE`, `DESTROY SYSTEM`, `CONTINUE ANYWAY` (missing `WIPE ALL`
+  and `WIPE DATA`).
+- `AGENTS.md` "Non-negotiable safety rules" lists `ERASE`,
+  `DESTROY SYSTEM`, `CONTINUE ANYWAY`, `WIPE DATA` (missing
+  `WIPE ALL`).
+
+Adjacent fixes have been made — PR #121 caught up the deploy-script
+docstring + `docs/SCRIPT_REFERENCE.md`; PR #176 (open) resyncs
+`docs/ARCHITECTURE.md`; PR #184 (open) pins the strings in the
+masterize CI check — but no open PR touches `AGENTS.md` or
+`.github/PULL_REQUEST_TEMPLATE.md`. A reviewer using the safety
+checklist to sign off a diff that quietly weakens `WIPE ALL` or
+`WIPE DATA` wouldn't be prompted to verify them.
+
+**Changed:**
+
+- `.github/PULL_REQUEST_TEMPLATE.md` — safety-checklist item now
+  reads `ERASE, DESTROY SYSTEM, WIPE ALL, WIPE DATA, CONTINUE ANYWAY`.
+- `AGENTS.md` — "typed-confirmation chain" bullet extended to include
+  `WIPE ALL` alongside `WIPE DATA`.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing the
+  doc catch-up.
+
+**Verification:** Docs-only change, no production PowerShell touched.
+`pwsh` is not installable in this container (network policy blocks the
+GitHub Releases tarball for `PowerShell/PowerShell` — same 403 as
+documented in the previous routine entry's "Verification" note). The
+`test_parse.ps1` / `test_wim_parser.ps1` / `test_disk_enumeration.ps1`
+suites would exit with zero output changed by these edits — none of
+them reads either markdown file. CI (`link-check` / `actionlint` /
+`masterize`) exercises the two files on push.
+
+**Risks:** Minimal. Pure documentation resync. No CLI surface, no
+script logic, no CI check strings changed. Worst case: a future
+routine agent notices the PR template mentions two extra prompts
+that used to only be in the CI check and updates something else to
+match; that's a strict quality improvement.
+
+**Next recommended improvement:**
+
+- **`Show-ImageList` / `Show-ImageSelection` render-block dedup**
+  remains carried forward across multiple prior entries. Still
+  deferred — the menu is load-bearing TUI UX and any regression
+  would be silent (wrong number rendered, prompt drift).
+- **CI check numbering.** The masterize job's Phase 1B skips from
+  #20 to #22 (check #21 was retired alongside `ForbiddenBitLockerPins`
+  in PR #49). Not a bug — renumbering the tail would just churn PR
+  #184's context — but worth flagging so a future audit isn't
+  confused by the gap.
+- **Open-PR backlog is very deep (100 at time of this run).** The
+  routine is producing more work than the human maintainer can
+  merge. Future runs should lean harder on rule 27 (no change +
+  review note) unless a truly novel improvement surfaces.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

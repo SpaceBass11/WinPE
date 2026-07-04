@@ -17,9 +17,9 @@ prevent silent regressions. CI enforces most of them via the
 signal.
 
 - **Never weaken or remove the typed-confirmation chain.** The
-  `ERASE`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`, and `WIPE DATA`
-  prompts are the last line of defense between the operator and
-  an irreversible wipe.
+  `ERASE`, `DESTROY SYSTEM`, `WIPE ALL`, `WIPE DATA`, and
+  `CONTINUE ANYWAY` prompts are the last line of defense between
+  the operator and an irreversible wipe.
 - **Never let `-Force` bypass system-disk protection.** `-Force`
   skips the `ERASE` typed prompt by design, but the `DESTROY
   SYSTEM` prompt for the currently-booted disk must always be

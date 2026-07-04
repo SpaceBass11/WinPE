@@ -8,6 +8,17 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Agent-facing docs now list the full typed-confirmation set.**
+  `.github/PULL_REQUEST_TEMPLATE.md` safety checklist and
+  `AGENTS.md` "Non-negotiable safety rules" both named a subset of
+  the runtime prompts (PR template omitted `WIPE ALL` + `WIPE DATA`;
+  AGENTS.md omitted `WIPE ALL`). The deploy script gates on five
+  typed strings (`ERASE`, `DESTROY SYSTEM`, `WIPE ALL`, `WIPE DATA`,
+  `CONTINUE ANYWAY`) — resynced both docs so a reviewer or agent
+  reading the safety contract can't miss one of them. Doc-only; no
+  script or CI change.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
