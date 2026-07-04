@@ -5,6 +5,105 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `build_boot_wim.ps1` renames `-DeployScript` at destination
+
+**Investigated:** open PRs (~130 in flight; searched titles for anything
+covering `build_boot_wim.ps1` deploy-script embedding — none found),
+the maintenance log's backlog, and the interaction between the
+`-DeployScript` parameter and the hardcoded path in `startnet.cmd`.
+
+**Found:** `scripts/build_boot_wim.ps1:253` (pre-edit) copied the
+operator-supplied `-DeployScript` file into the WinPE `scripts\`
+directory preserving its source basename:
+
+```powershell
+Copy-Item -Path $DeployScript -Destination $scriptsDir -Force
+```
+
+`startnet.cmd` (built into the same `boot.wim` a few lines later at
+line 309) hardcodes the launch path:
+
+```
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
+```
+
+If an operator passed `-DeployScript C:\builds\deploy-modified.ps1`
+(a modified fork copy, a testing variant, or just a differently-named
+sibling), the copy landed as `X:\scripts\deploy-modified.ps1` and
+first boot in WinPE dropped straight to the wpeinit line
+"argument to -File does not exist" without any indication that
+build-time knew the target file. Build succeeded; boot ran; startnet
+launched a nonexistent script.
+
+The default path (no `-DeployScript`) uses the sibling
+`unified_winpe_deploy.ps1` and hits the right filename by coincidence,
+so the bug is invisible on the well-trod path.
+
+**Changed:**
+- `scripts/build_boot_wim.ps1` — Copy-Item destination is now the
+  explicit path `Join-Path $scriptsDir 'unified_winpe_deploy.ps1'`,
+  so the file lands under the exact name `startnet.cmd` invokes
+  regardless of the source basename. Comment above the copy pins
+  the rationale. Log message updated to name the destination file.
+- `tests/test_parse.ps1` — new invariant under Test 9 asserts both
+  halves of the fix: the `$deployDest` computation via
+  `Join-Path $scriptsDir 'unified_winpe_deploy.ps1'`, and the
+  `Copy-Item -Path $DeployScript -Destination $deployDest` call
+  shape. A refactor that reverted either half would flip the test
+  to FAIL. Follows the same drift-guard pattern established by
+  PR #50's builder invariants and PR #175's DISM exit-code
+  invariants.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet.
+
+**Verification:**
+- `pwsh` install failed in this container session (`curl … v7.4.6 …`
+  returned HTTP 403 from the egress proxy; `apt-get install
+  powershell` → "Unable to locate package"). Same block as PR
+  #183's routine entry logged. CI runs the real
+  `tests/test_parse.ps1` on `windows-latest` on push.
+- Structural sanity: read the edit against the file's brace/region
+  balance (both unchanged — only inside an existing `try`/`finally`
+  block, added two lines and a comment, replaced two existing
+  lines). No new region, no new function.
+- Regex sanity: the two new grep patterns are conservative
+  substrings anchored to the exact strings the fix introduces.
+  Under any reasonable variable rename they still match; under a
+  full revert to `Copy-Item -Path $DeployScript -Destination
+  $scriptsDir` they FAIL as designed.
+- Reduced repro: on a Linux `bash` shell, `cp /tmp/a.ps1
+  /tmp/dir/` retains the source basename (POSIX `cp` behavior),
+  same semantics as PowerShell `Copy-Item -Destination $dir`.
+  Confirms the regression class is real, not theoretical.
+
+**Risks:**
+- Minimal. `scripts/build_boot_wim.ps1` runs on the admin Windows
+  host at build time — not in WinPE, not on target hardware. The
+  destination directory (`$scriptsDir`) is created two lines
+  earlier via `New-Item -Force`, so `Join-Path` inside it never
+  hits a stale parent. No behavior change on the default path
+  (source basename already matches destination), so existing
+  builds continue producing byte-identical boot.wim contents.
+- No production `unified_winpe_deploy.ps1` code touched. No
+  diskpart / DISM / BCDBoot / typed-confirmation path involved.
+  No new dependencies, no CI rule changes.
+
+**Next recommended improvement:**
+- The parallel case in `scripts/build_iso.ps1` uses
+  `Copy-Item -Path $UnattendFile -Destination (Join-Path
+  $configsDir $unattendBaseName)` (line 263) — that one is
+  intentional passthrough of the source basename, since the
+  ISO's generated `deploy.args` refers to the same
+  `$unattendBaseName` a few lines later. Correct as-is; no fix
+  needed.
+- `Set-BootConfiguration` BCDBoot-exit-code arm text still has
+  the untested-prose risk PR #175 addresses for the DISM
+  arms — same drift-guard block would apply once #175 lands.
+  Deferred as long as #175 is open.
+- `Show-ImageList` / `Show-ImageSelection` listing-render
+  extraction — deferred by open PR #56.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

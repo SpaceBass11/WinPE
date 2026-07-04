@@ -136,6 +136,14 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # DeployScript copy must rename to unified_winpe_deploy.ps1 at the destination.
+    # startnet.cmd hardcodes X:\scripts\unified_winpe_deploy.ps1, so a Copy-Item
+    # that lands the file under its source basename silently produces a
+    # boot.wim whose startnet.cmd points at a non-existent file.
+    Write-Result -Test 'Builder: deploy script embedded as unified_winpe_deploy.ps1' `
+        -Pass ($bc -match "Join-Path\s+\`$scriptsDir\s+'unified_winpe_deploy\.ps1'" -and `
+               $bc -match 'Copy-Item\s+-Path\s+\$DeployScript\s+-Destination\s+\$deployDest')
 }
 
 # Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)

@@ -247,11 +247,17 @@ try {
     }
 
     # Step 5: embed the deploy script
+    # Rename at destination to unified_winpe_deploy.ps1 so a -DeployScript with
+    # any other filename still lines up with the hardcoded path in
+    # startnet.cmd (X:\scripts\unified_winpe_deploy.ps1). Otherwise the boot
+    # partition ships fine but startnet fails at run time with
+    # "The argument to -File does not exist."
     Write-Step "Embedding deploy script"
     $scriptsDir = Join-Path $mountDir 'scripts'
     New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
-    Copy-Item -Path $DeployScript -Destination $scriptsDir -Force
-    Write-Ok "Copied $(Split-Path -Leaf $DeployScript) to X:\scripts\"
+    $deployDest = Join-Path $scriptsDir 'unified_winpe_deploy.ps1'
+    Copy-Item -Path $DeployScript -Destination $deployDest -Force
+    Write-Ok "Copied $(Split-Path -Leaf $DeployScript) to X:\scripts\unified_winpe_deploy.ps1"
 
     # Step 5b: embed CCTK (optional)
     if ($cctkExe) {

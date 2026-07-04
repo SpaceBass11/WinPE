@@ -8,6 +8,21 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/build_boot_wim.ps1 -DeployScript` renames the file at
+  destination to `unified_winpe_deploy.ps1`.** Previously the
+  `Copy-Item` preserved the source basename, so a `-DeployScript` with
+  any other filename (a fork, a testing variant, a differently-named
+  sibling) landed on the WinPE `scripts\` folder under its original
+  name — but `startnet.cmd` hardcodes
+  `X:\scripts\unified_winpe_deploy.ps1`. Build succeeded, boot ran,
+  startnet.cmd hit "argument to -File does not exist" and the deploy
+  never launched. Destination path is now `Join-Path $scriptsDir
+  'unified_winpe_deploy.ps1'` regardless of source name. Default path
+  (no `-DeployScript` given) is byte-identical since the sibling
+  script already has that name. Guarded by two new invariants in
+  `tests/test_parse.ps1` Test 9.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
