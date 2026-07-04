@@ -5,6 +5,131 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `Initialize-BitLockerSetup` silent-staging failure gap
+
+**Investigated:** the 20 open Claude routine PRs (#174-#193) and their
+scope, then the routine-log backlog. PR #192's `Next recommended
+improvement` note explicitly flagged this exact gap: the pre-Set-Content
+`New-Item -ItemType Directory -Path $scriptsDir -Force` at
+`unified_winpe_deploy.ps1:1526` sits OUTSIDE the try/catch block at
+`:1641` that catches `Set-Content` failures. Walked the function to
+confirm the failure model before touching code.
+
+**Found:** the failure mode is worse than PR #192's note suggested.
+
+- `New-Item -Force` without `-ErrorAction Stop` produces a
+  non-terminating error on failure. There is no enclosing try around
+  line 1526, so a failure is a red console line followed by
+  silent continuation.
+- Then `Set-Content -Path "$scriptsDir\bitlocker-setup.ps1" ... -Force`
+  runs. `Set-Content` with `-Force` on a missing parent directory
+  raises `ItemNotFoundException` — but it too is a NON-terminating
+  error by default. The bare `try { Set-Content ... } catch { ... }`
+  at line 1641 DOES NOT catch it (bare `catch` only catches
+  terminating errors; non-terminating errors bypass it).
+- The function then reaches `return $true` at line 1646 with NO
+  first-boot script staged. `Start-Deployment` at line 1942 sees
+  the truthy return, `BCDBoot` runs, the target reboots into
+  Windows. There is no `SetupComplete.cmd` and no
+  `bitlocker-setup.ps1` on the target, so `RunOnce` never fires
+  and the target comes up entirely unencrypted with no operator
+  signal.
+
+This is the exact silent-fallthrough class that PR #192 fixed for
+`-UnattendFile`. The unattend case dropped the operator into manual
+OOBE; the BitLocker case is worse — the operator asked for BitLocker
+and got an unencrypted disk instead, with no error to trace back to.
+
+**Changed:**
+
+- `unified_winpe_deploy.ps1` — `Initialize-BitLockerSetup`:
+  - Removed the standalone `if (-not (Test-Path $scriptsDir)) {
+    New-Item ... -Force | Out-Null }` at lines 1525-1527.
+  - Moved the same Test-Path/New-Item into the existing try/catch at
+    line 1641 (now 1646), with `-ErrorAction Stop` on the `New-Item`.
+  - Added `-ErrorAction Stop` to both `Set-Content` calls
+    (`bitlocker-setup.ps1` and `SetupComplete.cmd`) so a write failure
+    surfaces as a terminating error the `catch` will actually see.
+  - Expanded the catch block to log the operator-facing consequence
+    (`First boot will come up UNENCRYPTED - no BitLocker will be
+    applied.`) and two recovery paths (re-run with `-EnableBitLocker`
+    from WinPE, or manually place the staging scripts under
+    `$scriptsDir`). Matches the shape of PR #192's unattend
+    recovery-guidance block.
+- `tests/test_parse.ps1` — added Test 8c (three drift guards):
+  1. `New-Item` line matches `New-Item -ItemType Directory -Path
+     $scriptsDir ... -ErrorAction Stop` regex.
+  2. Both `Set-Content` calls that target `$scriptsDir` carry
+     `-ErrorAction Stop` (matched via `[regex]::Matches ... .Count -ge 2`).
+  3. Catch block contains the literal `First boot will come up
+     UNENCRYPTED` recovery-guidance line.
+  Slot picked as Test 8c to avoid colliding with PR #192's Test 8b
+  (unattend) — the alphabetic-suffix pattern was set by PR #52's
+  Test 9-11 additions.
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of `## Unreleased`
+  describing the failure mode, the fix, and the drift guard. No
+  `$Script:Config.ScriptVersion` bump (behaviour-preserving bug fix
+  on an existing code path; same convention PR #192 followed).
+
+**Verification:**
+
+- `pwsh` bootstrap attempted per CLAUDE.md's documented recipe
+  (`curl -fsSL github.com/PowerShell/PowerShell/releases/download/v7.4.6/...`)
+  — the egress proxy returned exit 22 (403 from GitHub Releases).
+  Same class of block documented in every prior routine entry;
+  `/opt/pwsh/pwsh` cannot be built out of `apt` either. Structural
+  review only; CI's `windows-latest` `syntax` job runs
+  `PSParser::Tokenize` and `tests/test_parse.ps1` end-to-end on push.
+- Brace balance on `unified_winpe_deploy.ps1`: 397 open / 397 close
+  (unchanged — removed the standalone `if { New-Item }` (-1/-1) and
+  added an equivalent `if { New-Item }` inside the try (+1/+1); net 0).
+- Region balance: 10 / 10 (unchanged).
+- `Initialize-BitLockerSetup` function body balance: 29 open / 29
+  close (measured via Python slice between the two `function` header
+  starts).
+- Regex sanity: I ran each of Test 8c's three regexes against the
+  post-edit `unified_winpe_deploy.ps1` in Python (`re.search` /
+  `re.findall`) using the exact regex strings PowerShell would
+  produce after parsing the double-quoted test literals (`` \`$ ``
+  → `\$`, `` `" `` → `"`). All three matched: `New-Item` guard = 1
+  match, `Set-Content` guard = 2 matches (need `>= 2`), recovery
+  guidance = 1 match. So the tests will go missing-to-green, not
+  missing-to-red, on CI.
+- PR #192's Test 8b uses the same `` \`$Var `` escape pattern in its
+  regex string — precedent for the exact syntax I used.
+
+**Risks / follow-ups:**
+
+- Low. Behaviour on the happy path is unchanged: a working
+  `C:\Windows\Setup\Scripts\` still gets both scripts, still logs
+  "BitLocker setup staged", still returns `$true`. The only
+  behavioural difference is on the (rare) I/O failure path, and
+  there the change is strictly better: an explicit error message
+  and `return $false` in place of a silent false success.
+- The `if (-not (Test-Path $scriptsDir))` gate is preserved so
+  `New-Item` doesn't try to create a directory that already exists
+  (which would raise a WriteError under `-ErrorAction Stop`).
+  `C:\Windows\Setup\Scripts\` normally already exists in the
+  applied WIM, so the guard is the common path.
+- May conflict with PR #192 on merge order: both PRs add a Test
+  block to `tests/test_parse.ps1` and both add a `### Fixed` bullet
+  to `CHANGELOG.md`. Whichever merges second will need a trivial
+  rebase (the Test 8b/8c slots don't overlap; the changelog bullets
+  stack cleanly).
+- Outstanding backlog from prior entries not addressed this pass:
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line render
+    duplication — deferred again; PR #56-era open work, load-bearing
+    TUI UX, no reported defect. Not urgent.
+  - Consider whether the same `-ErrorAction Stop` audit should be
+    run across every `New-Item`/`Set-Content`/`Copy-Item` call in
+    the deploy script. PR #192 hit `Copy-Item -UnattendFile`; this
+    entry hit the BitLocker staging pair. Small chance one more
+    exists. Not urgent — a masterize CI check pinning
+    `-ErrorAction Stop` on any I/O cmdlet inside a `try/catch`
+    would close the class permanently. Good future-entry candidate.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

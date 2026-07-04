@@ -122,6 +122,21 @@ Write-Result -Test "CmdletBinding attribute present" -Pass $hasCmdletBinding
 $hasRequires = $content -match '#Requires\s+-RunAsAdministrator'
 Write-Result -Test "#Requires -RunAsAdministrator present" -Pass $hasRequires
 
+# Test 8c: Initialize-BitLockerSetup guards its staging I/O against silent failures.
+# The pre-Set-Content New-Item used to sit outside the try/catch so a directory
+# creation failure at C:\Windows\Setup\Scripts was a non-terminating error the
+# catch never saw. Both Set-Content calls also default to -ErrorAction Continue.
+# Combined, a fully-silent failure could return $true from Initialize-BitLockerSetup
+# with no first-boot script staged, and the deployed OS would come up unencrypted
+# with no signal. Pin -ErrorAction Stop on the New-Item + both Set-Content calls
+# so any I/O miss surfaces as "Failed to stage BitLocker setup" instead.
+$blNewItemGuarded = $content -match "New-Item\s+-ItemType\s+Directory\s+-Path\s+\`$scriptsDir[^\r\n]*-ErrorAction\s+Stop"
+Write-Result -Test 'BitLocker New-Item uses -ErrorAction Stop' -Pass $blNewItemGuarded
+$blSetContentGuarded = ([regex]::Matches($content, "Set-Content\s+-Path\s+`"\`$scriptsDir[^\r\n]*-ErrorAction\s+Stop")).Count -ge 2
+Write-Result -Test 'BitLocker staging Set-Content calls use -ErrorAction Stop' -Pass $blSetContentGuarded
+$blRecoveryLogged = $content -match 'First boot will come up UNENCRYPTED'
+Write-Result -Test 'BitLocker staging failure logs recovery guidance' -Pass $blRecoveryLogged
+
 # Test 9: build_boot_wim.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_boot_wim.ps1 ---" -ForegroundColor Cyan
 $builderOk = Test-ScriptSyntax -Path $builderPath -Label "Builder"

@@ -8,6 +8,24 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **BitLocker staging no longer silently no-ops on I/O failure.**
+  `Initialize-BitLockerSetup` created `C:\Windows\Setup\Scripts\` with
+  `New-Item ... -Force` outside its `try/catch`, and wrote the two
+  first-boot scripts with bare `Set-Content -Force`. All three used
+  default `-ErrorAction Continue`, so a directory-creation or write
+  failure was a non-terminating error the `catch` never saw and the
+  function fell through to `return $true` with no first-boot script
+  actually staged. First boot into Windows then came up unencrypted
+  with no operator signal. The `New-Item` now lives inside the same
+  `try/catch` as the `Set-Content` calls, and all three carry
+  `-ErrorAction Stop` so any I/O miss surfaces the "Failed to stage
+  BitLocker setup" error plus recovery guidance ("First boot will
+  come up UNENCRYPTED..."). New `tests/test_parse.ps1` drift guards
+  (Test 8c) pin `-ErrorAction Stop` on the `New-Item` and both
+  `Set-Content` calls, plus the recovery-guidance line, so a future
+  refactor can't drop them.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

@@ -1522,9 +1522,6 @@ function Initialize-BitLockerSetup {
     Write-Log "Staging BitLocker setup script for first boot..." -Level Info
 
     $scriptsDir = 'C:\Windows\Setup\Scripts'
-    if (-not (Test-Path $scriptsDir)) {
-        New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
-    }
 
     # Escape the PIN for embedding in a here-string (single-quoted PS string — only ' needs doubling)
     $escapedPin = $Script:Config.BitLockerPin -replace "'", "''"
@@ -1638,14 +1635,28 @@ shutdown.exe /r /t 15 /c 'BitLocker configured. Rebooting to finalise...'
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Windows\Setup\Scripts\bitlocker-setup.ps1" >> "C:\Windows\Setup\Scripts\setupcomplete.log" 2>&1
 "@
 
+    # Guarded together: New-Item and Set-Content share one try/catch so a
+    # directory-creation failure at $scriptsDir surfaces the same "Failed to
+    # stage BitLocker setup" error as a Set-Content failure. Without
+    # -ErrorAction Stop these are non-terminating errors that a bare try/catch
+    # does NOT catch, so a silent New-Item miss followed by a silent Set-Content
+    # miss would fall through to "return $true" and stage no first-boot script,
+    # then the first boot into Windows would come up unencrypted with no signal
+    # that BitLocker staging silently failed.
     try {
-        Set-Content -Path "$scriptsDir\bitlocker-setup.ps1" -Value $bitlockerScript -Encoding UTF8 -Force
-        Set-Content -Path "$scriptsDir\SetupComplete.cmd"   -Value $setupCompleteCmd -Encoding ASCII -Force
+        if (-not (Test-Path $scriptsDir)) {
+            New-Item -ItemType Directory -Path $scriptsDir -Force -ErrorAction Stop | Out-Null
+        }
+        Set-Content -Path "$scriptsDir\bitlocker-setup.ps1" -Value $bitlockerScript -Encoding UTF8 -Force -ErrorAction Stop
+        Set-Content -Path "$scriptsDir\SetupComplete.cmd"   -Value $setupCompleteCmd -Encoding ASCII -Force -ErrorAction Stop
         Write-Log "BitLocker setup staged: $scriptsDir\bitlocker-setup.ps1" -Level Success
         Write-Log "SetupComplete.cmd staged: $scriptsDir\SetupComplete.cmd" -Level Success
         return $true
     } catch {
         Write-Log "Failed to stage BitLocker setup: $($_.Exception.Message)" -Level Error
+        Write-Log "  First boot will come up UNENCRYPTED - no BitLocker will be applied." -Level Warning
+        Write-Log "  To recover: boot back into WinPE and re-run with -EnableBitLocker, or manually" -Level Info
+        Write-Log "  place bitlocker-setup.ps1 + SetupComplete.cmd under $scriptsDir on the target." -Level Info
         return $false
     }
 }
