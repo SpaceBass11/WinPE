@@ -8,6 +8,20 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/unattend.example.xml` — stale in-place comment about
+  `first-login.ps1` coverage.** The `<FirstLogonCommands>` block's
+  inline comment said the script "would need to also edit the Default
+  User hive… ask if you want that added" — but the Default User pass
+  was added to `scripts/first-login.ps1` in the same PR (#21) that
+  introduced the template, and the XML comment was never updated to
+  match. Operators reading the example were led to believe non-admin
+  accounts (TechL0/1/2) wouldn't inherit the tweaks; in fact they
+  do, automatically, via the Default User template Windows clones on
+  first sign-in. Comment rewritten to describe the two-pass behavior
+  the script actually implements. Example XML remains valid; no
+  script changes.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

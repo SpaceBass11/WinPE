@@ -5,6 +5,80 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `configs/unattend.example.xml` inline-comment drift
+
+**Investigated:** ten open Claude routine PRs (#185-194) already cover
+the recent silent-failure themes (BitLocker/unattend `Set-Content` /
+`Copy-Item` guards, `-NoNewWindow` masterize invariant,
+deploy.args.example line-1 fix, `-ImagePath`-vs-`-WimFile` reject
+guard, `build_boot_wim` destination rename). To avoid duplicating any
+of that work, looked instead at doc surfaces not touched by the ten
+open branches. Cross-referenced `scripts/first-login.ps1` (Pass 2:
+Default User hive) against every doc / template file that describes
+its behavior: `configs/unattend.example.xml`, `docs/UNATTEND.md`,
+`scripts/prepare_wim.ps1` header comment, `scripts/first-login.ps1`
+own synopsis, `docs/SCRIPT_REFERENCE.md`.
+
+**Found:** `configs/unattend.example.xml` lines 191-200 (the inline
+comment above `<FirstLogonCommands>`) said the script "would need to
+also edit the Default User hive (C:\Users\Default\NTUSER.DAT); ask if
+you want that added." — but PR #21 (the same PR that introduced the
+XML template) also added a Pass 2 to `first-login.ps1` that does
+exactly that: loads `C:\Users\Default\NTUSER.DAT` via `reg load` and
+applies the same tweak list. The XML comment was written before that
+Pass 2 was added and never updated. Operators reading the example
+were being told a limitation exists that doesn't. Every other place
+that describes the script (`docs/UNATTEND.md`,
+`scripts/prepare_wim.ps1`, `scripts/first-login.ps1` header) already
+describes the two-pass behavior correctly, so the XML comment was the
+only surface out of sync.
+
+`git log -p configs/unattend.example.xml` confirms the drifted text
+has been present since the initial add and was never revised.
+`grep -r 'would need to also' .` returned only the one file.
+
+**Changed:**
+- `configs/unattend.example.xml` — rewrote the 191-200 comment to
+  describe the actual two-pass behavior (live HKCU + Default User
+  hive) so TechL0/1/2 or any future user picks up the tweaks
+  automatically via the Default User template.
+- `CHANGELOG.md` — added `## Unreleased / ### Fixed` bullet at the
+  top explaining the doc drift.
+
+**Verification:**
+- `pwsh` install still blocked by egress policy (same class of
+  constraint documented in prior entries: the GitHub-Releases URL
+  for `powershell-7.4.6-linux-x64.tar.gz` returns HTTP 403 through
+  this session's proxy). Fell back to a Python `xml.etree.ElementTree`
+  parse of the edited XML to confirm well-formedness — root tag is
+  still `{urn:schemas-microsoft-com:unattend}unattend` and the
+  `SynchronousCommand` block parses with Order / Description /
+  CommandLine still intact. Also ran a `grep` sanity check confirming
+  the drifted phrases (`"would need to also"`, `"ask if you want
+  that added"`) are gone and the new phrases (`"loads the Default
+  User hive"`, `"inherit the tweaks automatically"`) are present.
+- No production code touched. No test files touched. `first-login.ps1`
+  behavior is unchanged; only its inline documentation in the example
+  unattend was corrected.
+
+**Risks / follow-ups:**
+- Zero runtime risk (comment-only edit inside an XML comment block).
+- Well-formedness verified via a real XML parser, so Windows Setup
+  will read the file the same way it did before.
+- Backlog carried over from prior entries that I did not take this
+  pass (all remain open candidates):
+  - `Set-Content` / `New-Item` in `New-DiskpartScript` (`unified_winpe_deploy.ps1:1019`)
+    still lacks `-ErrorAction Stop`. Same silent-failure pattern as
+    PR #192 / #194; low real-world risk because the diskpart script
+    lives on the WinPE RAM disk (X:\Windows\Temp) so cross-session
+    stale content isn't reachable. Not a blocker but the pattern is
+    inconsistent with `Write-Log`'s `Add-Content -ErrorAction Stop`.
+  - `Show-ImageList` / `Show-ImageSelection` still share ~30 lines
+    of listing-render code — cleanup only, deferred across multiple
+    routine entries because the menu render is load-bearing TUI UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

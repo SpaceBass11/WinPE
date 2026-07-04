@@ -193,11 +193,12 @@
            use that flag, comment this block out or the SynchronousCommand
            will fail (non-blocking, but noisy in setupact.log).
 
-           Runs as whoever AutoLogon logs in — applies HKCU tweaks to
-           that account's profile. To make non-admin accounts (TechL0/1/2)
-           inherit the same tweaks, the script would need to also edit
-           the Default User hive (C:\Users\Default\NTUSER.DAT); ask if
-           you want that added. -->
+           Runs as whoever AutoLogon logs in — applies tweaks to that
+           account's live HKCU hive, then loads the Default User hive
+           (C:\Users\Default\NTUSER.DAT) and applies the same tweaks
+           there. Non-admin accounts (TechL0/1/2) that sign in later
+           inherit the tweaks automatically via the Default User
+           template — no need to re-run the script per user. -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
