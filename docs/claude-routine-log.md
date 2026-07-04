@@ -5,6 +5,109 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — Fix `configs/deploy.args.example` verbatim-copy boot failure
+
+**Investigated:** repo state (main == side branch, no drift), open PR
+backlog (nothing pending — #52 was the last merge), and the recurring
+"next recommended improvement" candidates in previous routine entries.
+Set the deferred `Show-ImageList` / `Show-ImageSelection` factoring
+aside (still deferred: the menu render is load-bearing TUI UX and none
+of the three prior deep reviews flagged it as a defect). Walked the
+`deploy.args` pipeline instead: `docs/DEPLOY_ARGS.md`, the
+`startnet.cmd` snippet in `scripts/build_boot_wim.ps1` (~line 293),
+and `configs/deploy.args.example`.
+
+**Found:** `configs/deploy.args.example` line 1 was a `::` cmd-style
+comment (`:: Two-partition USB (legacy workflow: ...)`).
+`startnet.cmd` reads only the first line via
+`set /p DEPLOYARGS=<"%DEPLOY_IMAGE_DRIVE%\deploy.args"` (docs and CI
+check #24 both pin this behavior), so a verbatim copy of the shipped
+example onto a USB would result in
+`DEPLOYARGS=:: Two-partition USB (legacy workflow: FAT32 WinPE boot + NTFS IMAGES data partition)`.
+The deploy script has no positional parameters, so PowerShell's
+parameter binder rejects `::` with "A positional parameter cannot be
+found that accepts argument '::'" and the deploy exits before any
+disk work. The quickstart in `docs/DEPLOY_ARGS.md` explicitly tells
+operators to copy the example to the IMAGES partition, so the
+foot-gun is directly on the documented happy path. No CI check
+caught it (Phase 1B checks the startnet.cmd wiring, not the example
+file contents), and no prior routine entry flagged it.
+
+**Changed:**
+
+- `configs/deploy.args.example` — moved the interactive-TUI variant
+  (`-ImagePath "{DRIVE}\images"`) to line 1 so a verbatim copy
+  produces a valid, safe-by-default args set (script scans the WIM
+  dir but still prompts the operator for edition / target disk /
+  confirmations). Added a "HOW THIS FILE WORKS" header explaining
+  the line-1 constraint. Both prior profile examples (single-ISO
+  `{DRIVE}` variant and two-partition legacy fixed-drive variant)
+  are preserved verbatim as commented `::` reference blocks below,
+  ready to be swapped onto line 1.
+- `docs/DEPLOY_ARGS.md` — added a "Line 1 is the only line that
+  matters" bullet to the Constraints section that names the failure
+  mode explicitly (`::` on line 1 → PowerShell binder rejects `::`
+  before touching disk). Keeps the existing "Single line" bullet for
+  the multi-line-args case.
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of
+  `## Unreleased` describing the fix. No version bump (no
+  `$Script:Config.ScriptVersion` touch — configs+docs only, matches
+  the version-consistency convention in CLAUDE.md).
+
+**Verification:** No PowerShell files were touched, so
+`tests/test_parse.ps1`, `tests/test_wim_parser.ps1`, and
+`tests/test_disk_enumeration.ps1` are unaffected (their invariants
+still hold). `pwsh` couldn't be bootstrapped this session —
+`GitHub-Releases/PowerShell/.../powershell-7.4.6-linux-x64.tar.gz`
+returned HTTP 403 from the egress proxy, and apt has no
+`powershell` package — so I didn't attempt to run them. That's fine:
+the change is a config-file rearrangement + a docs bullet + a
+CHANGELOG bullet, none of which run through the parser.
+
+- Sanity: `head -n 1 configs/deploy.args.example` prints
+  `-ImagePath "{DRIVE}\images"` (byte-checked with `od -c`: no
+  BOM, no leading whitespace, no `::`).
+- Sanity: `-ImagePath` is a real parameter on
+  `unified_winpe_deploy.ps1` (declared on line 110), so
+  PowerShell's binder accepts it.
+- Sanity: `grep -rn "deploy.args.example" tests/ .github/` empty —
+  no test or workflow depends on the previous file structure.
+- The masterize CI Phase 1B checks that were most likely to interact
+  (#24 "startnet.cmd reads deploy.args", #25 "does not echo raw
+  deploy.args") only inspect `scripts/build_boot_wim.ps1`; the
+  example file is not on their grep path, so no CI job needs
+  updating.
+
+**Risks / follow-ups:**
+
+- Low. The example file is documentation, not production code. Nothing
+  runtime depends on its specific line ordering. The three profile
+  examples all remain in the file, just relabeled and gated behind
+  `::` prefixes; anyone who was manually deleting the header comments
+  to reach their preferred variant still has that variant intact.
+- One follow-up worth thinking about later: `startnet.cmd` in
+  `scripts/build_boot_wim.ps1` could be hardened to skip comment
+  lines via `for /f "usebackq eol=:"` instead of `set /p`, which
+  would make the file format fully robust. Not touching it this run
+  because (a) it's boot-critical logic, (b) CI check #24 explicitly
+  pins `set /p DEPLOYARGS` in the builder and would need updating
+  in the same commit, and (c) the example-file fix already closes
+  the observed foot-gun for the documented workflow.
+- Outstanding backlog from prior entries that I did not take this
+  pass:
+  - `Show-ImageList` / `Show-ImageSelection` code duplication —
+    deferred again; cleanup-only, load-bearing TUI, no reported
+    defect.
+  - Consider whether the deploy log should be copied to
+    `C:\Windows\Panther\` (or wherever the unattend.xml lands)
+    so it survives the reboot into deployed Windows. Right now
+    the log lives in `X:\Windows\Temp` (RAM disk), so it's lost
+    the moment the operator picks "shutdown". Small, additive,
+    observability-only improvement — good candidate for a
+    future routine run.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

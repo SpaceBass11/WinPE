@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/deploy.args.example` line 1 was a `::` comment**,
+  which broke a verbatim copy. `startnet.cmd` reads only the first
+  line via `set /p`, so `DEPLOYARGS` became `:: Two-partition USB
+  (legacy workflow: ...)` and PowerShell rejected it as a
+  positional argument before the deploy could start. Restructured
+  the example so line 1 is a working interactive-TUI default
+  (`-ImagePath "{DRIVE}\images"`) and the profile variants live in
+  clearly-labeled commented reference blocks below. Added a
+  matching `docs/DEPLOY_ARGS.md` note describing the line-1
+  constraint and the failure mode.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
