@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `docs/SCRIPT_REFERENCE.md` "per-user (HKCU)" wording fix
+
+**Investigated:** The 40+ open routine PRs (#123-#182) to avoid
+duplicating in-flight work, then looked for a small doc-drift fix
+called out in a recent PR's follow-up list. PR #181's "Risks /
+follow-ups" section explicitly flagged `docs/SCRIPT_REFERENCE.md`
+line 430's "per-user (HKCU)" wording as an outstanding item that
+"understates the Default-User-template pass" — no open PR is
+addressing it, and PR #128 (SCRIPT_REFERENCE v4.7.x resync) did not
+touch this paragraph.
+
+**Found:** The `-DisableExtraBloat` blurb that describes
+`scripts/first-login.ps1` staging said the script applies
+"per-user (HKCU) tweaks" and stopped there. `first-login.ps1` has
+actually run two passes since PR #21 — one against `HKCU:` for the
+current user, and one against a mounted `C:\Users\Default\NTUSER.DAT`
+for the Default User template. The dual-hive pass is the whole reason
+future users (Level0 / Level1 / Level2, or any future maintenance
+admin created downstream) inherit the same tweaks without needing
+`first-login.ps1` to re-run per user. The script's own DESCRIPTION
+block (`scripts/first-login.ps1` lines 16-30) explains this clearly;
+the reference doc summary was just stale.
+
+**Changed:**
+- `docs/SCRIPT_REFERENCE.md` — rewrote the four-line paragraph at
+  lines 427-433 to describe both passes: `HKCU:` for the current
+  user, then the mounted Default User hive so future users inherit.
+  Also notes that OneDrive uninstall and the `explorer.exe` restart
+  are current-user-only (they need a live profile to act on). No
+  new claims — every sentence maps to code already in
+  `scripts/first-login.ps1`.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the doc-drift fix and referencing PR #181's follow-up list as the
+  source of the flag.
+
+**Verification:**
+- The change is docs-only (`docs/SCRIPT_REFERENCE.md`,
+  `CHANGELOG.md`, this file). No `.ps1` files were touched, so
+  `tests/test_parse.ps1`, `tests/test_wim_parser.ps1`, and
+  `tests/test_disk_enumeration.ps1` are trivially unaffected — they
+  exercise PowerShell script syntax and behavioral invariants, not
+  Markdown prose.
+- Attempted the CLAUDE.md `pwsh` bootstrap anyway as a sanity
+  check; the GitHub Releases tarball URL returned HTTP 403 from
+  the egress proxy in this run's network policy (`curl … v7.4.6
+  … 403`, `apt-get install powershell` → "Unable to locate
+  package"). Documented so a future routine agent doesn't chase
+  this as a repo issue. CI's `syntax` job on `windows-latest`
+  runs the full `pwsh` test matrix on push regardless.
+- Grep-verified the two-pass claim against
+  `scripts/first-login.ps1` before writing the new prose: Pass 1
+  (`HKCU:`) at line 111-113, Pass 2 (`HKLM:\$mountKey` after
+  `reg.exe load` of `C:\Users\Default\NTUSER.DAT`) at line 118-142,
+  OneDrive uninstall at line 154-168, `explorer.exe` restart at
+  line 172-179.
+- Verified `docs/SCRIPT_REFERENCE.md` still round-trips as valid
+  Markdown after the edit (fenced-code balance and heading
+  structure unchanged in the surrounding sections).
+
+**Risks / follow-ups:**
+- Minimal. Doc-only. No `.ps1` touched. No new dependencies. No
+  destructive code path involvement.
+- `scripts/first-login.ps1` line 3 SYNOPSIS also says "Per-user
+  (HKCU) debloat + UX tweaks" — same understatement as the reference
+  doc paragraph. Deferred this pass because PR #182 already touches
+  `first-login.ps1` behavioral invariants in `tests/test_parse.ps1`
+  and PR #162 modifies its `reg.exe` stderr redirection; touching
+  the script itself now would risk merge friction. Follow-up: after
+  #162 and #182 land, a routine pass could rewrite the SYNOPSIS to
+  match the DESCRIPTION block (which already explains the dual-hive
+  behavior correctly).
+- Outstanding routine-backlog candidates that I did not take this
+  pass (unchanged from prior entries):
+  - `Show-ImageList` / `Show-ImageSelection` listing-render
+    extraction — PR #56 already addresses this specifically but has
+    been open since 2026-05-31; no additional routine pass needed
+    until #56 merges.
+  - BitLocker recovery-key writability pre-flight in
+    `Initialize-BitLockerSetup` — PR #159 restructures the same
+    try/finally surround; deferred.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

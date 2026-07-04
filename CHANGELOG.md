@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/SCRIPT_REFERENCE.md` `first-login.ps1` blurb no longer
+  understates the dual-hive pass.** The `-DisableExtraBloat` section
+  said the staged first-login script applied "per-user (HKCU) tweaks"
+  and stopped there. `scripts/first-login.ps1` has actually run two
+  passes since PR #21 — HKCU for the current user AND a mounted
+  `C:\Users\Default\NTUSER.DAT` for the Default User template, so
+  future users created on the deployed machine inherit the tweaks
+  automatically. Rewrote the paragraph to describe both passes and
+  note that OneDrive uninstall and the `explorer.exe` restart are
+  current-user-only. Doc-only. Flagged as an outstanding follow-up
+  in PR #181's "Risks / follow-ups" block.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

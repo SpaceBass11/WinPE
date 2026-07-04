@@ -427,8 +427,14 @@ additional HKLM policy tweaks via the same offline-hive mechanism:
 Also stages `scripts/first-login.ps1` into the image at
 `C:\Windows\Setup\Scripts\first-login.ps1` so that an `unattend.xml`
 `FirstLogonCommands` entry can call it at first sign-in to apply
-per-user (HKCU) tweaks (file extensions on, suggested apps off,
-classic right-click menu, OneDrive uninstall, etc). See
+per-user UX tweaks (file extensions on, suggested apps off,
+classic right-click menu, OneDrive uninstall, etc). The script
+applies the tweak list in two passes — once to `HKCU:` for the
+currently logged-in user, and once to the Default User hive
+(`C:\Users\Default\NTUSER.DAT`), so future users created on the
+same machine inherit the same tweaks without needing to re-run.
+OneDrive uninstall and the `explorer.exe` restart are
+current-user-only. See
 [`configs/unattend.example.xml`](../configs/unattend.example.xml) for
 the template.
 
