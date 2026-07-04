@@ -142,9 +142,48 @@ if ($builderOk) {
 Write-Host "`n--- scripts/prepare_wim.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 
-# Test 11: refresh_usb.ps1 (syntax only - workflow wrapper)
+# Test 11: refresh_usb.ps1 — syntax + key behavioral invariants
+# refresh_usb.ps1 is a thin wrapper that must delegate correctly to
+# prepare_wim.ps1 (and optionally build_boot_wim.ps1). A silent regression
+# in the pass-through wiring wastes 20 min of prepare_wim runtime before the
+# operator learns the wrapper misrouted a flag or missed an error.
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
+$refreshOk = Test-ScriptSyntax -Path $refreshPath -Label "USB refresh"
+if ($refreshOk) {
+    $rc = Get-Content $refreshPath -Raw
+
+    # copype pre-flight must exist AND must sit inside the -RebuildBootWim Yes
+    # branch. If the copype check runs unconditionally, image-only refreshes on
+    # a plain PowerShell (no ADK env) fail unnecessarily. If the check is
+    # dropped, operators eat 20 min of prepare_wim runtime before boot.wim
+    # rebuild fails.
+    Write-Result -Test "Refresh: copype pre-flight present" -Pass ($rc -match 'Get-Command\s+copype')
+    Write-Result -Test "Refresh: copype pre-flight gated by -RebuildBootWim Yes" `
+        -Pass ($rc -match "RebuildBootWim\s+-eq\s+'Yes'[\s\S]{0,300}?Get-Command\s+copype")
+
+    # prepare_wim.ps1's $LASTEXITCODE must be checked after invocation.
+    # Dropping the check would let the wrapper claim success on a failed
+    # image build and go on to rebuild boot.wim against a half-baked WIM.
+    Write-Result -Test 'Refresh: prepare_wim.ps1 $LASTEXITCODE checked' `
+        -Pass ($rc -match '&\s+\$prepScript[\s\S]{0,200}?\$LASTEXITCODE\s+-ne\s+0')
+
+    # -DisableExtraBloat forwarded to prepare_wim.ps1. The gate that stages
+    # first-login.ps1 into the image lives inside prepare_wim; if the wrapper
+    # drops the passthrough, first-login.ps1 silently stops being staged.
+    Write-Result -Test 'Refresh: -DisableExtraBloat forwarded to prepare_wim' `
+        -Pass ($rc -match '\$prepArgs\.DisableExtraBloat')
+
+    # -Index / -Edition are passed through only when explicitly bound by the
+    # caller, so prepare_wim's own defaults ("Windows 11 Enterprise" for
+    # Edition) survive when the wrapper's caller doesn't supply them.
+    # A refactor to `if ($Index)` would drop `-Index 0` at binding time
+    # (0 is falsy) and silently clobber prepare_wim's default Edition
+    # by forwarding an empty string.
+    Write-Result -Test 'Refresh: -Index passed via PSBoundParameters.ContainsKey' `
+        -Pass ($rc -match "PSBoundParameters\.ContainsKey\(\s*'Index'\s*\)")
+    Write-Result -Test 'Refresh: -Edition passed via PSBoundParameters.ContainsKey' `
+        -Pass ($rc -match "PSBoundParameters\.ContainsKey\(\s*'Edition'\s*\)")
+}
 
 # Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan

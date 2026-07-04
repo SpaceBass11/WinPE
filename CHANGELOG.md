@@ -9,6 +9,20 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`tests/test_parse.ps1` now pins six behavioral invariants for
+  `scripts/refresh_usb.ps1`** (previously syntax-only). Guards the
+  wrapper's delegation contract with `prepare_wim.ps1` and
+  `build_boot_wim.ps1`: (1) `copype` pre-flight exists,
+  (2) it is gated inside the `-RebuildBootWim -eq 'Yes'` branch so
+  image-only refreshes on plain PowerShell don't fail unnecessarily,
+  (3) `prepare_wim.ps1`'s `$LASTEXITCODE` is checked after invocation
+  so a failed image build doesn't silently pass through, (4)
+  `-DisableExtraBloat` is forwarded (the flag that stages
+  `first-login.ps1` into the image lives inside `prepare_wim.ps1`),
+  and (5-6) `-Index` and `-Edition` are forwarded via
+  `$PSBoundParameters.ContainsKey(...)` so `prepare_wim.ps1`'s own
+  defaults survive when the wrapper's caller doesn't supply them.
+  Test-only change. No production code touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -5,6 +5,95 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `tests/test_parse.ps1` behavioral invariants for `refresh_usb.ps1`
+
+**Investigated:** open PRs (#180-#189) to avoid overlap. All 10 open
+routine PRs concentrate elsewhere: prepare_wim.ps1 invariants (#180),
+first-login.ps1 invariants (#182), docs (#181, #183), masterize CI checks
+(#184, #187), build_boot_wim.ps1 (#185), unified_winpe_deploy.ps1 fix
+(#186), build_iso.ps1 fix (#188), deploy.args.example fix (#189). No
+open PR touches `scripts/refresh_usb.ps1` or Test 11 in
+`tests/test_parse.ps1`.
+
+**Found:** Test 11 in `tests/test_parse.ps1` was still one line —
+`Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null`.
+PR #50 (build_boot_wim) and PR #180 (prepare_wim) both extended their
+respective Tests with 5-6 behavioral invariant assertions after the
+syntax check; refresh_usb.ps1 hadn't been given the same treatment even
+though it delegates to both of those scripts and a silent regression in
+the pass-through wiring would cost the operator 20 min of prepare_wim
+runtime before surfacing. The wrapper has real correctness contracts
+worth pinning:
+
+- `copype` pre-flight must exist AND be gated inside the
+  `-RebuildBootWim -eq 'Yes'` branch. Ungate it and image-only
+  refreshes on plain PowerShell fail unnecessarily. Drop it and
+  operators eat 20 min of image work before boot.wim rebuild fails.
+- `prepare_wim.ps1`'s `$LASTEXITCODE` must be checked after
+  invocation. Drop the check and a failed image build silently
+  passes through into the boot.wim rebuild step.
+- `-DisableExtraBloat` must forward to `prepare_wim.ps1`. The gate
+  that stages `first-login.ps1` into the image lives inside
+  `prepare_wim.ps1`; drop the passthrough and `first-login.ps1`
+  silently stops being staged.
+- `-Index` / `-Edition` must forward via
+  `$PSBoundParameters.ContainsKey(...)` so `prepare_wim.ps1`'s own
+  defaults (`Windows 11 Enterprise` for Edition) survive when the
+  wrapper's caller doesn't supply them. A refactor to
+  `if ($Index) { ... }` would drop `-Index 0` at binding time
+  (0 is falsy) and silently clobber the Edition default with an
+  empty string.
+
+**Changed:**
+
+- `tests/test_parse.ps1` — Test 11 expanded from one line to a
+  syntax-then-invariants block. Six new assertions matching the
+  regressions listed above.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the coverage extension.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+
+- Baseline pattern-match: all six new-assertion regexes match the
+  current `scripts/refresh_usb.ps1` on Python `re` (same engine class
+  as .NET regex for the constructs used) — every assertion is green
+  as introduced.
+- **Mutation test:** simulated each regression that the assertion
+  exists to catch (delete `copype` check; ungate it from the
+  `-RebuildBootWim Yes` branch; drop the `$LASTEXITCODE` check;
+  rename `$prepArgs.DisableExtraBloat`; replace `PSBoundParameters
+  .ContainsKey('Index')` with `if ($Index)`; same for `Edition`).
+  All six assertions flipped to FAIL on their targeted mutation —
+  confirmed the regexes have real teeth, not tautological matches.
+- Brace balance on `tests/test_parse.ps1`: 28 open / 28 close
+  (unchanged; new block is inside an `if ($refreshOk) { ... }`
+  wrapper, +1/+1 net brace, offset by the `| Out-Null` line removal).
+- `pwsh` isn't available in this Linux session — the container's
+  network policy returns 403 for the GitHub-Releases tarball URL that
+  CLAUDE.md documents. Same constraint flagged in every prior routine
+  entry back to 2026-05-11. CI's `syntax` job on `windows-latest`
+  runs `tests/test_parse.ps1` end-to-end on push and is the source of
+  truth.
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only change. No production code touched. No new
+  network or module dependencies. Same pattern as PR #50 (build_boot_wim
+  Test 9) and PR #180 (prepare_wim Test 10 — still open at time of
+  this run).
+- Backlog items still open across the maintenance history:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — deferred across
+    multiple routine cycles because the menu render is load-bearing
+    TUI UX.
+  - Pester coverage for `prepare_wim.ps1` parameter-set binding —
+    larger change than fits a single routine pass; needs a Pester
+    harness for the `[CmdletBinding(DefaultParameterSetName='FromIso')]`
+    surface.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
