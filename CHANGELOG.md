@@ -8,6 +8,23 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`New-DiskpartScript` no longer silently returns success on `Set-Content`
+  failure.** The diskpart script writer wrapped `Set-Content` in a
+  bare `try/catch` but omitted `-ErrorAction Stop`; a non-terminating
+  failure (X: RAM disk full, permissions, path invalid) would print
+  a red error line and then let the function log `Diskpart script
+  created` and return `$true`. The downstream `Invoke-Diskpart` call
+  would then execute a truncated script — worst case, a prefix like
+  `select disk 0; clean` that wipes the target without ever reaching
+  `create partition`. Same silent-fallthrough class as the unattend
+  `Copy-Item` and BitLocker `Set-Content` staging paths. Now uses
+  `-ErrorAction Stop` so any I/O failure aborts before diskpart runs;
+  the operator-facing log adds a `Target disk is untouched` reassurance
+  line and points at the common causes. `tests/test_parse.ps1` gains
+  Test 8d as a drift guard (slot picked to avoid collision with open
+  PRs #192 Test 8b and #194 Test 8c).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

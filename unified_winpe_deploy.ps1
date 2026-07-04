@@ -1016,7 +1016,13 @@ exit
 "@
 
     try {
-        Set-Content -Path $Script:SystemPaths.DiskpartScript -Value $commands -Force
+        # -ErrorAction Stop turns non-terminating Set-Content failures
+        # (access-denied, disk-full on X:, path invalid) into catchable
+        # exceptions. Without it, a silent partial write could leave a
+        # truncated diskpart script — Invoke-Diskpart would then execute
+        # a prefix like `select disk 0; clean` (destructive) without ever
+        # reaching `create partition`, wiping the target but not deploying.
+        Set-Content -Path $Script:SystemPaths.DiskpartScript -Value $commands -Force -ErrorAction Stop
         Write-Log "Diskpart script created at $($Script:SystemPaths.DiskpartScript):" -Level Success
         foreach ($line in ($commands -split "`n")) {
             $trimmed = $line.Trim()
@@ -1025,6 +1031,8 @@ exit
         return $true
     } catch {
         Write-Log "Failed to create diskpart script: $($_.Exception.Message)" -Level Error
+        Write-Log "  Aborting before any destructive disk operation. Target disk is untouched." -Level Info
+        Write-Log "  Common causes: X: (WinPE RAM disk) full, temp dir not writable, path invalid." -Level Info
         return $false
     }
 }

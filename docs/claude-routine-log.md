@@ -5,6 +5,112 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-04 — `New-DiskpartScript` Set-Content silent-fallthrough
+
+**Investigated:** open PRs (60+ Claude routine PRs including #148,
+#192, #194 all closing silent-fallthrough gaps around I/O cmdlets
+without `-ErrorAction Stop`). Traced the same pattern back through
+every `try { <I/O cmdlet> ... return $true } catch { ... }` block in
+`unified_winpe_deploy.ps1`. `New-DiskpartScript` at line 1018-1029
+was the last one still using bare `Set-Content -Force` without
+`-ErrorAction Stop`.
+
+**Found:** `Set-Content` in PowerShell 5.1+ raises non-terminating
+errors for the most common I/O failures (access denied, target path
+missing, disk full on the target volume, target file locked). A bare
+`try/catch` only catches terminating exceptions. So the failure model
+is:
+
+1. `Set-Content -Path <diskpart_script>` emits a non-terminating error
+   (red text on the console, but no exception raised).
+2. Control falls through to `Write-Log "Diskpart script created..." -Level Success` — a false success line.
+3. Function returns `$true`.
+4. `Invoke-Diskpart` opens the script (if it exists at all — a
+   partial write can leave a truncated file) and starts executing.
+5. A truncated script that reaches `select disk N; clean` but not
+   `create partition` wipes the target and returns exit 0 to diskpart.
+   The deploy script's post-diskpart verification catches the missing
+   drive letters and aborts — but the target is already destroyed.
+
+Same class as PR #148 / #192 (`Copy-Item` staging unattend) and
+PR #194 (`Set-Content` staging BitLocker), which have all landed
+`-ErrorAction Stop` fixes for their respective functions. The
+diskpart-script write is the same shape and hadn't been touched.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — added `-ErrorAction Stop` to the
+  `Set-Content` in `New-DiskpartScript`, plus two operator-facing
+  recovery lines in the existing catch block ("Target disk is
+  untouched" reassurance and "X: full, temp dir not writable, path
+  invalid" cause hints). The five-line rationale comment above the
+  Set-Content explains the destructive-prefix hazard so a future
+  cleanup pass doesn't strip the flag back.
+- `tests/test_parse.ps1` — added Test 8d as a drift guard: the
+  regex asserts `-ErrorAction Stop` still appears on the
+  `Set-Content -Path $Script:SystemPaths.DiskpartScript` line. Slot
+  8d picked deliberately to avoid collision with open PR #192's
+  Test 8b and PR #194's Test 8c (both same drift-guard class,
+  different function). Regex verified against the post-edit file
+  in Python: 1 match at the correct site.
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of the
+  Unreleased section.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- **`pwsh` bootstrap blocked.** The CLAUDE.md one-liner (GitHub
+  Releases tarball for pwsh v7.4.6) returns HTTP 403 from this
+  container's egress proxy today — same failure mode documented in
+  every prior routine PR back to 2026-05-11 and PR #148/#192/#194's
+  test plans. CI's `syntax` job on `windows-latest` will run
+  `PSParser::Tokenize` and `tests/test_parse.ps1` end-to-end on push.
+- **Brace balance** on `unified_winpe_deploy.ps1`: **397 / 397**
+  (unchanged from `main`; the edit adds only a `-ErrorAction Stop`
+  flag, one comment block, and two `Write-Log` lines inside the
+  existing catch — no new braces).
+- **Region balance:** 10 / 10 (unchanged).
+- **`tests/test_parse.ps1` brace balance:** 25 / 25 (Test 8d
+  adds a single-line assertion and two comment lines — no new
+  braces).
+- **Test 8d regex mutation check:** confirmed that with the current
+  `-ErrorAction Stop` present, the regex matches (1 hit); mutating
+  the source to drop the flag makes the regex miss (0 hits). So the
+  drift guard goes missing-to-green and would catch a regression
+  that removed the flag.
+- **Class parity:** compared the shape of my edit against PR #194's
+  BitLocker `Initialize-BitLockerSetup` fix — same `-ErrorAction Stop`
+  addition to I/O cmdlets inside an existing bare `try/catch`, same
+  catch-block enrichment with operator recovery guidance. Consistent
+  handling.
+
+**Risks / follow-ups:**
+- **Low.** Happy-path behaviour is unchanged: on a successful
+  Set-Content the same `Diskpart script created ...` success line
+  fires and the function returns `$true`, byte-identical to the
+  pre-edit path. Only the failure branch changes, and the change is
+  strictly additive (an operator-visible error message replaces a
+  silent partial success). No destructive code path touched — the
+  diskpart script contents, drive-letter freeing, and Invoke-Diskpart
+  call are all unchanged.
+- **Merge order caveat.** May conflict with PR #192 / #194 on merge
+  because all three touch `CHANGELOG.md` under `## Unreleased`. Test
+  slot picks (8b / 8c / 8d) do not overlap; the `### Fixed` bullets
+  can stack cleanly. Whichever merges second/third needs a trivial
+  rebase adding just their bullet.
+- **Class follow-up.** A masterize CI check that greps for
+  `Set-Content|Copy-Item|New-Item.*ItemType.*Directory` inside a
+  `try/catch` block and asserts `-ErrorAction Stop` is on the same
+  line would prevent this class from re-appearing. Deferred — that's
+  a check-inventory expansion, not a bug fix. Leaving as a next-
+  recommended item.
+
+**Next recommended improvement:** The masterize CI check outlined
+above (grep for I/O cmdlets inside `try/catch` blocks that lack
+`-ErrorAction Stop`) would permanently close this silent-fallthrough
+class. It's a natural companion to the three individual `-ErrorAction
+Stop` fixes now in flight (PR #148 / #192 / #194 / this one).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

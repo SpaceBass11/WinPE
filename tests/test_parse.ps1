@@ -122,6 +122,22 @@ Write-Result -Test "CmdletBinding attribute present" -Pass $hasCmdletBinding
 $hasRequires = $content -match '#Requires\s+-RunAsAdministrator'
 Write-Result -Test "#Requires -RunAsAdministrator present" -Pass $hasRequires
 
+# Test 8d: New-DiskpartScript's Set-Content must use -ErrorAction Stop.
+# A non-terminating Set-Content failure (X: full, permissions, path invalid)
+# would otherwise bypass the bare try/catch and let the function return $true
+# with a truncated or missing diskpart script. Invoke-Diskpart would then run
+# a prefix like `select disk 0; clean` — wiping the target without ever
+# reaching `create partition`. Slot 8d picked to avoid collision with the
+# similar guards claimed by open PRs #192 (Test 8b, Copy-Item unattend) and
+# #194 (Test 8c, Set-Content BitLocker staging).
+# Same-line match: `[^\r\n]*` bounds the wildcard to the Set-Content
+# statement itself so the assertion cannot bleed into some later
+# `-ErrorAction Stop` elsewhere in the file (e.g. an unrelated
+# Set-Content in Initialize-BitLockerSetup) and give a false green.
+$dpsPattern = 'Set-Content -Path \$Script:SystemPaths\.DiskpartScript[^\r\n]*-ErrorAction Stop'
+$hasDpsGuard = $content -match $dpsPattern
+Write-Result -Test "New-DiskpartScript Set-Content uses -ErrorAction Stop" -Pass $hasDpsGuard
+
 # Test 9: build_boot_wim.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_boot_wim.ps1 ---" -ForegroundColor Cyan
 $builderOk = Test-ScriptSyntax -Path $builderPath -Label "Builder"
