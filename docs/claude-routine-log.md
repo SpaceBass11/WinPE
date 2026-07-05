@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — `Get-WimImageInfo` failure-path diagnostics
+
+**Investigated:** open PRs (~100 in flight this pass, none touching
+`Get-WimImageInfo` — verified by grep against
+"wiminfo|wim info|get-wimimageinfo|dism|diagnostic|stderr"), the
+routine-log backlog, and the failure branches of the DISM-adjacent
+helpers in `unified_winpe_deploy.ps1` (`Get-WimImageInfo`,
+`Apply-WindowsImage`, `Invoke-Diskpart`, `Set-BootConfiguration`).
+
+**Found:** `Get-WimImageInfo` (~line 823) captures `dism.exe
+/Get-WimInfo` output via `2>&1` into `$output`, then on non-zero exit
+logs only the exit code and the generic "WIM file may be corrupted or
+inaccessible" line — the actual DISM error text (which distinguishes
+"file not found", "access denied", "cannot open image file", genuine
+corruption, etc.) gets thrown away. That leaves the operator to open
+`dism.log` for every triage. `Apply-WindowsImage` doesn't have this
+gap because it runs DISM via `Start-Process -NoNewWindow`, so DISM's
+stderr goes straight to the WinPE console. `Invoke-Diskpart` and
+`Set-BootConfiguration` already surface their tools' captured output.
+`Get-WimImageInfo` was the last DISM-driving helper still discarding
+its child-process error text on the failure path.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Get-WimImageInfo`: on
+  `$LASTEXITCODE -ne 0`, added `Write-Log " WIM: $WimPath"` plus a
+  loop over `$output -split "`r?`n"` that trims and logs each
+  non-empty line under a `DISM output:` header, then falls through to
+  the existing `return @()`. The `"$line".Trim()` pattern mirrors the
+  one already used in `Invoke-Diskpart`'s output-echo block. Purely
+  additive — no touch to the four regex patterns pinned by
+  `tests/test_wim_parser.ps1`, no change to the empty-array return
+  contract that `Select-ImageIndex` depends on.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`.
+
+**Verification:**
+- `pwsh` is not installable in this session (network policy denies
+  GitHub Releases access for `PowerShell/PowerShell` with a JSON
+  "GitHub access to this repository is not enabled" error — differs
+  from the prior 2026-05-24 session where the release tarball was
+  reachable). `tests/test_parse.ps1` can't run locally as a result.
+- Structural checks against the edited file (string/comment-stripped):
+  braces 374/374, parens 393/393, brackets 83/83, `#region`/`#endregion`
+  10/10. Diff is +8 lines, all inside the existing
+  `if ($LASTEXITCODE -ne 0)` block; return statement unchanged in
+  position.
+- `git diff --stat`: 1 file changed, 8 insertions, 0 deletions.
+- `tests/test_wim_parser.ps1` drift guard reads the four regex
+  patterns literally against the deploy script; the edit touches
+  neither the patterns nor the parsing loop, so the drift guard stays
+  green.
+- CI's `syntax` job on `windows-latest` (`.github/workflows/ci.yml`)
+  runs `PSParser::Tokenize` and the WIM-parser fixture on push and
+  is the source of truth for both.
+
+**Risks / follow-ups:**
+- Minimal. Function-level change, only `Write-Log` calls added inside
+  an existing failure branch. No new behavior on the success path.
+  No destructive-code (diskpart, DISM apply, BCDBoot) touched. No new
+  parameters or return-shape changes. Log volume on failure grows by
+  ~3-5 lines (typical DISM `/Get-WimInfo` error dump) which is well
+  below the diskpart output that already streams to the console on
+  its own failure path.
+- Outstanding items from prior entries I did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines of
+    listing-render code that could be factored out — flagged
+    across many prior entries but deferred because the menu render
+    is load-bearing UX. The two functions also disagree on the
+    "No images found" recovery hint: `Show-ImageSelection` includes
+    "Try using -ImagePath or -WimFile parameters", `Show-ImageList`
+    (used by `-ListOnly`) doesn't. A trivial one-line
+    consistency fix is available if a future pass wants it.
+  - The ~100 open Claude routine PRs suggest the repo currently
+    has more diagnostic/safety work in-flight than can be reviewed
+    in real time; future passes should read the merged-since-log
+    delta first before opening yet another PR against the same
+    subsystem.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Get-WimImageInfo` surfaces DISM's actual error text on failure.**
+  When `dism.exe /Get-WimInfo` exits non-zero, the function previously
+  logged only the exit code and a generic "WIM may be corrupted or
+  inaccessible" line, discarding DISM's captured stdout/stderr
+  (`2>&1` redirects into `$output`, then never read on the failure
+  path). The operator had to open `dism.log` to distinguish
+  file-not-found (2), access-denied (5), or genuine WIM corruption.
+  The failure branch now logs the full `$WimPath` plus each non-empty
+  line of DISM's captured output (trimmed) before returning `@()`.
+  Pure additive logging — return value, control flow, and the four
+  parser regexes pinned by `tests/test_wim_parser.ps1` are unchanged.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

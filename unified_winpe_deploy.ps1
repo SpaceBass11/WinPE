@@ -829,6 +829,14 @@ function Get-WimImageInfo {
         $output = & dism.exe /Get-WimInfo /WimFile:"$WimPath" /English 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Log "DISM /Get-WimInfo failed (exit code $LASTEXITCODE) - WIM file may be corrupted or inaccessible" -Level Warning
+            Write-Log "  WIM: $WimPath" -Level Info
+            if ($output) {
+                Write-Log "  DISM output:" -Level Info
+                foreach ($line in ($output -split "`r?`n")) {
+                    $trimmed = "$line".Trim()
+                    if ($trimmed) { Write-Log "    $trimmed" -Level Info }
+                }
+            }
             return @()
         }
         $indexes = @()
