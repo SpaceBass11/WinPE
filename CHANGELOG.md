@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Invoke-CctkConfig` selection precedence now has fixture-test
+  coverage.** New `tests/test_cctk_selection.ps1` pins the four-step
+  BIOS-config lookup (`<SERVICETAG>.ini` → `<MODEL>.ini` →
+  `default.ini` → skip) and the model-string alnum normalization
+  (`OptiPlex 7090` → `OptiPlex7090.ini`) that decides which cctk.exe
+  config file gets applied to a machine. A regression that silently
+  reorders precedence or drops normalization could push the wrong
+  BIOS settings (secure boot off, AHCI/RAID flipped, wrong passwords)
+  onto a machine — masterize check #13 only verified ordering
+  relative to disk selection, and `test_parse.ps1` / Pester only
+  verified the function was defined. Includes a drift guard on
+  nine safety-critical code shapes in `unified_winpe_deploy.ps1`.
+  Wired into the CI `syntax` job. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

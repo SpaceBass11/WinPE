@@ -5,6 +5,105 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — Fixture test for `Invoke-CctkConfig` selection precedence
+
+**Investigated:** open PRs (#193–#202 all open, none touching CCTK
+logic), the routine-log backlog, and the existing test surface for
+`Invoke-CctkConfig`. `Invoke-CctkConfig` decides which `.ini` file
+cctk.exe gets fed **before any disk work**, and a wrong pick can push
+the wrong BIOS config onto a machine (secure boot off, SATA mode
+flipped, wrong setup password, etc.). Existing coverage was:
+- `tests/test_parse.ps1` Test 5 checks the function is *defined*.
+- `tests/validation-gates.Tests.ps1` mocks it away entirely.
+- CI masterize check #13 only verifies ordering relative to disk
+  selection (`Invoke-CctkConfig` line < `Select-TargetDisk` line).
+
+**Found:** nothing exercises the four-step precedence
+(`<SERVICETAG>.ini` → `<MODEL>.ini` → `default.ini` → skip) or the
+model-string alnum normalization (`OptiPlex 7090` → `OptiPlex7090.ini`,
+non-alnum via `-replace '[^A-Za-z0-9]', ''`). Silent regressions
+(precedence flip, dropped `.Trim()`, changed character class) would
+compile fine, pass PSSA, and only be caught on real hardware — after
+BIOS was already touched.
+
+**Changed:**
+- `tests/test_cctk_selection.ps1` — new fixture test paralleling
+  `tests/test_wim_parser.ps1` and `tests/test_disk_enumeration.ps1`.
+  Mirrors the selection block and the normalizer in helper functions
+  (`Select-CctkConfig`, `Get-NormalizedModel`) and drives them
+  against real files under a per-run temp dir so `Test-Path` is
+  exercised for real. Covers:
+    - service tag wins over model + default when its file exists;
+    - model wins over default when no service-tag file exists;
+    - default is the last resort;
+    - no matching file → `Path = $null` (caller skips CCTK,
+      deploy continues);
+    - empty service tag falls through to model;
+    - both empty falls through to default (or `$null` if no
+      default.ini);
+    - 11 model-normalization cases covering spaces, dashes,
+      underscores, dots, slashes, parentheses, leading/trailing
+      whitespace, and empty/whitespace-only inputs.
+  Drift guard block re-greps `unified_winpe_deploy.ps1` for the
+  nine safety-critical shapes (normalizer regex, three candidate
+  builds, `-not $configPath -and $model` guard, three reason
+  literals, `No CCTK config matched` → `return $true` sequence).
+  If the deploy script and the test drift apart, the guard fails.
+- `.github/workflows/ci.yml` — wired into the `syntax` job as a
+  follow-on `pwsh` step, matching the pattern used for the WIM
+  parser and disk enumeration tests.
+- `CLAUDE.md` — Running Checks table refreshed. The intro said
+  "three test files" but the repo already ships five (the disk
+  enumeration test was added recently and never wired into the
+  table). Fixed the count wording to be open-ended, listed the
+  disk enumeration test, listed the new CCTK test, and added
+  invocation lines under the code fence.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`.
+
+**Verification:**
+- `pwsh` installed via `apt-get install powershell` this session
+  (the `github.com/PowerShell/PowerShell/releases` tarball URL
+  used by the prior playbook is now 403 through the proxy —
+  Ubuntu 22.04's `packages.microsoft.com` repo still resolves,
+  and installed 7.6.3 in one apt call).
+- Baseline (before edits): `pwsh -NoProfile -File
+  ./tests/test_parse.ps1` → 48 passed / 0 failed;
+  `./tests/test_wim_parser.ps1` → 16 / 0;
+  `./tests/test_disk_enumeration.ps1` → 34 / 0.
+- New test: `pwsh -NoProfile -File ./tests/test_cctk_selection.ps1`
+  → 34 passed / 0 failed on first run. All nine drift-guard
+  regexes anchored on real code shapes in the current
+  `unified_winpe_deploy.ps1`.
+- Re-ran the three prior fixtures after the edits: all still
+  48 / 16 / 34 — no contamination.
+- Fixture directory (`[System.IO.Path]::GetTempPath()` + GUID)
+  is created + cleaned in a `try/finally` so a failing assertion
+  in the middle of the run doesn't leave orphaned files under
+  `/tmp`. Verified by observing zero remnants under
+  `/tmp/cctk-test-*` after the pass.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. No
+  behavior change to `Invoke-CctkConfig` or any surrounding
+  destructive path (diskpart, DISM, BCDBoot).
+- Only CI risk: if my drift-guard regexes somehow don't match
+  what's live in `unified_winpe_deploy.ps1` on Windows-latest's
+  file encoding, CI fails — but the same greps ran clean here
+  on Linux/pwsh 7.6.3, so this is unlikely.
+- Outstanding routine-backlog items I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — flagged
+    across multiple prior routine entries, deferred because
+    it's load-bearing TUI UX.
+  - `refresh_usb.ps1` fixture test for its `-SourceIso` /
+    `-SourceWim` parameter-set dispatch (called out by PR #22
+    aftermath).
+  - Open PR #199 (fatal-catch stack trace) and #200 (build_iso
+    pre-flight sanity) — deliberately not touched to avoid
+    conflicting with those in-flight PRs.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
