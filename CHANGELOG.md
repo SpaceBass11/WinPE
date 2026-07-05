@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/prepare_wim.ps1` surfaces `reg.exe` stderr on hive-load,
+  reg-add, and hive-unload failure.** All three of the script's
+  `reg.exe` calls previously dropped their output via `| Out-Null` and
+  reported only `$LASTEXITCODE` on failure (e.g. `reg load failed
+  (exit 1)`). `reg.exe` does not publish a documented exit-code table,
+  so the bare integer was opaque — file locked, access denied, hive
+  corrupt, wrong arch, path missing all collapsed to the same message.
+  Failure paths now capture the stderr line and append it after the
+  exit code so the operator can diagnose without re-running. Mirrors
+  the pattern applied to `scripts/first-login.ps1` in an earlier
+  release. Success paths are byte-identical.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

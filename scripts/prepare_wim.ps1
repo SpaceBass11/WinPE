@@ -382,8 +382,19 @@ try {
             throw "Offline SOFTWARE hive not found at $softwareHive"
         }
         $hiveKey = 'HKLM\WimPrepSoftware'
-        & reg.exe load $hiveKey $softwareHive | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "reg load failed (exit $LASTEXITCODE)" }
+        # Capture reg.exe output so a non-zero exit code can be paired with
+        # the actual diagnostic (file locked, access denied, hive corrupt,
+        # wrong format). reg.exe's exit codes are undocumented — the bare
+        # integer alone is opaque. Matches the pattern in first-login.ps1.
+        $loadOutput = & reg.exe load $hiveKey $softwareHive 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $loadMsg = ($loadOutput | Out-String).Trim()
+            if ($loadMsg) {
+                throw "reg load failed (exit $LASTEXITCODE): $loadMsg"
+            } else {
+                throw "reg load failed (exit $LASTEXITCODE)"
+            }
+        }
         try {
             # Each entry: <subkey under hiveKey>, <value name>, <DWORD>, <human label>
             $tweaks = @()
@@ -414,15 +425,29 @@ try {
                 $subkey, $name, $value, $label = $t
                 $full = "$hiveKey\$subkey"
                 & reg.exe add $full /f | Out-Null
-                & reg.exe add $full /v $name /t REG_DWORD /d $value /f | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "reg add $name failed (exit $LASTEXITCODE)" }
+                $addOutput = & reg.exe add $full /v $name /t REG_DWORD /d $value /f 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    $addMsg = ($addOutput | Out-String).Trim()
+                    if ($addMsg) {
+                        throw "reg add $name failed (exit $LASTEXITCODE): $addMsg"
+                    } else {
+                        throw "reg add $name failed (exit $LASTEXITCODE)"
+                    }
+                }
                 Write-Ok "  $label"
             }
         } finally {
             [gc]::Collect()
             [gc]::WaitForPendingFinalizers()
-            & reg.exe unload $hiveKey | Out-Null
-            if ($LASTEXITCODE -ne 0) { Write-Warn "reg unload returned $LASTEXITCODE - may need a reboot" }
+            $unloadOutput = & reg.exe unload $hiveKey 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                $unloadMsg = ($unloadOutput | Out-String).Trim()
+                if ($unloadMsg) {
+                    Write-Warn "reg unload returned $LASTEXITCODE - may need a reboot: $unloadMsg"
+                } else {
+                    Write-Warn "reg unload returned $LASTEXITCODE - may need a reboot"
+                }
+            }
         }
     }
 

@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — `prepare_wim.ps1`: surface `reg.exe` stderr on load/add/unload failure
+
+**Investigated:** ~110 open routine PRs (#85–#204). Confirmed none
+touch `scripts/prepare_wim.ps1`'s three `reg.exe` calls (lines 385,
+417, 424). PR #162 applied this same pattern to
+`scripts/first-login.ps1` (already merged into the routine baseline);
+the parallel gap in `prepare_wim.ps1` was untouched.
+
+**Found:** All three `reg.exe` calls dropped output via `| Out-Null`
+and reported only `$LASTEXITCODE` on failure:
+
+- Line 385 (`reg load`): `throw "reg load failed (exit $LASTEXITCODE)"`
+- Line 417 (`reg add /v`): `throw "reg add $name failed (exit $LASTEXITCODE)"`
+- Line 424 (`reg unload`): `Write-Warn "reg unload returned $LASTEXITCODE - may need a reboot"`
+
+`reg.exe` doesn't publish an exit-code table, so the bare integer
+collapsed file-locked, access-denied, hive-corrupt, wrong-arch, and
+path-missing into the same message. That matters especially for
+`prepare_wim`'s hive-load path: if the load fails, every offline
+policy tweak (Copilot, Recall, Widgets, telemetry, etc.) is silently
+skipped for that build, but the operator only sees `exit 1`. Same
+concern PR #162 fixed for the first-login companion script.
+
+**Changed:**
+- `scripts/prepare_wim.ps1` — replaced `& reg.exe … | Out-Null` with a
+  captured-output variant at all three call sites. On non-zero exit,
+  the captured text is `Out-String | Trim()`'d and appended after the
+  exit code; if the captured text is empty (a defensive guard —
+  `reg.exe` usually writes *something* on failure), the original
+  "exit N only" line is preserved so log shape never regresses. Load
+  and add stay `throw`; unload stays `Write-Warn`.
+- `CHANGELOG.md` — new `## Unreleased / ### Changed` bullet at the top
+  of the section documenting the three-site enrichment.
+
+**Verification:**
+- Installed pwsh 7.6.3 from `packages.microsoft.com` (the direct GitHub
+  Releases tarball is 403'd in this session, but the MS apt feed is
+  reachable). Recorded here so future routine runs can lean on the
+  same path.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed (baseline; the `prepare_wim.ps1` syntax-valid assertion still
+  passes, i.e. the edit didn't break tokenization).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+  unchanged.
+- Behavioral smoke test: ran the `Out-String | Trim()` pipeline on
+  both a stderr-bearing stub (`bash -c "echo ... >&2; exit 1"`) and a
+  silent-fail stub (`bash -c "exit 1"`). First captures the message
+  after the exit code; second falls through to the "exit N only"
+  branch with no awkward dangling colon. Confirms the `if ($msg)`
+  guard is doing real work.
+- Pester (`tests/validation-gates.Tests.ps1`) doesn't cover
+  `prepare_wim.ps1`, and the network policy still blocks PSGallery
+  even after installing pwsh from the MS feed, so no local Pester
+  run — CI will run it on push.
+
+**Risks:**
+- Minimal. Pure additive logging on failure branches; success paths
+  byte-identical. No destructive code touched (no DISM, diskpart,
+  bcdboot semantics changed). Every captured-output variable is
+  local to its `if`/`finally` block — no scope leak.
+- `Out-String | Trim()` is the same idiom used by PR #162 in
+  first-login.ps1, and by the CCTK error capture path in
+  `unified_winpe_deploy.ps1`. PSv5.1 compatible.
+
+**Next recommended improvement:**
+- **`Show-ImageList` / `Show-ImageSelection`** in
+  `unified_winpe_deploy.ps1` still share ~30 lines of listing-render
+  code. Deferred across many entries because TUI UX is load-bearing;
+  worth a fresh look only if a coverage test is added first.
+- **Fixture test for `prepare_wim.ps1` parameter-set validation**
+  (the `-SourceIso` vs `-SourceWim` mutual-exclusion + `-Index`
+  passthrough logic). Flagged in PR #162's log entry; still not in
+  flight.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
