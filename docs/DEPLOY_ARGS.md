@@ -44,6 +44,35 @@ PIN or other secret in the file does not appear on the WinPE
 console, KVM, or any over-the-shoulder view. To inspect the args,
 read the file from the IMAGES partition directly.
 
+## `{DRIVE}` placeholder
+
+`startnet.cmd` substitutes the literal token `{DRIVE}` with the
+actual drive letter WinPE assigned to the IMAGES partition (the
+same value `%DEPLOY_IMAGE_DRIVE%` holds — the placeholder form is
+used in the file so cmd.exe doesn't try to expand it before the
+substitution step runs). Use it when the USB letter isn't stable
+across boots — most commonly the single-ISO workflow produced by
+`build_iso.ps1`, where Rufus flashes the ISO and Windows may
+assign a different letter than the one baked in at build time.
+
+Example (from `configs/deploy.args.example`):
+
+```text
+-WimFile "{DRIVE}\images\Win11_Pro_Custom.wim" -TargetDisk 0 -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
+```
+
+At boot, if IMAGES is mounted as `E:`, that line becomes
+`-WimFile "E:\images\Win11_Pro_Custom.wim" ...` before it reaches
+PowerShell. Substitution is a plain string replace; every
+occurrence of `{DRIVE}` in the single-line args is replaced. If
+the IMAGES partition isn't found, no substitution happens and the
+literal `{DRIVE}` reaches PowerShell, which will fail parameter
+binding before any destructive step.
+
+Absolute drive letters (e.g. `I:\images\...`) still work — use them
+for the two-partition USB workflow where the letter is fixed by
+the diskpart script that built the USB.
+
 ## Constraints
 
 - **Single line.** `set /p` reads only the first line of the file.
@@ -54,9 +83,10 @@ read the file from the IMAGES partition directly.
   double quotes. PowerShell re-parses the args on its end so the
   normal `-Param "value"` pattern works.
 - **No environment-variable expansion** beyond what cmd.exe and
-  startnet.cmd already set (notably `%DEPLOY_IMAGE_DRIVE%` is
-  available, but the example uses absolute drive letters because
-  those are stable on the IMAGES USB).
+  startnet.cmd already set. `%DEPLOY_IMAGE_DRIVE%` is available for
+  the two-partition USB workflow (fixed IMAGES letter); use
+  `{DRIVE}` (see above) for the single-ISO workflow where Rufus may
+  assign a different letter at boot.
 
 ## Security caveat — same as CCTK
 

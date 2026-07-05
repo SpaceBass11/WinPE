@@ -5,6 +5,80 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — `docs/DEPLOY_ARGS.md` `{DRIVE}` placeholder docs gap
+
+**Investigated:** Open PRs (52 in flight, #54–#208) and their stated
+follow-ups, to avoid duplicating in-flight work. Grepped `{DRIVE}`
+across the repo to see who writes it and who reads it. Cross-checked
+against `docs/DEPLOY_ARGS.md`, which `scripts/build_iso.ps1`'s
+comment header at line 14 explicitly points readers at.
+
+**Found:** `{DRIVE}` appears in three production files —
+`scripts/build_iso.ps1` (writes the placeholder into `deploy.args`),
+`scripts/build_boot_wim.ps1` (startnet.cmd substitutes it at boot),
+and `configs/deploy.args.example` (both single-ISO examples use
+it) — but is not mentioned in `docs/DEPLOY_ARGS.md`. The doc's
+Constraints section says "No environment-variable expansion beyond
+what cmd.exe and startnet.cmd already set (notably
+`%DEPLOY_IMAGE_DRIVE%` is available, but the example uses absolute
+drive letters because those are stable on the IMAGES USB)" — which
+was written for the two-partition USB workflow and is stale now
+that the single-ISO workflow (PR #35) needs `{DRIVE}` for boot-time
+letter portability. An operator debugging why their ISO's
+`deploy.args` starts with `-WimFile "{DRIVE}\images\..."` has
+nowhere in the docs to confirm this is intentional. PR #101 adds a
+CI check that guards the substitution in `startnet.cmd`, but no
+open PR touches the operator-facing doc.
+
+**Changed:**
+- `docs/DEPLOY_ARGS.md` — added a `## {DRIVE} placeholder` section
+  after `## How it works`. Documents what substitutes it (startnet.cmd,
+  built by `build_boot_wim.ps1`), when to use it (single-ISO workflow),
+  when absolute letters still work (two-partition USB), and what
+  happens if IMAGES isn't found at boot (literal `{DRIVE}` reaches
+  PowerShell → parameter binding fails before any destructive step).
+  Reworded the misleading "no environment-variable expansion"
+  constraint to name both mechanisms — `%DEPLOY_IMAGE_DRIVE%` for
+  two-partition USB, `{DRIVE}` for single-ISO — instead of implying
+  absolute letters are the only supported form.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the doc-only sync.
+
+**Verification:**
+- No `.ps1` file touched — `PSParser::Tokenize` result is unchanged,
+  and the local `pwsh` install path (documented in CLAUDE.md's Pester
+  note) is a no-op for a `.md`-only change.
+- Grep sanity: `{DRIVE}` still lives in the same three production
+  files after the edit (`configs/deploy.args.example` unchanged,
+  `scripts/build_iso.ps1` unchanged, `scripts/build_boot_wim.ps1`
+  unchanged). The new doc section quotes the example verbatim.
+- Cross-reference sanity: `scripts/build_iso.ps1`'s comment header
+  line 14 still points at `docs/DEPLOY_ARGS.md`, and the doc now
+  answers the question that pointer implies.
+- No touch to destructive code paths (diskpart, DISM apply, BCDBoot,
+  BitLocker) — pure operator-facing documentation.
+- CI `link-check` and `masterize` cover the `.md` file on push.
+
+**Risks / follow-ups:**
+- Minimal. Docs-only, no script changed, no CI-check pattern
+  invalidated.
+- Adjacent open PRs that are compatible (they touch different files
+  or different sections):
+  - **#54** — `startnet.cmd` skip `::` comments and blank lines in
+    deploy.args (touches `build_boot_wim.ps1`, not this doc)
+  - **#101** — masterize CI check pinning the `{DRIVE}` substitution
+    (touches `.github/workflows/ci.yml`, not this doc)
+  - **#94** — `SCRIPT_REFERENCE.md` resync (different doc)
+- Outstanding items from prior routine entries that this pass
+  did not take:
+  - `Show-ImageList` / `Show-ImageSelection` factor-out (PR #56 is
+    open on this already — do not duplicate).
+  - `Set-BootConfiguration` exit-code branch already got expanded
+    treatment in an earlier routine pass, so nothing more urgent
+    there.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

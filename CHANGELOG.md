@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/DEPLOY_ARGS.md` now documents the `{DRIVE}` placeholder.**
+  `startnet.cmd` (built by `scripts/build_boot_wim.ps1`) substitutes
+  `{DRIVE}` with the actual IMAGES drive letter at boot, and
+  `scripts/build_iso.ps1` writes deploy.args using it — but the
+  doc that `build_iso.ps1` explicitly points at (`docs/DEPLOY_ARGS.md`
+  line 14 of its comment header) had no mention of the placeholder,
+  and its "no environment-variable expansion" note read as if
+  absolute drive letters were the only supported form. Added a
+  `## {DRIVE} placeholder` section with a worked example (E:\
+  substitution), a note on missing-IMAGES failure mode (literal
+  reaches PowerShell → fails parameter binding before any
+  destructive step), and a rewording of the environment-variable
+  constraint so both workflows are covered. No script changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
