@@ -303,7 +303,12 @@ if ($Interactive) {
 
 Set-Content -Path $deployArgsPath -Value $argsLine -Encoding ASCII -Force
 Write-Ok "deploy.args written"
-Write-Host "  $argsLine" -ForegroundColor DarkGray
+# Redact -BitLockerPin "..." before echoing so the PIN doesn't leak into
+# terminal scrollback, CI logs, or a screen recording of the build. The
+# on-ISO file (Set-Content above) still contains the real PIN. Matches the
+# redaction contract the startnet.cmd side already keeps (CI check #25).
+$displayArgs = $argsLine -replace '(-BitLockerPin\s+")[^"]*(")', '$1***REDACTED***$2'
+Write-Host "  $displayArgs" -ForegroundColor DarkGray
 
 # --- Run oscdimg ---
 

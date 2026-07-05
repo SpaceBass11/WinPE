@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/build_iso.ps1` no longer echoes the BitLocker PIN to the
+  build console.** The step-6 `deploy.args written` block wrote the
+  fully composed args line — including `-BitLockerPin "..."` — to the
+  admin's terminal so it landed in terminal scrollback, CI job logs,
+  and any screen recording of the build. The startnet.cmd side already
+  redacts the same string at boot time (CI masterize check #25); the
+  build-side echo now matches by regex-redacting `-BitLockerPin "..."`
+  to `-BitLockerPin "***REDACTED***"` before `Write-Host`. The written
+  `deploy.args` on the ISO is unchanged — it still contains the real
+  PIN so the deploy script can read it at first boot.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

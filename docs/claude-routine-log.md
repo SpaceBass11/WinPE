@@ -5,6 +5,88 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — `build_iso.ps1` BitLocker PIN echo redaction
+
+**Investigated:** the ~40 open routine PRs (#153–#212) to avoid
+duplicating in-flight work, and the closed history around startnet.cmd
+PIN redaction (PR #42 fixed the WinPE console echo side in v4.6.0). PR
+#207 noted earlier today that most subsystems are covered by open PRs;
+scanned for gaps that weren't. Compared what the startnet.cmd
+redaction contract (CI masterize check #25) covers against what
+`scripts/build_iso.ps1` does at build time.
+
+**Found:** `scripts/build_iso.ps1` line 306 (pre-edit) was:
+
+```powershell
+Write-Host "  $argsLine" -ForegroundColor DarkGray
+```
+
+`$argsLine` at that point already contains
+`-EnableBitLocker -BitLockerPin "<real-pin>"` when the operator
+supplied `-BitLockerPin` to `build_iso.ps1`. That plaintext PIN then
+lands in terminal scrollback, CI job logs (if the ISO build runs in
+Actions/CI), and any screen recording of the admin's build session —
+an asymmetric leak versus the boot-time contract PR #42 established.
+The nearby summary block at line 350 (pre-edit) already avoids the
+leak: `Write-Host "  BitLocker: enabled (PIN embedded in deploy.args
+on ISO)"`. Only the args-echo line was leaking. No open PR touches
+this line.
+
+**Changed:**
+- `scripts/build_iso.ps1` — introduce `$displayArgs` right before the
+  console echo. It's `$argsLine` with `-BitLockerPin "..."` regex-
+  redacted to `-BitLockerPin "***REDACTED***"`. The `Set-Content` write
+  above it is untouched (the on-ISO `deploy.args` still contains the
+  real PIN so the deploy script reads it at first boot). Four-line
+  header comment explains why the redaction lives in the echo path
+  only, and points at CI check #25 as the counterpart.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet at the top.
+
+**Verification:**
+- pwsh install blocked in this container's egress policy (`curl -fsSL
+  https://github.com/PowerShell/.../powershell-7.4.6-linux-x64.tar.gz`
+  returns 403). Same constraint noted across every routine-log entry
+  since 2026-05-16. CI's `syntax` job (`windows-latest`) runs
+  `PSParser::Tokenize` on push against the full script set.
+- Regex correctness verified with Python `re` against four inputs:
+  `-BitLockerPin "..."` alone, `-BitLockerPin "..."` followed by more
+  args, `-ImagePath "..."` (no PIN present), and `-Force -Silent`
+  (silent no PIN). Behavior in each case: the PIN literal replaced by
+  `***REDACTED***`, quotes preserved, every other flag untouched, and
+  the no-PIN cases pass through byte-for-byte identical. PowerShell's
+  `-replace` and .NET regex have the same `[^"]*` and backreference
+  semantics.
+- Structural balance on `scripts/build_iso.ps1` after edit: `{`/`}`
+  38/38 (unchanged), `(`/`)` 96/96 (unchanged). New change is one
+  variable assignment plus a four-line comment — no new blocks.
+- Cross-check: `tests/test_parse.ps1` Test 12 is syntax-only for
+  `build_iso.ps1` — nothing pins the exact echo string. Open PR #172
+  (behavioral coverage for build_iso.ps1) doesn't assert on the echo
+  either.
+
+**Risks / follow-ups:**
+- Low. The written `deploy.args` on the ISO — the artifact the deploy
+  script actually consumes — is untouched, so no deployment-behavior
+  change. The only observable difference is the console print at build
+  time, and it's strictly more redacted, not less.
+- If `-BitLockerPin` is ever changed to accept a value that legitimately
+  contains an embedded `"` character, the regex would clip the redaction
+  at the first quote. That shape is already impossible for the on-ISO
+  args string (`$argsLine` uses `"$BitLockerPin"` template — an embedded
+  `"` would already break arg parsing at deploy time), so the regex
+  matches the existing arg-format contract.
+- Outstanding backlog from prior routine entries that I did not take:
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line listing-render
+    duplication — deferred consistently for UX reasons across ≥6
+    entries. Strong agent-consensus signal; leave for a release-cycle
+    refactor pass, not a routine.
+  - A parallel behavioral test for `build_iso.ps1`'s echo redaction
+    once PR #172 (behavioral invariants for build_iso.ps1) merges. Add
+    an assertion that `-BitLockerPin "\*\*\*REDACTED\*\*\*"` appears in
+    the script and `Write-Host "  \$argsLine"` (raw) does not.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
