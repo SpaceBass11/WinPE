@@ -165,15 +165,19 @@ handling, and deploy.args parsing — none of which CI exercises.
 2. **Never let -Force bypass system disk protection** - DESTROY SYSTEM must always be typed
 3. **Test syntax after every edit** - run `pwsh -c "[System.Management.Automation.PSParser]::Tokenize((Get-Content unified_winpe_deploy.ps1 -Raw), [ref]$null)"`
 4. **Keep WinPE compatibility** - no modules that aren't available in WinPE (no Az, no ImportExcel, etc.)
-5. **Version field** lives in **four** places that must all match — masterize CI check #1 enforces this:
-   - `$Script:Config.ScriptVersion` in `unified_winpe_deploy.ps1` (~line 39)
-   - The `.VERSION` block in the script's header comment
+5. **Version field** lives in **five** places that must all match — masterize CI check #1 enforces this across the four files, but the deploy script itself has two version fields that both need bumping:
+   - `$Script:Config.ScriptVersion` in `unified_winpe_deploy.ps1` (in the `#region Configuration` block near the top)
+   - The `.VERSION` block in the script's header comment (same file, earlier)
    - CLAUDE.md line 5 (`(v4.X.Y)` in the Project Overview paragraph)
    - CHANGELOG.md (any mention of the new version anywhere in the file)
    - README.md (the footer "Current version: **vX.Y.Z**" line)
 
    Bumping the version means touching all of these in the same commit.
-   If masterize CI #1 is red, this is almost always the cause.
+   If masterize CI #1 is red, this is almost always the cause. (CI
+   greps for the version string in each file, so bumping only one of
+   the two in-script fields lets CI pass green while leaving the
+   `.VERSION` block or `$Script:Config.ScriptVersion` stale — touching
+   both by hand is on the developer.)
 
    **CHANGELOG convention:** this repo doesn't cut tagged GitHub
    releases. Add new version entries inside the `## Unreleased`

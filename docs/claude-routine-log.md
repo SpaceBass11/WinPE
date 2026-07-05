@@ -5,6 +5,73 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — CLAUDE.md "Version field" count and stale line reference
+
+**Investigated:** open-PR state (20 in-flight `claude/routine-*` /
+`claude/lucid-*` PRs against `main`) to avoid duplicating in-flight
+work; then walked CLAUDE.md's "When Modifying the Script" section
+for internal consistency.
+
+**Found:** two related drifts in the same bullet, neither covered by
+any open PR:
+
+- CLAUDE.md line 168 says "Version field lives in **four** places" but
+  the bullet list underneath enumerates **five**: (1)
+  `$Script:Config.ScriptVersion`, (2) the `.VERSION` header block, (3)
+  CLAUDE.md line 5, (4) CHANGELOG.md, (5) README.md footer. Both
+  in-script bullets need touching by hand when the version bumps —
+  the CI check `grep -q "$ver"` is per-file, so bumping only one of
+  the two in-script fields lets CI pass green while leaving the other
+  stale.
+- CLAUDE.md line 169 pointed at `~line 39` for `$Script:Config.ScriptVersion`,
+  but that field is actually at line 135 (verified via
+  `grep -n "ScriptVersion" unified_winpe_deploy.ps1`). Line 39 predates
+  the v4.7.0 BitLocker / data-disk block that grew the `#region Configuration`
+  section. A developer following the pointer would land 96 lines away
+  from the field they were told to edit.
+
+Cross-checked open PRs #188-#207 (the whole visible page-1 of the
+20-PR backlog): #193 touches CLAUDE.md's *test-files* table (three →
+four) but not the version-field bullet; #197 corrects placeholder-PIN
+docs but doesn't touch this section. Novel fix.
+
+**Changed:**
+- `CLAUDE.md` — bullet 5 in "When Modifying the Script":
+  - "four" → "five" places, with a parenthetical explaining why CI's
+    file-level grep can't distinguish the two in-script fields (so
+    both must be touched by hand).
+  - `~line 39` → `in the #region Configuration block near the top`
+    (drift-proof: describes the location structurally instead of by
+    line number, so the next Config-block growth doesn't restale it).
+
+**Verification:**
+- Doc-only change; no PowerShell logic touched.
+- Bullet count under "Version field" is now 5, matches the new "five"
+  wording.
+- Confirmed `$Script:Config.ScriptVersion = '4.7.1'` is on line 135
+  inside the `#region Configuration` block (starts line 132) via
+  `grep -n`.
+- `pwsh` isn't preinstalled in this session and the earlier install
+  script requires an outbound download that this environment's
+  network policy may block; but `tests/test_parse.ps1`,
+  `tests/test_wim_parser.ps1`, and `tests/test_disk_enumeration.ps1`
+  are all `.ps1`-only assertions and can't be affected by a `.md`
+  edit — CI runs them on push regardless.
+- `masterize` Phase 1A check #1 (version consistency across
+  CHANGELOG/CLAUDE/README) is unaffected: the version string `4.7.1`
+  is still present in CLAUDE.md line 5 after this edit.
+
+**Risks / follow-ups:**
+- Minimal. Doc-only, no runtime behavior change, no cross-file wiring.
+  Same shape as PR #193's docs-drift fix.
+- Outstanding backlog observation (matches PR #207's note): ~20 open
+  routine / lucid PRs cover most of the plausible improvement surface.
+  The maintainer's queue is the bottleneck, not the finder rate.
+  Future passes should keep to genuinely uncovered slivers (like this
+  one) or produce log-only notes.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
