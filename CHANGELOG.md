@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`configs/unattend.example.xml` — corrected the FirstLogonCommands
+  comment.** The prior comment ("the script would need to also edit
+  the Default User hive; ask if you want that added") was factually
+  wrong from the moment the file was introduced: `scripts/first-login.ps1`
+  has always applied its tweak list to both the current user's HKCU
+  and the Default User hive (`C:\Users\Default\NTUSER.DAT`) in one
+  pass. Rewrote the comment to describe what the script actually does
+  so operators don't waste time re-implementing behavior that already
+  ships. Comment-only change; no XML schema, deploy behavior, or
+  first-login logic touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

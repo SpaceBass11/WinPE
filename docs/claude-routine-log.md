@@ -5,6 +5,83 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — Fix stale Default-User-hive comment in `configs/unattend.example.xml`
+
+**Investigated:** the roster of unmerged PRs (#151-#210 all still open
+against `main`, mostly under `claude/routine-*` and `claude/lucid-keller-*`
+branches) to make sure the next increment doesn't collide with in-flight
+work. Grepped titles + bodies for `unattend.example`, `first-login`,
+`Default User`, etc. The four in-flight PRs that touch neighboring
+surfaces (#151-#152 unattend XML pre-flight, #155 build_iso interactive
+drops -UnattendFile, #162 first-login reg.exe stderr) do not modify
+`configs/unattend.example.xml` at all — I read each body to confirm.
+
+From there, walked `configs/unattend.example.xml` line-by-line and
+compared its inline documentation against `scripts/first-login.ps1`
+to look for drift. The `<FirstLogonCommands>` comment block (lines
+191-200 pre-edit) claimed:
+
+> To make non-admin accounts (TechL0/1/2) inherit the same tweaks,
+> the script would need to also edit the Default User hive
+> (C:\Users\Default\NTUSER.DAT); ask if you want that added.
+
+**Found:** `scripts/first-login.ps1` has, since its introduction in
+PR #21, applied its tweak list to two targets in one pass — the
+current user's HKCU **and** the Default User hive under
+`HKLM\WimDefault` (Pass 2, lines 116-148 of `scripts/first-login.ps1`).
+So non-admin accounts already inherit the tweaks on first sign-in;
+the comment was wrong at introduction and has stayed wrong for the
+life of the file. It sends the reader to re-implement behavior that
+already ships, or to open an "ask if you want that added" ticket
+that isn't needed. Confirmed by re-reading the introducing commit
+`ada844f` — the script and the (wrong) comment landed in the same PR.
+
+**Changed:**
+- `configs/unattend.example.xml` — rewrote the 5-line
+  `<FirstLogonCommands>` comment (lines 196-200 pre-edit) to describe
+  the two-target behavior that first-login.ps1 already implements.
+  Points the reader at `scripts/first-login.ps1` for the tweak list.
+  No XML tags, attributes, or CDATA changed — pure comment prose.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the correction. No version bump (comment-only change,
+  no `$Script:Config.ScriptVersion` touch — v4.7.1 stays).
+
+**Verification:**
+- `pwsh` install blocked by the container's egress policy this pass
+  (`curl` to `github.com/PowerShell/PowerShell/releases` returned
+  403 through the agent proxy; CLAUDE.md documents this exact
+  constraint under "Pester runs in CI only"). CI's Windows runner
+  will exercise `tests/test_parse.ps1` on push.
+- The change is a pure XML-comment edit, so no PowerShell parse
+  surface is touched. `git diff --stat` shows one file changed:
+  7 insertions / 5 deletions inside a single `<!-- ... -->` block.
+- Manually validated XML well-formedness with
+  `python3 -c "import xml.etree.ElementTree as ET;
+  ET.parse('configs/unattend.example.xml')"` → parsed cleanly, root
+  element resolved to `{urn:schemas-microsoft-com:unattend}unattend`.
+- Cross-checked against `scripts/first-login.ps1` line 116-148 that
+  the new comment's "TWO targets in one pass" claim (HKCU + Default
+  User hive) matches the actual code paths (Pass 1 = HKCU,
+  Pass 2 = mounted `HKLM\WimDefault` from `C:\Users\Default\NTUSER.DAT`).
+
+**Risks / follow-ups:**
+- Minimal. Documentation-only correction inside an XML comment. No
+  production code touched. No new files, no dependencies, no CI
+  workflow changes.
+- Outstanding backlog candidates that I did not take this pass —
+  documented so a later routine doesn't re-discover the same list:
+  - `Show-ImageList` / `Show-ImageSelection` in the deploy script
+    still share ~30 lines of listing-render code that could be
+    factored out (deferred across every routine cycle since
+    2026-05-17 — load-bearing TUI UX, low urgency).
+  - The routine log itself has a ~6-week gap between the previous
+    entry (2026-05-24) and this one, during which >60 PRs opened
+    against `main` and none merged. That backlog is triage territory
+    for the human maintainer, not something a routine pass should
+    resolve.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
