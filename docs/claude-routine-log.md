@@ -5,6 +5,80 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — no code change; backlog-triage note
+
+**Investigated:** open-PR state before picking a next improvement, per
+the routine-log guidance in PR #204's entry ("future passes should
+read the merged-since-log delta first before opening yet another PR
+against the same subsystem").
+
+**Found:** ~150 open Claude routine / lucid PRs against `main`
+(page 1 = 100, page 2 = 50, all `claude/routine-*` or `claude/lucid-*`
+branches). Every subsystem I sampled has multiple in-flight PRs:
+
+- `Show-ImageList` / `Show-ImageSelection` — 30 open PRs mention them
+  (including PR #56 which is the refactor itself).
+- `Select-AdditionalWipeDisks` / `-WipeDisks` — 13 open PRs covering
+  overlap gates, format validation, `-Force`-without-`-Silent` warnings,
+  system-disk exclusion, etc.
+- `first-login.ps1` — 25 open PRs on dual-hive invariants, reg.exe
+  stderr surfacing, docs sync.
+- `Get-WimImageInfo` / DISM output surfacing — PR #204.
+- `reg.exe` stderr shape — PRs #162, #205, #206 (all three scripts).
+- CCTK selection precedence — PRs #119, #203.
+- `Test-FinalWipeConfirmation` behavior tests — PR #102, #142, #202.
+- BitLocker PIN length gates — PRs #98, #123.
+- `New-DiskpartScript` Set-Content trap — PR #198.
+- Fatal-catch stack trace — PR #199.
+- `build_iso.ps1` pre-flight — PRs #73, #80, #114, #116, #188, #200.
+
+Two candidates I considered opening PRs for both turned out to be
+duplicates:
+
+1. `Show-ImageList`/`Show-ImageSelection` "No images found" hint
+   consistency — the routine-log note in PR #204 already flagged it;
+   the broader refactor is PR #56.
+2. `Select-AdditionalWipeDisks` silent-mode candidate-empty case
+   (nonexistent `-WipeDisks` disk numbers silently accepted when only
+   the target disk exists) — the wider `-WipeDisks` validation surface
+   is already covered by PRs #89, #149, #154, #165 pending review.
+
+A latent dead-code check in `Start-Deployment` (line 1721: the
+`if ($Script:Config.DataDiskNumber -ge 0 -and -not $Force)` branch
+inside the `if ($Silent -and -not $Force) { return $false }`
+predecessor is unreachable) is present but not a bug — it's a
+belt-and-suspenders guard that the primary Silent-requires-Force check
+dominates. Removing it would be code-hygiene, not a fix; leaving it
+until the primary Silent gate is refactored is safe.
+
+**Changed:** This log entry only. No production code, no tests, no
+CI changes. Documentation-only pass so future routine runs can see
+the backlog observation and avoid opening more duplicate PRs against
+already-covered subsystems.
+
+**Verification:** N/A — markdown-only. The doc lives under `docs/`,
+where the masterize link-check job (lychee) runs on every push and
+will surface any broken relative link. This entry has no links.
+
+**Risks / follow-ups:**
+
+- None. The observation itself is the deliverable this pass.
+- **Recommended next-step for the maintainer, not for the next routine run:**
+  merge or close the pending ~150 routine PRs to reset the working
+  set before more autonomous work is opened. As long as the backlog
+  is this deep, autonomous routine passes will keep landing on
+  already-covered subsystems.
+- When the backlog drops below ~10 PRs, uncovered candidates worth
+  a look (in rough order of value): the dead-code Silent gate in
+  `Start-Deployment` (~5-line cleanup, no behavior change); a Pester
+  test for `Select-AdditionalWipeDisks` silent-mode empty-candidate
+  case (guards against silent WipeDisks failure when only the target
+  disk is present); and the persistent `Show-ImageList` /
+  `Show-ImageSelection` render factoring flagged across many prior
+  entries.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
