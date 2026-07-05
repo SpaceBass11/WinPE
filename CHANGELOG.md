@@ -9,6 +9,23 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_boot_wim.ps1` surfaces `reg.exe` stderr on
+  hive-load, reg-add, and hive-unload failure.** All three of the
+  builder's `reg.exe` calls previously dropped output via `| Out-Null`
+  and reported only `$LASTEXITCODE` (e.g. `reg load failed (exit 1)`).
+  `reg.exe` publishes no exit-code table, so the bare integer collapsed
+  file-locked, access-denied, hive-corrupt, wrong-arch, and
+  path-missing into one message. This matters especially for the
+  `reg add` path: if the `NtfsEnableDirCaseSensitivity` tweak silently
+  skipped, the resulting `boot.wim` would fail its downstream DISM
+  apply on Containers/Hyper-V layer files with the `Incorrect
+  function` error that motivated the v4.3.x troubleshooting pass —
+  operators would chase DISM instead of the earlier reg failure.
+  Failure paths now capture the stderr line and append it after the
+  exit code; empty-capture falls back to the original "exit N only"
+  text so log shape never regresses. Mirrors the pattern applied to
+  `scripts/first-login.ps1` and `scripts/prepare_wim.ps1`. Success
+  paths are byte-identical.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -5,6 +5,91 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — `build_boot_wim.ps1`: surface `reg.exe` stderr on load/add/unload
+
+**Investigated:** open PRs (#196-#205). PR #205 applies the same
+`reg.exe` stderr-capture pattern to `scripts/prepare_wim.ps1`, and
+its body notes that PR #162 already applied it to
+`scripts/first-login.ps1`. Grepped the three scripts under
+`scripts/` for `reg.exe` calls and confirmed `build_boot_wim.ps1`
+(lines 231, 237, 245) still uses the pre-#162 `| Out-Null` shape.
+Cross-checked all 10 open PRs — none touch `build_boot_wim.ps1`'s
+reg block.
+
+**Found:** All three `reg.exe` calls dropped output via `| Out-Null`
+and reported only `$LASTEXITCODE`:
+- Line 231 (`reg load`): `throw "reg load failed (exit $LASTEXITCODE)"`
+- Line 237 (`reg add`): `throw "reg add failed for $($t.Name) (exit $LASTEXITCODE)"`
+- Line 245 (`reg unload`): `Write-Warn "reg unload returned exit $LASTEXITCODE - may need a reboot to fully release"`
+
+The `reg add` case is the highest-impact one: the tweak being written
+is `HKLM\SYSTEM\ControlSet001\Control\FileSystem\NtfsEnableDirCaseSensitivity = 1`,
+which CLAUDE.md documents as the fix for the v4.3.x DISM "Incorrect
+function" failure on captured images that carry Windows
+Containers/Hyper-V layer files. A silent `reg add` failure at build
+time would produce a `boot.wim` that then fails DISM apply during
+deploy, and the operator would chase DISM logs rather than the earlier
+reg failure.
+
+**Changed:**
+- `scripts/build_boot_wim.ps1` — replaced `& reg.exe … | Out-Null`
+  with a captured-output variant at all three call sites. On non-zero
+  exit, the captured text is `Out-String | Trim()`'d and appended
+  after the exit code; if the captured text is empty (defensive guard),
+  the original "exit N only" line is preserved so log shape never
+  regresses below the prior format. Load and add stay `throw`; unload
+  stays `Write-Warn`. Success paths byte-identical.
+- `CHANGELOG.md` — new `## Unreleased / ### Changed` bullet at the
+  top of the section describing the three-site enrichment and the
+  connection to the DISM Containers-layer regression class.
+
+**Verification:**
+- Installed pwsh 7.6.3 from `packages.microsoft.com` (the direct
+  GitHub Releases tarball is 403'd in this session; the MS apt feed
+  for Ubuntu 24.04 works — same fallback PR #205's log entry
+  recorded).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → **48 passed /
+  0 failed** (baseline and post-edit; the `build_boot_wim.ps1`
+  syntax-valid assertion still passes — edit didn't break
+  tokenization).
+- `PSParser::Tokenize` on `scripts/build_boot_wim.ps1` returns 1284
+  tokens with 0 errors after the edit.
+- Behavioral smoke test on the `Out-String | Trim()` pipeline:
+  a stderr-bearing stub (`bash -c "echo ERROR: file locked >&2;
+  exit 1"`) captures the message after the exit code; a silent-fail
+  stub (`bash -c "exit 1"`) falls through to the "exit N only"
+  branch with no awkward dangling colon. Confirms the `if ($msg)`
+  guard is doing real work.
+- Pester (`tests/validation-gates.Tests.ps1`) doesn't cover
+  `build_boot_wim.ps1`; PSGallery is still blocked so no local
+  Pester run — CI will run it on push.
+
+**Risks:**
+- Minimal. Pure additive logging on failure branches; success paths
+  byte-identical. No destructive code touched (no DISM, diskpart,
+  bcdboot semantics changed). Every captured-output variable is
+  local to its own `if`/`finally` block — no scope leak.
+- `Out-String | Trim()` is the same idiom used by PRs #162 and #205
+  and by the CCTK error capture path in `unified_winpe_deploy.ps1`.
+  PSv5.1 compatible.
+
+**Next recommended improvement:**
+- With this PR, all three `reg.exe`-using scripts in the pipeline
+  (`build_boot_wim.ps1`, `prepare_wim.ps1` via #205,
+  `first-login.ps1` via #162) share the same stderr-capture shape —
+  the pattern is settled and could be lifted into a `Invoke-RegExe`
+  helper if a fourth call site appears. Deferred until then.
+- **`Show-ImageList` / `Show-ImageSelection`** in
+  `unified_winpe_deploy.ps1` still share ~30 lines of listing-render
+  code. Deferred across many entries because TUI UX is load-bearing;
+  worth a fresh look only if a coverage test is added first.
+- **Fixture test for `prepare_wim.ps1` parameter-set validation**
+  (the `-SourceIso` vs `-SourceWim` mutual-exclusion + `-Index`
+  passthrough logic). Flagged in PR #205's log entry; still not in
+  flight.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
