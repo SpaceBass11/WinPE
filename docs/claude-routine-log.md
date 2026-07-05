@@ -5,6 +5,95 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — CLAUDE.md "Key Files" table missing `UNATTEND.md` + `RELEASE_VALIDATION.md`
+
+**Investigated:** ~30 open routine PRs (#152-#211) to avoid duplicating
+in-flight work. Grep sweep on `docs/UNATTEND.md` and
+`docs/RELEASE_VALIDATION.md` references across the repo; then
+cross-checked which CLAUDE.md and README.md tables list them.
+
+Cross-checked overlap risks:
+- **PR #57** (open) already extends the "Key Files" table with rows
+  for `tests/test_wim_parser.ps1` and `tests/test_disk_enumeration.ps1`
+  — but adds them earlier in the table and does NOT touch the
+  `docs/` block below `docs/DEPLOY_ARGS.md`, so no line-level
+  overlap with the two rows I'm adding here.
+- **PR #58** (open) resyncs `docs/ARCHITECTURE.md` File Layout table
+  with the same missing-doc list, but doesn't touch CLAUDE.md.
+- **PR #176** (open) resyncs `docs/ARCHITECTURE.md` to v4.7.1 — same
+  file as #58, but different section (not the File Layout table).
+- No open PR touches CLAUDE.md's Key Files table for these two docs.
+
+**Found:** Two files in the "Key Files" table's `docs/` block are
+missing rows despite being actively referenced elsewhere:
+
+- `docs/UNATTEND.md` — the deploy script itself (`unified_winpe_deploy.ps1`
+  line 1743) points operators at this file in the `-UnattendFile`
+  well-formedness error: "Sanity-check manually: [xml](Get-Content
+  '$UnattendFile')  (see docs/UNATTEND.md section 6)". So a change
+  to that file's section numbering or that specific recipe is a
+  cross-file dependency the Key Files table should surface.
+- `docs/RELEASE_VALIDATION.md` — CLAUDE.md's own "Release Validation"
+  paragraph (line 148 pre-edit) links to it: "run the manual hardware
+  validation steps in [`docs/RELEASE_VALIDATION.md`]." The table
+  should include what CLAUDE.md itself links.
+
+Reading the routine-log entry from PR #57 (2026-05-31), the follow-up
+list already flagged this exact drift class as deferred:
+
+> `docs/ARCHITECTURE.md` File Layout (line 158) is still missing rows
+> for [...] `docs/UNATTEND.md`, `docs/RELEASE_VALIDATION.md` [...].
+> Same drift class but a larger edit; deferred.
+
+PR #58 addressed the ARCHITECTURE.md side of that follow-up. The
+CLAUDE.md side remained open.
+
+**Changed:**
+- `CLAUDE.md` — Key Files table: added two rows for `docs/UNATTEND.md`
+  and `docs/RELEASE_VALIDATION.md` after the existing
+  `docs/DEPLOY_ARGS.md` row, with descriptions naming the specific
+  cross-references (deploy-script §6 pointer for UNATTEND, "gate CI
+  can't cover" for RELEASE_VALIDATION). Existing rows untouched.
+- `CHANGELOG.md` — new `## Unreleased / ### Changed` bullet at the
+  top of the Changed section. No version bump (docs-only).
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` install from the CLAUDE.md-documented GitHub Releases
+  tarball is 403'd in this session's egress policy (matches the log
+  entries for the last 5+ pass-throughs). The three test suites
+  parse `.ps1` inputs — a `.md`-only edit cannot affect their
+  output.
+- Doc-only change: no PowerShell parse surface touched (only the two
+  new table rows in `CLAUDE.md` and one bullet in `CHANGELOG.md`).
+- Masterize CI Phase 1A check #1 (version consistency across
+  `CHANGELOG.md`, `CLAUDE.md`, `README.md`) still passes: `4.7.1`
+  remains present in CLAUDE.md line 5 after the table edit.
+- Masterize CI Phase 1A check #2 (cross-doc script coverage) is
+  unaffected: the three canonical script names (`prepare_wim`,
+  `build_boot_wim`, `unified_winpe_deploy`) are unchanged in
+  CLAUDE.md.
+- Manual table sanity check: both new rows use the same
+  `` | \`docs/X.md\` | description | `` shape as the surrounding rows,
+  no column alignment drift.
+- Both referenced files exist at the paths named (`docs/UNATTEND.md`
+  is 189 lines, `docs/RELEASE_VALIDATION.md` is 214 lines).
+
+**Risks / follow-ups:**
+- Minimal. Pure additive docs; no runtime behavior change, no
+  cross-file wiring, no new dependencies. Trivial rebase against
+  PR #57 (touches Key Files rows above the `docs/` block; the two
+  additions here fall between existing `docs/` rows and won't
+  conflict at line level).
+- Outstanding drift-class follow-ups: `CLAUDE.md`'s Key Files
+  table still omits `configs/unattend.example.xml`,
+  `docs/claude-routine-log.md`, and — once PR #57 lands —
+  `tests/validation-gates.Tests.ps1`. Same fix pattern
+  (one row per missing file), but deferred to keep this
+  routine's scope tight and easy to review.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

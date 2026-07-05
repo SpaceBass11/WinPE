@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`CLAUDE.md` "Key Files" table now lists `docs/UNATTEND.md` and
+  `docs/RELEASE_VALIDATION.md`.** Both files exist in the repo and
+  are actively referenced elsewhere — the deploy script's
+  `-UnattendFile` well-formedness error points operators at
+  `docs/UNATTEND.md` §6, and CLAUDE.md's own Release Validation
+  section links `docs/RELEASE_VALIDATION.md` — but neither had a
+  row in the table listing "what lives where." Two new rows added
+  after `docs/DEPLOY_ARGS.md`, matching the sibling row shape.
+  Pure docs, no behavior change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
