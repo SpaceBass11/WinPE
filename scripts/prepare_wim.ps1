@@ -201,6 +201,20 @@ if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
     if ([IO.Path]::GetExtension($SourceWim) -notin '.wim','.esd') {
         throw "SourceWim must have a .wim or .esd extension (got: $SourceWim)"
     }
+    # Guard against -OutputWim resolving to the same file as -SourceWim.
+    # The export step below deletes $OutputWim before writing the customized
+    # copy (Remove-Item + Export-WindowsImage), so an in-place refresh would
+    # lose the original if the export fails between the two calls. Reject
+    # up front instead of destructively re-using the source path.
+    $fsCwd = (Get-Location -PSProvider FileSystem).ProviderPath
+    $normalizedOut = if ([IO.Path]::IsPathRooted($OutputWim)) {
+        [IO.Path]::GetFullPath($OutputWim)
+    } else {
+        [IO.Path]::GetFullPath([IO.Path]::Combine($fsCwd, $OutputWim))
+    }
+    if ($normalizedOut -ieq $SourceWim) {
+        throw "OutputWim resolves to the same path as SourceWim ($SourceWim). Refreshing a WIM in place is not supported - the destination is deleted before the customized copy is written, so an aborted run would lose the source. Point -OutputWim at a different path."
+    }
 }
 
 if ($DriverPath) {

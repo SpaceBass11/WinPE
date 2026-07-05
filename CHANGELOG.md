@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/prepare_wim.ps1` rejects `-OutputWim` resolving to the
+  same file as `-SourceWim`.** The export step at the end of the
+  script deletes `$OutputWim` (`Remove-Item -Force`) before
+  `Export-WindowsImage` writes the customized copy. An in-place
+  refresh (`-SourceWim I:\images\golden.wim -OutputWim
+  I:\images\golden.wim`) would therefore lose the original if the
+  export failed between those two calls. The new guard fires
+  immediately after `Resolve-Path`ing `-SourceWim`, normalizing
+  `-OutputWim` via `[IO.Path]::GetFullPath` (case-insensitive
+  compare) so absolute/relative/mixed-case collisions are all
+  caught before any destructive step. Sibling to the extension
+  guards in PRs #91/#99/#126. FromIso path unaffected (`.iso`
+  source can't collide with `.wim`/`.esd` output).
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

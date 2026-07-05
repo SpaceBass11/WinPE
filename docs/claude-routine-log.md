@@ -5,6 +5,95 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-05 — `prepare_wim.ps1` -SourceWim / -OutputWim same-path collision guard
+
+**Investigated:** open PRs #90-#209 to avoid duplicating work.
+Extension-check gates for `-OutputWim` (#91, #126), `-SourceIso` (#99),
+and `-OutputIso` (#90/#127) are all in flight but none of them handle
+the different bug where both file-parameters *validate* individually
+yet resolve to the same file. Also grepped closed PRs (#22 introduced
+`-SourceWim`; PR #150's routine entry called out this exact follow-up
+as "small pre-flight check, low risk, would prevent operator surprise")
+and confirmed nothing on `main` guards it.
+
+**Found:** `scripts/prepare_wim.ps1` line 475:
+
+```
+if (Test-Path $OutputWim) { Remove-Item $OutputWim -Force }
+Export-WindowsImage -SourceImagePath $baseWim ... -DestinationImagePath $OutputWim ...
+```
+
+An in-place refresh — `prepare_wim.ps1 -SourceWim I:\images\golden.wim
+-OutputWim I:\images\golden.wim` — passes both existing guards
+(`Test-Path -PathType Leaf` on `-SourceWim`, `.wim/.esd` extension
+check), then the Copy-Item at line 310 copies the source safely into
+`$WorkDir\install_base.wim`. But the Remove-Item at 475 then deletes
+the source, and if `Export-WindowsImage` fails between there and the
+completed write, the operator loses their golden image entirely. The
+`$baseWim` copy in `$WorkDir` (default `C:\WimPrep`) is the only
+remaining copy at that point, and if `$WorkDir` was already scratch
+(the design intent — "NOT deleted afterwards" per param help), the
+operator may not know to look there.
+
+**Changed:**
+- `scripts/prepare_wim.ps1` — added a normalization + comparison
+  block inside the existing `FromWim` validation, immediately after
+  the extension check. Uses `[IO.Path]::IsPathRooted` +
+  `[IO.Path]::GetFullPath` (with `Combine` against
+  `(Get-Location -PSProvider FileSystem).ProviderPath` for relative
+  paths) so absolute, relative, and mixed-case paths are all
+  normalized before the `-ieq` compare. Throws a clear message
+  explaining the destructive-window reason. Guard only fires under
+  `-SourceWim` (FromIso path is `.iso` → can't collide with
+  `.wim`/`.esd` output).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at top.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` install per CLAUDE.md failed at
+  `github.com/PowerShell/PowerShell/releases/download` with HTTP 403
+  (egress policy). `packages.microsoft.com` is allowed, so pulled
+  `powershell-7.4.6-1.rh.x86_64.rpm`, `rpm2cpio | cpio -idm`, and
+  symlinked into `/usr/local/bin/pwsh`. `pwsh --version` → 7.4.6.
+- Baseline (pre-edit):
+  - `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0
+  - `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0
+  - `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+- Post-edit: `test_parse.ps1` still 48 / 0 (no structural change:
+  the `if` block lives inside the existing `FromWim` `else` arm).
+- Behavioral sanity (4/4 pass):
+  1. Identical absolute paths → throws with `resolves to the same
+     path` message. ✓
+  2. Relative `-OutputWim` resolving to the same absolute path →
+     rejected. ✓ (proves the normalization branch works)
+  3. Distinct paths → guard passes; later failure is the unrelated
+     `WorkDir='C:\WimPrep'` default (Linux has no `C:` drive), which
+     is the expected next-step behavior. ✓
+  4. Case-different paths (`GOLDEN.wim` vs `golden.wim`) → rejected
+     via `-ieq`. Matches Windows NTFS's case-insensitive default. ✓
+
+**Risks / follow-ups:**
+- Minimal. The check runs before any I/O (no ISO mount, no WIM
+  mount, no reg.exe load, no Copy-Item to WorkDir). Worst case is
+  someone was relying on in-place refresh — but that path was
+  already unsafe (any transient failure between Remove-Item and
+  Export-WindowsImage lost the source), so the new error is a
+  correction, not a regression. The `-ieq` case-fold matches
+  Windows filesystem semantics; on genuinely case-sensitive Linux
+  filesystems the rare corner case where two files with different
+  case coexist would trigger a false positive, but this script
+  targets Windows deployment and `#Requires -RunAsAdministrator`.
+- Outstanding routine-backlog candidates not taken this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out (deferred across
+    many prior entries — load-bearing TUI UX, higher review cost).
+  - The identical extension-mismatch guard doesn't yet exist on
+    `refresh_usb.ps1 -OutputName` (which just strips extensions per
+    PR #135) — worth checking whether the wrapper needs a symmetric
+    guard once its own PR #135 merges.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
