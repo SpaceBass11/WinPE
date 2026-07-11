@@ -5,6 +5,79 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-11 — `docs/USB_SETUP.md` manual startnet.cmd resync with `build_boot_wim.ps1`
+
+**Investigated:** Open-PR set (20 in flight, #197-#216) and their
+stated coverage before starting new work. The last two runs (#207
+and #216) landed log-only, with the prior note explicitly warning
+"Two consecutive log-only routines is a signal to slow the routine
+cadence, not to invent make-work." So this pass looked hard for a
+genuinely uncovered sliver before defaulting to a third log-only
+entry — walked script-vs-doc consistency in the areas the routine
+PRs haven't touched (USB_SETUP.md, RELEASE_VALIDATION.md, SIGNING.md,
+CI workflow file).
+
+**Found:** `docs/USB_SETUP.md` lines 88-107 carry a "Manual
+alternative" `startnet.cmd` template for operators who can't run
+`build_boot_wim.ps1`. The template stops at the `powershell.exe
+... unified_winpe_deploy.ps1` launch line — no `!DEPLOYARGS!` on the
+end, and no `deploy.args`-reading / `{DRIVE}`-substitution blocks
+that `build_boot_wim.ps1` now emits (lines 291-308 of the here-string,
+first added with the per-USB args feature in v4.7.0 and extended for
+the single-ISO workflow in PR #35). `build_boot_wim.ps1` line 270
+literally says "Keep this in sync with docs/USB_SETUP.md" — the sync
+was broken across two feature additions. An operator who follows
+the doc verbatim produces a `boot.wim` that can't consume
+`deploy.args` at all: the file on the IMAGES partition would be
+silently ignored and the deploy would fall through to the interactive
+TUI, breaking the whole air-gapped / single-ISO / operator-USB flow.
+
+Cross-checked open PRs — no open PR touches `docs/USB_SETUP.md`.
+PR #209 covers the `{DRIVE}` placeholder in `docs/DEPLOY_ARGS.md`
+but not this doc's template. Prior routine entries #22-#52 don't
+cover it either (grepped the log for `USB_SETUP` — no matches).
+
+**Changed:**
+- `docs/USB_SETUP.md` — replaced the ```cmd block at lines 88-107
+  with the current here-string from `scripts/build_boot_wim.ps1`
+  lines 273-309 (`deploy.args`-reading block, `{DRIVE}` substitution
+  block, `!DEPLOYARGS!` on the launch line). Also updated the
+  intro sentence to explain the new block and link to
+  `docs/DEPLOY_ARGS.md`.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the doc-only sync.
+
+**Verification:**
+- Docs-only change. No `.ps1` file touched — `PSParser::Tokenize`
+  result is unchanged, and the local `pwsh` install path (documented
+  in CLAUDE.md's Pester note) is a no-op for a `.md`-only change.
+- Byte-for-byte diff: extracted the `$startnet = @'..'@` here-string
+  from `scripts/build_boot_wim.ps1` and the new ```cmd block from
+  `docs/USB_SETUP.md`, compared via Python; they are `==` equal
+  (see the routine session's verification block).
+- Grep sanity: `DEPLOY_IMAGE_DRIVE`, `deploy.args`, `{DRIVE}`,
+  `!DEPLOYARGS!` all present in the doc block after the edit; none
+  drifted from the source-of-truth wording.
+- No touch to destructive code paths (diskpart, DISM apply, BCDBoot,
+  BitLocker, CCTK) — pure operator-facing documentation.
+- CI `link-check` and `masterize` cover the `.md` file on push;
+  neither should flag a `.cmd` code fence.
+
+**Risks / follow-ups:**
+- Minimal. Doc-only, no script changed, no CI-check pattern
+  invalidated. If a future edit to `scripts/build_boot_wim.ps1`'s
+  here-string re-drifts from `docs/USB_SETUP.md`, a masterize-style
+  check could pin them together — deferred as a follow-up because
+  there's exactly one caller and the here-string is 40 lines.
+- Adjacent uncovered items I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` factor-out — deferred
+    across every routine cycle back to 2026-05-16 (load-bearing
+    TUI UX; risk of subtle changes not worth it).
+  - `prepare_wim.ps1` reg.exe stderr extension — PR #205 covers this
+    already, held pending merge.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

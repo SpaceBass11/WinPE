@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/USB_SETUP.md` manual `startnet.cmd` template resynced with
+  `scripts/build_boot_wim.ps1`.** The doc's "Manual alternative"
+  block stopped at the `powershell.exe ...` launch line and omitted
+  the `deploy.args`-reading block (added with the per-USB args
+  feature, v4.7.0) and the `{DRIVE}`-placeholder substitution block
+  (added with the single-ISO workflow, PR #35). A manual builder
+  following the doc verbatim produced a `boot.wim` that couldn't
+  consume `deploy.args` or the `{DRIVE}` placeholder — silently
+  breaking both flows. `build_boot_wim.ps1` line 270 explicitly
+  says "Keep this in sync with docs/USB_SETUP.md"; the doc now
+  matches the here-string byte-for-byte. No script changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
