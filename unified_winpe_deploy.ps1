@@ -8,10 +8,11 @@
     To speed up discovery, provide -ImagePath or -WimFile to skip drive scanning.
 .PARAMETER ImagePath
     Path to search for image files. Limits scanning to the specified directory
-    and avoids enumerating all attached drives.
+    and avoids enumerating all attached drives. Ignored when -WimFile is also
+    specified (single-file mode wins).
 .PARAMETER WimFile
     Path to a specific WIM or ESD image file. When specified, the image is used
-    directly without any drive scanning.
+    directly without any drive scanning, and -ImagePath is ignored.
 .PARAMETER TargetDisk
     Pre-select a disk number to deploy to. Still requires typed ERASE
     confirmation unless combined with -Force. Use 'diskpart > list disk' to
@@ -1695,6 +1696,15 @@ function Start-Deployment {
     }
     if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
         Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
+    }
+
+    # -WimFile is the single-file override; -ImagePath is a directory-scan
+    # override. Both together means the caller mixed the two modes. Find-ImageFiles
+    # short-circuits on -WimFile and never looks at -ImagePath, so warn loudly:
+    # this is a common deploy.args editing mistake and the silent drop makes
+    # "why isn't my ImagePath being used?" hard to debug.
+    if ($WimFile -and $ImagePath) {
+        Write-Log "-WimFile and -ImagePath both specified - -WimFile wins, -ImagePath is ignored" -Level Warning
     }
 
     # Silent mode is intended for unattended runs and must not trigger prompts

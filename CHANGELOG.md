@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Warn when `-WimFile` and `-ImagePath` are both specified.**
+  `Find-ImageFiles` short-circuits on `-WimFile` and never looks at
+  `-ImagePath`, but the drop was silent — a common `deploy.args`
+  editing mistake with a hard-to-debug symptom ("why did my
+  `-ImagePath` change do nothing?"). The script now logs a
+  `Warning` in `Start-Deployment` before image discovery so the
+  precedence is loud. Docstrings for both parameters call this out.
+  See `docs/DEPLOY_ARGS.md` failure modes for the recommended fix.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

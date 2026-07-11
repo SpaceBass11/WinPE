@@ -5,6 +5,78 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-11 — Warn when `-WimFile` and `-ImagePath` both provided
+
+**Investigated:** merged history (PRs #33-#52 all merged; the deferred
+backlog items — `Get-SystemDisks` fixture test and `Show-ImageList`
+refactor — are already covered by PR #50 and repeatedly rejected as
+UX-risky respectively). Open PR list (~70 in flight) covers every
+recently-touched area: DISM output surfacing, reg.exe stderr,
+BitLocker staging failures, unattend XML pre-flight, absolute-path
+resolution, etc. Scanned `Find-ImageFiles` (`unified_winpe_deploy.ps1`
+line 295-374) and the `Start-Deployment` gate block (line 1699-1725
+pre-edit) for gaps not yet addressed.
+
+**Found:** if the operator supplies both `-WimFile` and `-ImagePath`
+(easy to do when editing `deploy.args` — copy an old line, tweak one
+field, forget to delete the other), `Find-ImageFiles` short-circuits
+on `-WimFile` at line 299 and never looks at `-ImagePath`. The drop
+was silent: no warning, no doc note. Symptom for the operator is
+"why did my `-ImagePath` change do nothing?", which is confusing
+because the docs describe `-ImagePath` as an active filter.
+`docs/DEPLOY_ARGS.md` has a "Failure modes" section that lists
+every other silent-drop case (empty args, malformed PIN chars, etc.)
+but doesn't mention this one. No open PR covers it (git-log grep
+plus PR-title scan for `imagepath|wimfile|find-image` hit only PR
+#124's absolute-path resolution — different concern).
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — Start-Deployment gate at line 1701
+  now logs a `Warning` when both parameters are non-empty, right
+  after the existing "-BitLockerPin without -EnableBitLocker" warning
+  (parity with the "you passed X but it's being ignored" pattern
+  already established there). `.PARAMETER ImagePath` / `.PARAMETER
+  WimFile` docstrings updated to note the precedence.
+- `docs/DEPLOY_ARGS.md` — added a "Both `-WimFile` and `-ImagePath`
+  in the same args line" bullet to Failure modes, describing the
+  warning and the recommended fix (pick one).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` entry at the top.
+
+**Verification:**
+- pwsh 7.4.6 installed via `packages.microsoft.com` (the GitHub
+  releases URL returns 403 through the session proxy — see CLAUDE.md
+  note; used the `.deb` download and `dpkg-deb -x` alternative).
+- `pwsh -NoProfile -File tests/test_parse.ps1` — 48 passed / 0 failed
+  (baseline and post-edit both).
+- `pwsh -NoProfile -File tests/test_wim_parser.ps1` — 16/0 unchanged.
+- `pwsh -NoProfile -File tests/test_disk_enumeration.ps1` — 34/0
+  unchanged.
+- The gate itself is a plain `[string]`-truthy check on two params
+  that already exist and are already `[string]`-typed. No new variable
+  scoping, no new function, no touch to destructive code paths
+  (diskpart, DISM apply, BCDBoot, CCTK, BitLocker staging).
+- No version bump — pure additive logging plus docs. Version field
+  invariants in the masterize CI job untouched.
+
+**Risks / follow-ups:**
+- Minimal. Additive `Write-Log` line inside an existing `Start-Deployment`
+  gate block; no reachable code path changes semantics. Worst case
+  is that an operator who was previously relying on the silent drop
+  now sees a Warning in their log — that's the goal, not a regression.
+- Outstanding backlog candidates from prior entries not taken this
+  pass:
+  - `Show-ImageList` / `Show-ImageSelection` still share ~30 lines
+    of listing render code — cleanup-only, deferred across multiple
+    entries because menu render is load-bearing TUI UX.
+  - `Test-SystemMemory` returns `$true` when WMI fails to enumerate
+    physical memory. In silent mode this could allow a low-memory
+    machine to proceed to DISM and OOM there. Not a strict gap
+    (WMI failure is rare and the deploy fails downstream anyway),
+    but worth considering next pass whether `-Silent` should hard-fail
+    on the "could not determine memory" path.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
