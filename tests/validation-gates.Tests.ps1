@@ -354,6 +354,27 @@ Describe "Start-Deployment validation gates" {
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
     }
 
+    It "Warns when -BitLockerKeyPath is provided without -EnableBitLocker (parallel to -BitLockerPin gate)" {
+        # -BitLockerKeyPath is only consulted through Resolve-BitLockerKeyPath,
+        # which is called from Initialize-BitLockerSetup, which early-returns when
+        # EnableBitLocker is off. Without this warning the operator's escrow
+        # override is silently ignored - same failure mode as the pre-existing
+        # -BitLockerPin-without-EnableBitLocker warning.
+        & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $false
+            $BitLockerKeyPath = '\\fileserver\BitLockerKeys'
+            Start-Deployment | Out-Null
+        }
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object {
+            $_.Level -eq 'Warning' -and $_.Message -match '-BitLockerKeyPath provided without -EnableBitLocker'
+        }) | Should -Not -BeNullOrEmpty
+    }
+
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
         $result = & $script:DeployModule {
             $WimFile        = 'I:\images\Win.wim'

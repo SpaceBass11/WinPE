@@ -5,6 +5,80 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-11 — `-BitLockerKeyPath` without `-EnableBitLocker` silent-ignore
+
+**Investigated:** the 20 open routine PRs (#199-#218) to steer clear of
+in-flight work, then walked the BitLocker/data-disk parameter matrix
+in `Start-Deployment` for gaps. PRs #199-#218 cover: CCTK selection
+tests, fatal-catch stack trace, deploy `-WimFile`/`-ImagePath` warning,
+`-BitLockerPin` echo redaction in build_iso, prepare_wim + build_boot_wim
++ first-login reg.exe stderr, prepare_wim `-OutputWim`/`-SourceWim`
+collision, USB_SETUP startnet.cmd resync, CLAUDE.md version-field count
+and stale line refs, deploy-args `{DRIVE}` placeholder docs, unattend
+Default-User-hive comment, and two log-only backlog notes.
+
+**Found:** `Start-Deployment` warns when `-BitLockerPin` is set without
+`-EnableBitLocker` (`unified_winpe_deploy.ps1:1696-1698`) so the
+operator sees that the ignored PIN went nowhere. `-BitLockerKeyPath`
+has the *identical* failure mode — the parameter is only ever consulted
+through `Resolve-BitLockerKeyPath`, which is called from
+`Initialize-BitLockerSetup`, which returns early when
+`Script:Config.EnableBitLocker` is `$false`
+(`unified_winpe_deploy.ps1:1502`). Result: an operator who typed a UNC
+escrow share into `-BitLockerKeyPath` but forgot the `-EnableBitLocker`
+switch saw zero evidence their override was dropped. No open PR covers
+this — searched all 20 open PR bodies for `BitLockerKeyPath`; only
+#208's CLAUDE.md version-field edit mentions it, and only in the
+"list of BitLocker params" prose.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — added one-line warning parallel to the
+  `-BitLockerPin` warning: `if (-not $Script:Config.EnableBitLocker
+  -and $BitLockerKeyPath) { Write-Log "-BitLockerKeyPath provided
+  without -EnableBitLocker - escrow path ignored" -Level Warning }`.
+  Same block, immediately below the PIN warning. No new function, no
+  new parameter, no behavior change beyond the log line.
+- `tests/validation-gates.Tests.ps1` — added the parallel Pester `It`
+  block ("Warns when -BitLockerKeyPath is provided without
+  -EnableBitLocker"). Follows the same shape as the existing "Rejects
+  -EnableBitLocker without -BitLockerPin" case: sets the `$WimFile` /
+  `$TargetDisk` / `$Force` / `$Silent` params plus `$EnableBitLocker
+  = $false` and `$BitLockerKeyPath = '\\fileserver\BitLockerKeys'`,
+  runs `Start-Deployment`, and asserts a Warning-level log line
+  matching `-BitLockerKeyPath provided without -EnableBitLocker` fired.
+- `CHANGELOG.md` — one `Unreleased / Changed` bullet at the top.
+  No version bump (behavior-preserving warning).
+
+**Verification:**
+- `pwsh` install fails 403 at the proxy for the GitHub-Releases
+  tarball (documented constraint in CLAUDE.md's Pester note), so
+  `tests/test_parse.ps1` and the Pester suite can't run locally.
+  Structural sanity done in Python: `unified_winpe_deploy.ps1` brace
+  balance 398/398 (was 396/396; +2/+2 from the new `if { ... }`),
+  `#region`/`#endregion` still 10/10. `validation-gates.Tests.ps1`
+  brace balance 106/106 (was 104/104; +2/+2 from the new `It` block).
+- Structural review of the added `if` block: identical shape to the
+  existing `-BitLockerPin` warning immediately above it (same condition
+  form, same log level, same non-return semantics — a warning, not a
+  fatal). No new destructive code path touched.
+- CI will run the real `PSParser::Tokenize` + Pester + PSSA + masterize
+  on push.
+
+**Risks / follow-ups:**
+- Minimal. Adds one warning log line + one Pester assertion. No new
+  parameter, no runtime gate, no diskpart/DISM/BCDBoot change.
+- Pester assertion depends on `Start-Deployment`'s mocked-happy-path
+  reaching the warning block (test doesn't set `$Script:Config.EnableBitLocker`
+  side-channel, uses only the sentinel `$EnableBitLocker = $false`
+  default from `BeforeEach`) — the existing "Passes the wiring"
+  tests immediately below confirm the same happy-path mock stack
+  is reachable from validation code past this point.
+- Backlog observation stands: 20 open routine PRs cover most of the
+  incremental surface. This one was a genuine sliver next to PR #208's
+  scope, not covered anywhere else.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

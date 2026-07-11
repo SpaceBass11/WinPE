@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-BitLockerKeyPath` without `-EnableBitLocker` now warns instead of
+  being silently ignored.** `Start-Deployment` already warned when
+  `-BitLockerPin` was provided without the `-EnableBitLocker` switch
+  (the PIN went nowhere because `Initialize-BitLockerSetup`
+  early-returns); the escrow-path override had the same failure mode —
+  `Resolve-BitLockerKeyPath` is only ever called from the guarded
+  BitLocker init path, so operators who typed a UNC share into
+  `-BitLockerKeyPath` but forgot the switch saw no evidence their
+  override was dropped. Adds a matching one-line warning + a parallel
+  Pester assertion. No behavior change beyond the log line.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
