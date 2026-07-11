@@ -5,6 +5,107 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-11 — CHANGELOG `## Unreleased` self-contradiction on placeholder-PIN policy
+
+**Investigated:** open-PR state (~30+ routine PRs against `main`, most
+recent visible: #200-#219) to avoid duplicating in-flight work. The
+2026-07-11 backlog-triage entry recorded via PR #216 noted two
+consecutive log-only routines, but PRs #217-#219 landed since with
+genuine slivers, so the surface is not fully drained. Walked the
+CHANGELOG's `## Unreleased` block against the deploy script's current
+BitLocker-PIN validation code (`unified_winpe_deploy.ps1:1687-1698`)
+looking for stale claims.
+
+**Found:** `CHANGELOG.md` `## Unreleased` contains two directly
+contradictory statements about the current script's placeholder-PIN
+behavior:
+
+- **Line 76-77 (inside `### Changed (security / safety)`):**
+  > "Placeholder PINs (`ChangeMe123!`, `password`, `Password1`,
+  > `123456`) are rejected at runtime."
+- **Line 24-34 (inside `### Removed`):**
+  > "**`ForbiddenBitLockerPins` list and PIN content policy.** ...
+  > The script now passes the PIN through; only the Windows-mandated
+  > 6-20 character window is checked..."
+
+Cross-checked against the code: `grep -n 'ForbiddenBitLockerPins\|Placeholder\|ChangeMe\|placeholder PIN'`
+across `unified_winpe_deploy.ps1` and `scripts/*.ps1` returns exactly
+one hit — line 94 of the deploy script's `.VERSION` history block,
+which describes what v4.7.0 originally shipped and is a versioned
+historical note. No runtime PIN-content check exists anymore; the only
+gate is the 6-20 char length window at `Start-Deployment` lines
+1691-1695. So the `### Removed` bullet is current, and the
+`### Changed (security / safety)` bullet is stale.
+
+This is the same "PIN-content policy quietly walked back but a stale
+claim survived in one place" defect that PR #134 fixed in `README.md`
+(parameter-table row) and PR #136 fixed in `docs/BITLOCKER.md`
+(confirmation-chain table row). Neither of those PRs touched CHANGELOG's
+own contradiction. Grep of the open-PR list for `Placeholder`,
+`ChangeMe`, and `ForbiddenBitLockerPins` in PR bodies confirmed no
+open PR touches this specific line — a genuine sliver.
+
+**Changed:**
+- `CHANGELOG.md` — dropped the two-line "Placeholder PINs ... are
+  rejected at runtime" bullet from the `### Changed (security / safety)`
+  block inside `## Unreleased`. The `### Removed` bullet above it
+  (unchanged) already tells the correct story: the policy was added
+  in v4.7.0 and later dropped. Rather than annotate the stale bullet
+  with a "later reverted" note, deleted it outright — the
+  Keep-a-Changelog convention this repo follows is that an
+  `## Unreleased` block reflects net accumulated changes, not a
+  history of walked-back sub-changes.
+- `CHANGELOG.md` — added a `### Fixed` bullet at the top of
+  `## Unreleased` recording the doc self-consistency fix and
+  pointing at the parallel PRs (#134, #136) that fixed the same
+  claim in README and BITLOCKER.md. Same shape as those PRs used.
+
+**Verification:**
+- Doc-only change; no PowerShell logic touched. `pwsh` install into
+  `/opt/pwsh/` per CLAUDE.md's snippet was not attempted this pass —
+  no `.ps1` file was edited so `tests/test_parse.ps1` /
+  `test_wim_parser.ps1` / `test_disk_enumeration.ps1` cannot be
+  affected. CI runs all three on push regardless.
+- Post-edit grep of `CHANGELOG.md` for `Placeholder`, `ChangeMe`,
+  and `Forbidden` returns only the `### Removed` block (the correct
+  current statement) plus the new `### Fixed` bullet that points at
+  the fix. No lingering contradiction.
+- Post-edit grep across the whole repo for `Placeholder PIN` and
+  `ChangeMe123` returns only:
+  - the `### Removed` block (correct historical record),
+  - the new `### Fixed` bullet (points at the fix),
+  - `unified_winpe_deploy.ps1:94` (`.VERSION` block history, correct
+    as-is per PR #134's routine-log rationale).
+- Masterize Phase 1A check #1 (`grep -q "$ver"` in CHANGELOG) is
+  unaffected — `4.7.1` is still present in `CHANGELOG.md` line 92
+  after the edit.
+
+**Risks / follow-ups:**
+- Minimal. Pure docs-consistency fix. No script logic, no CI check
+  strings, no destructive path touched. Reader-facing change is
+  strictly clearer.
+- Outstanding routine-backlog candidates that this pass did NOT take
+  (all in flight or explicitly deferred):
+  - PR #54 — `startnet.cmd` skip `::` comments in `deploy.args`
+    (boot-critical; needs hardware validation before landing).
+  - `!` chars in `deploy.args` args eaten by `enabledelayedexpansion`
+    on `set "DEPLOYARGS=..."` — flagged as follow-up in PR #54's
+    body; requires wider `setlocal` refactor + real-WinPE PIN
+    round-trip check. Deferred.
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line render-block
+    dedup — deferred across every routine cycle back to 2026-05-16
+    as load-bearing TUI UX.
+  - `-MinImageSizeMB` accepts negative values (flagged in PR #136's
+    routine-log next-steps). Small `[ValidateRange]` addition;
+    behavior change from "silently broken" to "parameter binder
+    rejects." Not taken this pass — behavior change, not a bug fix.
+- Cadence observation still stands: 30+ open routine PRs against
+  `main` at the time of this run. This entry is deliberately narrow.
+  Future passes should keep to genuinely uncovered slivers (like
+  this one) or produce log-only notes per rule 27.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

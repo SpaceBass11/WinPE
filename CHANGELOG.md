@@ -8,6 +8,23 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **CHANGELOG's own `## Unreleased` block no longer contradicts itself
+  on the placeholder-PIN rejection policy.** The
+  `### Changed (security / safety)` block still carried a bullet
+  claiming "Placeholder PINs (`ChangeMe123!`, `password`, `Password1`,
+  `123456`) are rejected at runtime" from the v4.7.0 rework, but the
+  `### Removed` block in the same `## Unreleased` section already
+  recorded that the `ForbiddenBitLockerPins` list and PIN content
+  policy were dropped in favor of just the 6-20 character Windows
+  window. Two claims, opposite direction, one Unreleased block — a
+  reader trusting the Changed bullet would assume the deploy script
+  still refuses `password` as a PIN. It does not. Dropped the stale
+  bullet; the `### Removed` entry (unchanged) tells the current story.
+  Parallel doc catch-up to PR #134 (README parameter row) and PR #136
+  (`docs/BITLOCKER.md` confirmation-chain table row), both of which
+  fixed the same stale claim in their respective files.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
@@ -73,8 +90,6 @@ tagged GitHub releases are published.
     `EnableBitLocker` is `$false`. Default `BitLockerPin` is `$null`.
   - New runtime parameters: `-DataDiskNumber`, `-EnableBitLocker`,
     `-BitLockerPin`, `-BitLockerKeyPath`.
-  - Placeholder PINs (`ChangeMe123!`, `password`, `Password1`,
-    `123456`) are rejected at runtime.
   - New typed `WIPE DATA` confirmation gates the data-disk format.
     `-Force` skips it; `-Silent` requires `-Force`.
   - `-DataDiskNumber` is validated against the same exclusion rules as
