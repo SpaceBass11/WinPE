@@ -5,6 +5,69 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-11 — Backlog triage, no code change (10 open PRs already cover the surface)
+
+**Investigated:** the open-PR set (`mcp__github__list_pull_requests
+--state open`) before starting any new work. Ten routine PRs are open
+against `main`, none yet merged:
+
+- **#215** — first-login: surface `reg.exe` stderr on hive load/unload failure
+- **#214** — deploy: warn when `-WimFile` silently overrides `-ImagePath`
+- **#213** — build_iso: redact `-BitLockerPin` from build-console echo
+- **#212** — CLAUDE.md Key Files: add UNATTEND.md + RELEASE_VALIDATION.md
+- **#211** — configs/unattend.example.xml: correct stale Default-User-hive comment
+- **#210** — prepare_wim: reject `-OutputWim` colliding with `-SourceWim`
+- **#209** — docs/DEPLOY_ARGS: document `{DRIVE}` placeholder substitution
+- **#208** — CLAUDE.md: fix Version field count (four → five) + stale `~line 39`
+- **#207** — routine log entry (no code change)
+- **#206** — build_boot_wim: surface `reg.exe` stderr on load/add/unload
+
+**Walked the plausible improvement surface** to look for something
+uncovered by the ten open PRs:
+
+- `scripts/prepare_wim.ps1` reg.exe stderr on load / add / unload
+  (lines 385, 416-417, 424) — same shape as #206 / #215 (the two
+  reg.exe stderr PRs). Would be an incremental extension of that
+  pattern to the third script that runs `reg.exe`, but no new failure
+  mode is uncovered by the two open ones. Held pending #206 / #215
+  merge so a follow-up can copy their final approved shape.
+- `AGENTS.md` line 82 says "four files must move together" while
+  CLAUDE.md's own bullet enumerates five *places* (two of which live
+  in the same file, `unified_winpe_deploy.ps1`). The AGENTS.md phrasing
+  is defensible as "four **files**" (script + 3 docs), but re-touching
+  AGENTS.md alongside #208's CLAUDE.md edit would just fan out the same
+  drift into a second PR. Held pending #208 merge; if the maintainer
+  wants aligned wording after that, a one-line follow-up is trivial.
+- `Show-ImageList` / `Show-ImageSelection` still share ~30 lines of
+  listing-render code — deferred across every routine cycle back to
+  2026-05-16 for the same reason (load-bearing TUI UX). No change.
+- Silent-mode + multi-index WIM: `Select-ImageIndex` in silent mode
+  fails-fast because there is no `-Index` parameter to pre-select
+  from a multi-index image. `build_iso.ps1`'s help text already
+  documents this at `.PARAMETER WimFile` ("Must be a single-index WIM
+  for silent deployment"). Adding a runtime `-Index` param would be a
+  behavior change, not a maintenance fix — outside routine scope.
+
+**Changed:** nothing outside this log entry. Doc-only append.
+
+**Verification:** N/A. No `.ps1` / `.xml` / workflow files touched.
+The maintenance log is not exercised by any test.
+
+**Risks / follow-ups:**
+- None. Log-only append matches PR #207's shape (which was also
+  log-only).
+- The previous entry from #211 recorded the same finding — "the
+  maintainer's queue is the bottleneck, not the finder rate. Future
+  passes should keep to genuinely uncovered slivers or produce
+  log-only notes." Two consecutive log-only routines is a signal to
+  slow the routine cadence, not to invent make-work.
+- Next-pass candidates once the current backlog drains: the
+  `prepare_wim.ps1` reg.exe stderr extension (finalized copy from
+  whichever of #206 / #215 lands first) and the Show-ImageList /
+  Show-ImageSelection factoring cleanup (still deferred).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
