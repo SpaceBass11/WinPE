@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/first-login.ps1` surfaces `reg.exe` stderr on Default User
+  hive load/unload failure.** Both `reg.exe load` and `reg.exe unload`
+  previously discarded the process output via `2>&1 | Out-Null` and
+  logged only `$LASTEXITCODE` (e.g. `Default User hive load failed
+  (exit 1) — future users won't inherit tweaks`). `reg.exe` doesn't
+  publish an exit-code table, so the bare integer collapsed file-locked,
+  access-denied, hive-corrupt, and path-missing into the same message.
+  Failure paths now capture the reg.exe output and append it after the
+  exit code so the operator can diagnose from `first-login.log` without
+  a re-run. Empty-output paths preserve the original one-line message
+  (silent-fail guard). Success paths are byte-identical.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

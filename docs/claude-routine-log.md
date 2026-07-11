@@ -5,6 +5,100 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-11 — `first-login.ps1`: surface `reg.exe` stderr on hive load/unload failure
+
+**Investigated:** the 10 open routine PRs against `main` (#205–#214).
+PRs #205 and #206 apply a "capture `reg.exe` output → include on
+non-zero exit" pattern to `scripts/prepare_wim.ps1` and
+`scripts/build_boot_wim.ps1` respectively. Both PR bodies claim the
+same pattern was already applied to `scripts/first-login.ps1` "in an
+earlier release" (attributed to a nonexistent PR #162). Checked
+`scripts/first-login.ps1` against the current baseline — the fix is
+NOT present. Lines 124 and 136 (pre-edit) both used
+`& reg.exe … 2>&1 | Out-Null`, discarding reg.exe's diagnostic
+before the failure branch could log it. The prior author was
+hallucinating merged state; the gap is real.
+
+**Found:** two `reg.exe` invocations in `first-login.ps1`:
+
+- Line 124 (`reg load` of `C:\Users\Default\NTUSER.DAT`): on non-zero
+  exit, `Log "  ERR Default User hive load failed (exit $LASTEXITCODE)
+  — future users won't inherit tweaks"`. reg.exe's stderr (e.g. `ERROR:
+  The process cannot access the file because it is being used by another
+  process.`) was dropped by `Out-Null` and never reached
+  `first-login.log`. This is the highest-impact site: a failed hive
+  load silently skips every one of the ~15 Default-User tweaks (Bing
+  search off, ContentDeliveryManager suggestions off, classic
+  right-click menu, etc.) for every future user of that image.
+
+- Line 136 (`reg unload` in the `finally` block): same discard, WARN
+  path. A stuck-handle unload failure means the hive file may not
+  flush until reboot; the diagnostic matters if it happens repeatedly.
+
+**Changed:**
+
+- `scripts/first-login.ps1` — replaced both `& reg.exe … 2>&1 | Out-Null`
+  calls with `$var = & reg.exe … 2>&1`. On non-zero exit, the captured
+  output is `Out-String | Trim()`'d and appended to the existing log
+  line (`… reg.exe: <msg>`). A `if ($msg)` guard preserves the
+  original single-line log message when reg.exe fails silently, so
+  log-shape never regresses in that path. Matches the idiom PRs #205
+  and #206 use, and the CCTK stderr-capture idiom already in
+  `unified_winpe_deploy.ps1`.
+- `CHANGELOG.md` — new `## Unreleased / ### Changed` bullet at the top
+  of the section.
+
+**Verification:**
+
+- Installed pwsh 7.6.3 from `packages.microsoft.com` (the direct GitHub
+  Releases tarball is 403'd through the agent proxy this session; MS
+  apt feed is reachable via `packages-microsoft-prod.deb`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0 unchanged
+  from baseline. The `first-login.ps1` syntax-valid assertion still
+  passes (tokenizes cleanly with the new `$loadOutput` /
+  `$unloadOutput` locals and the nested `if ($msg)` guards).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+  unchanged.
+- Behavioral smoke test of the `Out-String | Trim()` pipeline on
+  three synthetic invocations (stderr-bearing, silent-fail,
+  success): `[stderr line]` / `[]` / `[]` — confirms the `if ($msg)`
+  guard is doing real work and the success path stays quiet.
+- Pester (`tests/validation-gates.Tests.ps1`) doesn't cover
+  `first-login.ps1`; CI's Pester job on `windows-latest` runs it on
+  push regardless.
+
+**Risks:**
+
+- Minimal. Pure additive logging on failure branches; success paths
+  byte-identical. No destructive code (DISM, diskpart, bcdboot,
+  BitLocker) touched. Two new locals (`$loadOutput`, `$unloadOutput`)
+  are scoped to their `if` / `finally` blocks and don't leak. PSv5.1
+  compatible.
+- A conservative caller of `first-login.ps1` parses `first-login.log`
+  by line prefix (`  ERR` / `  WARN`); the extra `reg.exe: …` tail
+  after the same prefix doesn't change the prefix, so any such
+  grepper still works.
+
+**Next recommended improvement:**
+
+- If PRs #205 and #206 both merge, the `reg.exe` stderr-capture idiom
+  is finally uniform across all three `reg.exe`-using pipeline scripts
+  (`prepare_wim`, `build_boot_wim`, `first-login`). Worth adding a
+  masterize CI check that fails if any future addition of `reg.exe`
+  drops through `| Out-Null` (matches the pattern already used for
+  `Stop-Computer` at check #10). Skipped this pass — a new CI check
+  should follow the pattern hardening, not lead it.
+- `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+  listing-render code that could be factored out — flagged across
+  many prior entries; still deferred because TUI UX is load-bearing.
+- Fixture test for `prepare_wim.ps1`'s parameter-set validation
+  (`-SourceIso` vs `-SourceWim` mutual exclusion + `-Index` /
+  `-Edition` passthrough). Still not in flight against `main`.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
