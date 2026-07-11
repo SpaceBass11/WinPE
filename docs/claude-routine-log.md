@@ -5,6 +5,81 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-11 — `CLAUDE.md` "Phase 1B, checks 8-19" range drift
+
+**Investigated:** open + closed PRs (~20 open routine PRs, most
+recent being #217 down through #198). Sampled each subsystem the
+open set already covers per the triage in PR #216's body: CCTK
+selection, Get-WimImageInfo, Show-Image*, Select-AdditionalWipeDisks,
+first-login.ps1, reg.exe stderr, Test-FinalWipeConfirmation,
+BitLocker PIN gates, New-DiskpartScript, fatal-catch stack trace,
+build_iso.ps1 pre-flight, deploy-args placeholder, and the
+CLAUDE.md "four → five" version-field fix (#208). Looked for a
+distinct, uncovered surface area.
+
+**Found:** `CLAUDE.md` lines 126-127 says the migrated safety
+greps live in "Phase 1B, checks 8-19." Actual current range in
+`.github/workflows/ci.yml` Phase 1B is checks 8-26 (with #21
+removed by PR #49 when the BitLocker PIN content policy was
+stripped). The doc range was accurate when Phase 1B ended at
+check 19 in v4.7.0 and has drifted forward with every new safety
+invariant added since (checks 20, 22-26 were added post-v4.7.0
+for BitLocker/data-disk defaults, WIPE DATA confirmation,
+BitLocker key escrow path, startnet.cmd deploy.args wiring and
+echo redaction, and the BitLocker PIN TUI prompt). No open PR
+covers this drift; PR #208 fixes a different stale reference on
+the same file (the "four → five" version-field count).
+
+The `.claude/MASTERIZE.md` enumeration is also incomplete (lists
+checks 1-14, so checks 15-26 lack descriptions there), but
+completing that enumeration would mean writing 12 new check
+descriptions and is deferred to a future pass — out of scope for
+this drift-only fix.
+
+**Changed:**
+- `CLAUDE.md` — line 126-127: `(Phase 1B, checks 8-19)` →
+  `(Phase 1B — code-safety invariants)`. Removes the number range
+  entirely so adding or removing a check in `ci.yml` no longer
+  restales this reference. Phrasing points to the phase heading in
+  `.claude/MASTERIZE.md` and the `Phase 1B — Code safety invariants`
+  step name in `ci.yml` so a reader can still locate the checks.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `grep -n "8-19\|checks 8-\|Phase 1B" CLAUDE.md docs/*.md .claude/*.md`
+  post-edit shows only historical references (routine-log entry
+  from 2026-05-17 recording the original migration, and
+  `.claude/masterize-log.md` release-history entries) and the
+  new "Phase 1B — code-safety invariants" phrasing. No other
+  live `8-19` numeric range remains.
+- Grep for the actual `ci.yml` check numbers confirms Phase 1B
+  today runs checks 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+  20, 22, 23, 24, 25, 26 — matching the "8-26 minus 21" story
+  above. Check 21 was `ForbiddenBitLockerPins must include the
+  v4.6.x placeholder`, removed in PR #49.
+- `pwsh` install fails 403 in this session's proxy (documented in
+  CLAUDE.md's Pester note); doc-only edit so `tests/test_parse.ps1`
+  and the other `.ps1` tests are unaffected. CI runs all three
+  syntax tests + Pester + PSSA + masterize on push.
+- Only one `.md` file's live content is touched (CLAUDE.md), plus
+  this log entry. No workflow, no `.ps1`, no CHANGELOG bump (test-
+  and doc-only edits by convention do not touch
+  `$Script:Config.ScriptVersion`).
+
+**Risks / follow-ups:**
+- Minimal. Docs-only change to the maintainer/agent guide file.
+  No runtime behavior change, no CI check touched, no cross-file
+  wiring changes.
+- The MASTERIZE.md Phase 1B enumeration still stops at check 14;
+  adding descriptions for checks 15-26 would be worthwhile as a
+  future pass but requires writing 12 accurate descriptions.
+- The routine backlog remains at ~20 open PRs (#198-#217). PR
+  #216's "merge or close the backlog before the next routine pass"
+  recommendation still stands; every future routine will keep
+  finding fewer novel surface areas until the backlog clears.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
