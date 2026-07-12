@@ -5,6 +5,70 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-12 — Backlog-triage pass (no code change)
+
+**Investigated:**
+
+- `git log origin/main` vs. `HEAD` — branch `claude/lucid-keller-tyje3k`
+  is clean and at parity with `origin/main` (top commit `ef8fc2b`,
+  test: add build_boot_wim.ps1 behavioral invariant checks).
+- Open PR set via `mcp__github__list_pull_requests` — **~100 routine
+  PRs open** (numbers roughly #100–#221 with gaps for merged items).
+  Fetched three full pages (10 + 30 + 30 items) plus a targeted
+  `search_issues` for candidates I considered.
+- `mcp__github__search_issues` with `repo:SpaceBass11/WinPE
+  MinImageSizeMB is:pr` — confirmed **PR #100** already carries the
+  `[ValidateRange(0, [int]::MaxValue)]` fix on `-MinImageSizeMB`
+  (the outstanding-backlog candidate PR #220 flagged as
+  "not taken this pass"). Also confirmed PR #186 covers the
+  `-ImagePath` file-vs-dir hint that PR #166 partially proposes.
+- Cross-checked the "outstanding candidates" list from PR #220's
+  body — `::`-comment `deploy.args` (PR #189), `!` chars in delayed
+  expansion (still open), `Show-ImageList` / `Show-ImageSelection`
+  render dedup (still deferred), and `-MinImageSizeMB [ValidateRange]`
+  (PR #100). Three of four are already in-flight or deferred as
+  UX-load-bearing.
+
+**Found:** the backlog has grown to the point where the routine agent
+is now shipping duplicate work faster than PRs merge. PRs #216 and
+`#207` both went log-only for exactly this reason; two consecutive
+routine passes since then (PRs #217–#221, five PRs in five days) then
+added more without draining the queue. Continuing to file another
+side-branch this pass would (a) risk overlapping one of the ~100 open
+PRs and (b) push the backlog further out of reach.
+
+**Changed:** nothing. Log-only entry.
+
+**Verification:** N/A. Doc-only append. `git diff --stat` shows one
+file changed (`docs/claude-routine-log.md`), no `.ps1`, no `.xml`, no
+workflow file touched. All three test files (`test_parse.ps1`,
+`test_wim_parser.ps1`, `test_disk_enumeration.ps1`) run in CI on push
+regardless.
+
+**Risks / next recommended improvement:**
+
+- **The right next step is to drain the backlog, not add to it.**
+  Recommend merging or closing PRs #100–#221 (or a large subset of
+  them) before the next routine pass runs. Otherwise the pattern of
+  PRs #216 → #217–#221 → this-entry will continue to repeat, and the
+  useful signal (which small-scope fixes are still needed after the
+  merged wave) is lost.
+- Candidates that were NOT filed in prior routine PRs and remain
+  novel-looking on inspection this pass — held for the next
+  post-backlog-drain routine run:
+  - `!` character in `deploy.args` values interacts with cmd delayed
+    expansion inside `startnet.cmd` and gets consumed; PR #54's body
+    flagged this but no fix PR has landed.
+  - `Show-ImageList` / `Show-ImageSelection` factoring — ~30 lines of
+    listing-render duplication. Deferred across every routine entry
+    since 2026-05-16 because the menu render is load-bearing TUI UX;
+    still a legitimate cleanup candidate but not a "small, safe,
+    high-value" pick for an autonomous pass.
+  - `Test-SystemMemory` catch-branch silent-mode hard-fail — filed as
+    PR #221 on 2026-07-12 (same day as this entry).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
