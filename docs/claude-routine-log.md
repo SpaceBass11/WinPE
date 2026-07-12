@@ -5,6 +5,83 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-12 — `Test-SystemMemory` silent-mode hard-fail on WMI failure
+
+**Investigated:** open PR list (20 in flight; scanned titles and
+bodies for `memory`, `wmi`, `test-system`, `systemmemory` — none
+match). Merged history since v4.7.0 (PRs #33-#52). PR #214's own
+"follow-ups" section explicitly named this as the next candidate
+and did not take it: *"`Test-SystemMemory` returns `$true` when WMI
+fails to enumerate physical memory. In silent mode this could allow
+a low-memory machine to proceed to DISM and OOM there."* Cross-checked
+`Test-WinPEEnvironment` (line 521-544) as the established pattern for
+"abort on ambiguity in silent mode" and confirmed the shape of the
+proposed change matches it.
+
+**Found:** `Test-SystemMemory` (`unified_winpe_deploy.ps1` line 546-573
+pre-edit) catches `Get-WmiObject -Class Win32_ComputerSystem` failure
+and unconditionally returns `$true`. In silent mode this means:
+`Start-Deployment` continues past the memory gate → partitions the
+target disk → DISM apply → OOM mid-apply → half-deployed disk that
+won't boot and can't be re-run without a fresh WinPE. The failure
+mode is rare (WMI is bundled in the `WinPE-WMI` component the boot.wim
+builder adds, per CLAUDE.md), but silent-mode is defined as "hard-fail
+on ambiguity" and this is one of two `return $true` paths under a
+catch in the whole file — the other (`Get-SystemDisks`) already
+returns `@()` on WMI failure, which does hard-fail downstream.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Test-SystemMemory` catch block now:
+  (a) logs the WMI exception message instead of a bare "could not
+  determine" line so the operator sees *why*, (b) returns `$false`
+  when `-Silent` is set, matching `Test-WinPEEnvironment`, and
+  (c) keeps the "continuing anyway" behavior for interactive mode
+  so an operator can still proceed with an eyes-on decision.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the silent-mode gate tightening and the
+  `Test-WinPEEnvironment` parity.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session from `packages.microsoft.com`
+  (the GitHub-Releases tarball URL returns 403 through the session
+  proxy — same constraint flagged in PR #214's log entry).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed
+  / 0 failed before edits.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed
+  / 0 failed (unchanged; the function-existence and syntax checks still
+  pass — the change is inside an existing function body, not a rename).
+- Post-edit: `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged (no contamination).
+- Post-edit: `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1`
+  → 34/0 unchanged.
+- Structural review: brace balance around the edit is +1/+1 net
+  (one new `if ($Silent) { ... }` block); region markers unchanged;
+  no changes to destructive code paths (diskpart, DISM apply, BCDBoot,
+  CCTK, BitLocker staging). No version bump — behavior change is
+  silent-mode-only and is a tightening of an existing gate that already
+  logged a warning.
+
+**Risks / follow-ups:**
+- Behavior change is silent-mode-only. An unattended run that
+  previously proceeded past a broken-WMI host will now fail fast at
+  the memory gate — that's the goal (loud early failure > silent
+  half-deploy) but is a real behavior change for callers running
+  `-Silent` on a host with a broken WMI service. Interactive mode
+  is unchanged.
+- No test for the catch branch. Adding one would require mocking
+  `Get-WmiObject` throw plus `$Silent` state; belongs in the Pester
+  suite next to `Test-FinalWipeConfirmation`, which PR #202 is
+  already threading. Deferred so this PR stays surgical.
+- Outstanding backlog candidates from prior entries not taken:
+  - `Show-ImageList` / `Show-ImageSelection` still share ~30 lines
+    of listing-render code — cleanup-only, deferred across multiple
+    entries because the menu render is load-bearing TUI UX.
+  - Fixture test for `prepare_wim.ps1` parameter-set validation
+    (`-SourceIso` vs `-SourceWim` branches) — flagged in the
+    2026-05-16 entry, still open.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

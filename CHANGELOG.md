@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Test-SystemMemory` now hard-fails in silent mode when the WMI
+  query throws.** Previously the catch branch always returned `$true`
+  ("continuing anyway"), so an unattended run on a host where
+  `Get-WmiObject -Class Win32_ComputerSystem` failed would proceed
+  past the memory gate with unknown memory state and OOM inside
+  DISM after the target disk was already wiped. Silent mode now
+  logs the WMI exception and returns `$false` (matching
+  `Test-WinPEEnvironment`'s abort-on-ambiguity behavior); interactive
+  mode is unchanged and still lets the operator continue past the
+  warning.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
