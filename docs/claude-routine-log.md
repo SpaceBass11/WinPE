@@ -5,6 +5,91 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-18 — `configs/unattend.example.xml` stale comment on first-login.ps1 scope
+
+**Investigated:** open PRs (#216-#225 — heavy backlog, most of the
+plausible incremental-improvement surface already touched by in-flight
+PRs; two recent log-only passes recorded that). Looked at areas the
+open PR set doesn't cover: `configs/*.xml`, `scripts/first-login.ps1`,
+`docs/UNATTEND.md`, and the un-CHANGELOG'd v4.7.0 additions. Grep-cross-
+referenced `Default User` / `NTUSER` / `inherit` across
+`scripts/first-login.ps1`, `configs/unattend.example.xml`, and
+`CHANGELOG.md`.
+
+**Found:** `configs/unattend.example.xml` (added by PR #21, before the
+v4.7.0 first-login.ps1 rewrite) still carries a stale comment above its
+`<FirstLogonCommands>` block:
+
+>  Runs as whoever AutoLogon logs in — applies HKCU tweaks to
+>  that account's profile. To make non-admin accounts (TechL0/1/2)
+>  inherit the same tweaks, the script would need to also edit
+>  the Default User hive (C:\Users\Default\NTUSER.DAT); ask if
+>  you want that added.
+
+That "would need" advice was accurate at v4.6.x. It stopped being true
+at v4.7.0 (PR #33), when `scripts/first-login.ps1` was extended to
+apply the tweak list to **two** hives in one pass — the current user's
+HKCU AND the mounted Default User hive. The v4.7.0 CHANGELOG entry
+(lines 145-157) documents the two-pass behavior; `scripts/first-
+login.ps1`'s `.DESCRIPTION` (lines 16-27) and its Pass-2 block (lines
+115-148) both back it up. Only the example-XML comment lagged.
+
+Copy-paste risk: operators paste the example wholesale as a starting
+point. The stale comment invites them to open an issue asking for the
+Default-User pass ("please add it"), or worse, to hand-modify the
+script under the belief that the shipping version doesn't do it.
+
+**Changed:**
+- `configs/unattend.example.xml` — rewrote the 10-line comment above
+  `<FirstLogonCommands>`. Now describes the actual two-hive behavior,
+  names the log file path, and drops the misleading "would need" clause.
+  No XML structure change; just comment text.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing the
+  correction. No version bump (comment-only change; no script version
+  field touched — masterize CI check #1 unaffected).
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `python3 -c "import xml.etree.ElementTree as ET; ET.parse(...)"` on
+  the edited file → parses clean. XML well-formed (comments live inside
+  the same enclosing `<UserAccounts>` sibling area they always did).
+- Manual visual review: only comment lines 191-200 (pre-edit) touched.
+  The `<FirstLogonCommands>` element itself, `SynchronousCommand` body,
+  `Order`, `Description`, and `CommandLine` are byte-identical.
+- Grep confirms `scripts/first-login.ps1` still performs Pass 2 against
+  `$env:SystemDrive\Users\Default\NTUSER.DAT` (lines 118-148) — the
+  comment now matches reality.
+- No PowerShell was touched, so `tests/test_parse.ps1`,
+  `tests/test_wim_parser.ps1`, `tests/test_disk_enumeration.ps1`, and
+  the Pester suite are all no-op for this change. CI's `pssa`, `syntax`,
+  `pester` jobs will run on push and are expected to pass unchanged.
+- Diff stat: `1 file changed, 8 insertions(+), 5 deletions(-)` before
+  the CHANGELOG + this log addition.
+
+**Risks / follow-ups:**
+- Trivial. Comment-only edit on a template file. No `.ps1` changes, no
+  destructive-code-path touch, no unattend `<component>` or password-
+  encoding text touched.
+- Adjacent potential drift I checked and did NOT find: `docs/UNATTEND.md`
+  §6 "FirstLogonCommands didn't run" (lines 163-166) correctly points
+  at the script's presence check — no drift there. `README.md` has no
+  first-login.ps1 scope description. `docs/END_USER_DEPLOY.md` and
+  `docs/SCRIPT_REFERENCE.md` don't describe FirstLogonCommands' hive-
+  coverage semantics.
+
+**Next recommended improvement:**
+- Backlog remains dominated by open PRs #216-#225. Two consecutive
+  log-only passes (#216, #222) predate this one and record that the
+  routine-visible improvement surface is close to exhausted at this
+  session's granularity. If the open backlog clears materially,
+  worthwhile candidates from the older log entries — Get-SystemDisks
+  fixture is now done (PR #50, merged); Show-ImageList /
+  Show-ImageSelection listing-code factoring remains open and is the
+  last outstanding item flagged repeatedly since PR #26 (deferred
+  because the TUI is load-bearing UX).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

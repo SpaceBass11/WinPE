@@ -8,6 +8,15 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/unattend.example.xml`** — corrected stale comment above the
+  `<FirstLogonCommands>` block that still described first-login.ps1 as
+  HKCU-only and said non-admin accounts "would need" a Default User
+  hive pass added. That pass has shipped since v4.7.0 — the block now
+  documents both passes accurately, matching the script's actual
+  behavior and the v4.7.0 CHANGELOG description. Comment-only change;
+  no behavior touched.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
