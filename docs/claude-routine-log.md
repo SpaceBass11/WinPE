@@ -5,6 +5,93 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-18 — `refresh_usb.ps1` warns on ignored `-CctkSource`
+
+**Investigated:** Open-PR sweep first — 20 side branches (#208-#227)
+against `main` cover the deploy script, both builder scripts,
+`prepare_wim.ps1`, most docs, `configs/`, `.github/workflows/ci.yml`,
+and every test file. None of them touch `scripts/refresh_usb.ps1`, so
+that file was the one obvious "untouched surface" candidate.
+
+Read the whole script (229 lines). Only rebuild-only parameters that
+could be silently dropped when `-RebuildBootWim` resolves to `No`:
+
+  - `-CctkSource` — no default, only consumed inside the
+    `if ($RebuildBootWim -eq 'Yes')` block (line ~209 pre-edit);
+    passing it alongside `-RebuildBootWim No` (or answering `n`
+    at the interactive prompt) silently ignored the value with no
+    warning.
+  - `-BootUsbDrive` — has a `'P:'` default. Because the default
+    is always bound, `$PSBoundParameters.ContainsKey('BootUsbDrive')`
+    can't tell "user typed `-BootUsbDrive P:`" from "default fired"
+    without extra bookkeeping, and the warning would be noisier than
+    useful. Left alone.
+
+The pattern for "silently-ignored parameter → `Write-Warn`" is
+already established in the codebase — `unified_winpe_deploy.ps1:1697`
+warns `-BitLockerPin provided without -EnableBitLocker - PIN ignored`
+via the same `$PSBoundParameters` / early-guard shape, and open
+PR #219 extends the same treatment to `-BitLockerKeyPath`. So the
+change slots into an existing convention rather than inventing one.
+
+**Changed:**
+
+- `scripts/refresh_usb.ps1` — added a five-line block right after
+  the `RebuildBootWim = 'Ask'` resolution (line 172 pre-edit) that
+  fires `Write-Warn` when `-CctkSource` was passed but the rebuild
+  is being skipped. Comment names the mirrored pattern in
+  `unified_winpe_deploy.ps1` so a future reader knows which convention
+  is being followed.
+- `CHANGELOG.md` — one bullet at the top of `## Unreleased / ### Changed`.
+  No script-version bump (this is a warning-only usability tweak,
+  not a behavior change or bug fix in the deploy path).
+
+**Verification:**
+
+- `pwsh` isn't installed in this Linux container and the
+  PowerShell/Releases download 403'd on this run (same constraint
+  the prior two routine entries hit — proxy occasionally denies the
+  release-artifact host). Fell back to the structural checks prior
+  routine entries used and that CI's Windows `syntax` job runs the
+  real `PSParser::Tokenize` for on push.
+- `tests/test_parse.ps1` Test 11 already parses
+  `scripts/refresh_usb.ps1`, so the edit is on the tested surface.
+- Brace / paren balance on the edited file: `35 { / 35 }`,
+  `62 ( / 62 )` — matches expected post-edit deltas of +2 braces,
+  +2 parens (one `if` block, one `Write-Warn` string arg, one
+  `$PSBoundParameters.ContainsKey(...)` call).
+- Visual read of lines 165-188: the new `if` block sits between the
+  interactive `'Ask'` resolution and the ADK `copype` pre-flight,
+  matches the surrounding indentation, and does not alter any of the
+  existing `if`/`throw`/`Write-Warn` shapes.
+- The added `Write-Warn` uses the helper defined at line 138 of the
+  same file (already loaded by the time control reaches line 178).
+
+**Risks:**
+
+- Minimal. Pure additive warning; no change to what
+  `refresh_usb.ps1` actually *does* to the filesystem, USB, or
+  invoked scripts. The warning fires only in the specific
+  `-CctkSource` + `-RebuildBootWim No` combination, which is
+  precisely the intent.
+- No new modules, no new external commands, no new params — just
+  a `$PSBoundParameters` lookup that's already valid on PS 5.1+.
+
+**Next recommended improvement:**
+
+- With 20 open PRs against `main`, the incremental-improvement
+  surface is heavily saturated. If the review queue drains, the
+  remaining backlog items from earlier routine entries are:
+  - a `Get-SystemDisks` partition-enumeration fixture test that
+    exercises the Linux/LVM `Partitions=0` mitigation (partially
+    addressed by the new `test_disk_enumeration.ps1` in the
+    `## Unreleased` block, but the ASSOCIATORS-OF path is still
+    unmocked)
+  - the `Show-ImageList`/`Show-ImageSelection` de-dup that PR #227
+    proposes — safe to defer while that review is live.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

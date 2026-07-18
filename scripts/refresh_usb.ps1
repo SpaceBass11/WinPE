@@ -170,6 +170,15 @@ if ($RebuildBootWim -eq 'Ask') {
     $RebuildBootWim = if ($resp -match '^y') { 'Yes' } else { 'No' }
 }
 
+# Warn on rebuild-only params passed alongside -RebuildBootWim No.
+# -CctkSource is only consumed by build_boot_wim.ps1 (line ~210 below);
+# if the user passed it but we're not rebuilding, they'd otherwise get
+# no signal that the file was silently dropped. Same pattern as
+# `-BitLockerPin without -EnableBitLocker` in unified_winpe_deploy.ps1.
+if ($RebuildBootWim -eq 'No' -and $PSBoundParameters.ContainsKey('CctkSource')) {
+    Write-Warn "-CctkSource is ignored when -RebuildBootWim is No (CCTK is embedded into boot.wim, not the image)."
+}
+
 # Pre-flight the ADK env for the boot rebuild now, so we don't run
 # prepare_wim for 20 minutes and then fail.
 if ($RebuildBootWim -eq 'Yes') {

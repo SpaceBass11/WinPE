@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/refresh_usb.ps1` warns when `-CctkSource` is passed
+  alongside `-RebuildBootWim No`.** CCTK is only embedded by
+  `build_boot_wim.ps1`; skipping the boot rebuild silently dropped a
+  `-CctkSource` value on the floor. Same silently-ignored-parameter
+  warning pattern as `-BitLockerPin` without `-EnableBitLocker` in
+  `unified_winpe_deploy.ps1`.
+
+### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
