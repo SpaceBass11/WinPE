@@ -5,6 +5,93 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-18 — Factor out shared image-menu render (`Write-ImageMenuTable`)
+
+**Investigated:** Open Claude routine PRs (currently 10 in flight —
+#217-#226 covering docs, small deploy-script safety tweaks, and one
+BitLocker-warn addition) and the routine-log backlog. Cross-checked
+against the actual repo state:
+- `Get-SystemDisks` fixture test — already landed as
+  `tests/test_disk_enumeration.ps1` (PR #50). Done.
+- `refresh_usb.ps1 -SourceWim` parity — already in Unreleased
+  changelog. Done.
+- `Show-ImageList` / `Show-ImageSelection` duplication — still open,
+  deferred across the last five-plus routine entries as
+  "cleanup only, load-bearing TUI UX".
+
+Reread the two functions (lines 425-517 pre-edit): the header + the
+per-image `Write-Host` block + the trailing separator (lines 435-454
+of `Show-ImageList`, lines 468-487 of `Show-ImageSelection`) were
+byte-identical — same colors, same padding, same field order. Only
+the empty-list branch and the trailing selection loop differed. The
+UX risk that led earlier passes to defer this was concentrated in the
+selection loop, not the render.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — extracted the ~22-line
+  header/for-loop/footer block into a new `Write-ImageMenuTable`
+  function that both `Show-ImageList` and `Show-ImageSelection` call.
+  The empty-list bodies stay in place (they differ by one info line,
+  and both live *before* the render, so leaving them alone keeps the
+  semantic difference visible at the call site). No output change:
+  same `Write-Host` lines in the same order with the same colors.
+- `tests/test_parse.ps1` — added `Write-ImageMenuTable` to the
+  required-functions list. Existing rationale for that list is
+  "silent loss of any one of these is a safety regression"; the new
+  helper is now the single point that renders both the `-ListOnly`
+  output and the interactive-selection preamble, so a rename would
+  silently break both.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`
+  describing the refactor.
+
+**Verification:**
+- Brace balance on `unified_winpe_deploy.ps1`: 378 open / 378 close
+  (unchanged from pre-edit baseline).
+- Region balance: 10 `#region` / 10 `#endregion` (unchanged).
+- Line count reduced from 2013 → 1985 on the deploy script (~28 lines
+  net saved, matching one ~22-line dedup minus the helper's own
+  boilerplate).
+- Visual diff of the extracted block against the two original blocks:
+  every `Write-Host` line is textually identical, in the same order,
+  with the same colors and same string interpolation. No PadLeft
+  argument, no `-ForegroundColor` value, and no `"="*80` count moved.
+- `pwsh` cannot be installed in this Linux session: the
+  CLAUDE.md-recommended tarball URL
+  (github.com/PowerShell/PowerShell/releases/download/v7.4.6/...)
+  returns HTTP 403 from the agent proxy because outbound GitHub
+  access from this session is scoped to `spacebass11/winpe` only.
+  Same constraint the routine log has flagged since 2026-05-16.
+  CI's `syntax` job on `windows-latest` will run
+  `PSParser::Tokenize` and the updated required-functions assertion
+  on push. The masterize CI job also greps for the `Show-ImageList`
+  / `Show-ImageSelection` function names (check unaffected — both
+  still exist).
+
+**Risks / follow-ups:**
+- Minimal. The render is a mechanical extraction: same lines, same
+  order, same colors, called from the same two sites. No destructive
+  code path (diskpart, DISM apply, BCDBoot, BitLocker) touched. No
+  new parameters, no new module dependencies. Worst realistic case
+  is a PSSA style nit on the new function name, which CI would
+  surface immediately.
+- The auto-select-if-1 branch (`return $Images[0]`) inside
+  `Show-ImageSelection` still runs after the render — kept there
+  because the render is expected to be visible before auto-select
+  logs its "auto-selecting: ..." success message, matching the
+  behavior before the refactor.
+- Backlog now empty for the routine-log's "next recommended
+  improvement" chain. Future passes could look at:
+  - Pester coverage for `Write-ImageMenuTable`'s tolerance of a
+    zero-length `$Images` array (currently unreachable because both
+    callers short-circuit on `Images.Count -eq 0` before calling
+    it, but a future caller could regress this). Very low priority.
+  - `docs/RELEASE_VALIDATION.md` scenarios currently reference the
+    two functions by name; those references remain accurate but a
+    future scenario might want to explicitly note that the render
+    is shared.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

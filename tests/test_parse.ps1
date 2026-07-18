@@ -94,7 +94,7 @@ Write-Result -Test "Balanced #region/#endregion" -Pass ($regions -eq $endregions
 $requiredFunctions = @(
     'Write-Log', 'Write-Banner', 'Test-Administrator', 'Show-MessageBox',
     'Initialize-SystemPaths', 'Find-ImageFiles', 'Search-DirectoryForImages',
-    'Show-ImageList', 'Show-ImageSelection',
+    'Write-ImageMenuTable', 'Show-ImageList', 'Show-ImageSelection',
     'Test-WinPEEnvironment', 'Test-SystemMemory',
     'Get-SystemDisks', 'Show-DiskMenu', 'Test-FinalWipeConfirmation',
     'Select-TargetDisk', 'Get-WimImageInfo', 'Select-ImageIndex',

@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Show-ImageList` / `Show-ImageSelection` share a rendering helper.**
+  Extracted the byte-identical header + per-image `Write-Host` block +
+  footer (~22 lines that lived twice) into a new
+  `Write-ImageMenuTable` function. Both TUI entry points call it; the
+  empty-list branches (which differ — the interactive selector prints
+  one extra "Try -ImagePath or -WimFile" hint) stay in place. Output
+  bytes are unchanged. `tests/test_parse.ps1` gained the new helper to
+  its required-functions list so a rename can't silently break both
+  the `-ListOnly` render and the interactive selector at once.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
