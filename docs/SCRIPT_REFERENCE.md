@@ -58,7 +58,9 @@ unattended runs.
 Minimum file size (in MB) for a `.wim`/`.esd` file to be considered during
 auto-discovery. Default: `100`. Files smaller than this are skipped to
 avoid picking up boot artifacts that share the extension. Lower it if
-you're using small lab images.
+you're using small lab images. Validated at parameter binding with
+`ValidateRange(0, [int]::MaxValue)` — a negative value is rejected
+immediately instead of silently including every file on the drive.
 
 ```powershell
 .\unified_winpe_deploy.ps1 -MinImageSizeMB 25

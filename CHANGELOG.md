@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-MinImageSizeMB` now rejects negative values at parameter binding.**
+  Added `[ValidateRange(0, [int]::MaxValue)]` to the parameter in
+  `unified_winpe_deploy.ps1`. Previously `-MinImageSizeMB -1` bound
+  quietly and turned the auto-discovery size filter into a no-op
+  (every non-empty file — including 1 KB boot artifacts that share
+  the `.wim` extension — appeared in the image menu, because
+  `$file.Length -gt (-1 * 1MB)` is always true). PowerShell now
+  rejects the flag with `Cannot validate argument on parameter
+  'MinImageSizeMB'. The -1 argument is less than the minimum allowed
+  range of 0.` before any drive scanning starts. Docstring and
+  `docs/SCRIPT_REFERENCE.md` entry updated. Zero remains valid
+  (means "include every file"). No version bump — safety-only
+  guard, no behavior change for the happy path.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -25,7 +25,9 @@
     Minimum image file size in MB during auto-discovery. Files smaller than
     this are skipped to avoid picking up boot/system artifacts that happen
     to share the .wim/.esd extension. Default: 100. Lower it if you're
-    using small lab images.
+    using small lab images. Must be zero or positive (ValidateRange 0..
+    [int]::MaxValue); a negative value is rejected at parameter binding
+    time instead of silently including every file.
 .PARAMETER Force
     Skip the typed "ERASE" confirmation when -TargetDisk is set. Also skips
     the "WIPE ALL" confirmation when -WipeDisks is set. Does NOT bypass the
@@ -111,6 +113,7 @@ param(
     [string]$WimFile,
     [int]$TargetDisk = -1,
     [string]$WipeDisks,
+    [ValidateRange(0, [int]::MaxValue)]
     [int]$MinImageSizeMB = 100,
     [string]$UnattendFile,
     [int]$DataDiskNumber = -1,

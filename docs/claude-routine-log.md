@@ -5,6 +5,107 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-18 — `-MinImageSizeMB` accepts negative values (silent auto-discovery no-op)
+
+**Investigated:** open PR backlog (~100 in flight, spanning refresh_usb
+warnings, build_iso safety, BitLocker docs, unattend/deploy path
+resolution, refresh_usb $LASTEXITCODE, docs syncs, test coverage,
+masterize CI extensions). Nothing on `main` since PR #52. Walked the
+`param()` block at `unified_winpe_deploy.ps1:110-124` looking for
+integer parameters without `ValidateRange`, cross-referenced against
+the `next recommended improvement` note in open PR #136 (which
+identified `-MinImageSizeMB` and `-WipeDisks` as remaining gaps).
+`-WipeDisks` is already covered by open PR #154
+(`safety(deploy): warn when -WipeDisks given without -Silent`);
+`-MinImageSizeMB` is untouched by any open PR (grepped the 100+
+open PR title list for `minimage`, `validaterange`, `negative`).
+
+**Found:** `[int]$MinImageSizeMB = 100` (pre-edit line 114) had no
+`ValidateRange`, so `-MinImageSizeMB -1` bound quietly. Downstream at
+`Search-DirectoryForImages` (line 406 pre-edit,
+`if ($file.Length -gt ($MinImageSizeMB * 1MB)) { … }`), a negative
+threshold makes the comparison `$file.Length -gt -1048576`, which is
+true for every non-empty file. The auto-discovery size filter that
+was designed to keep 1 KB boot artifacts (`\EFI\Boot\bootx64.efi`
+namesakes, tiny scratch `.wim` files, etc.) out of the operator's
+image menu becomes a silent no-op. The operator then picks a garbage
+"image" from the menu and DISM fails at apply time with an
+"Incorrect function" or similar cryptic error, after the target disk
+has already been partitioned. Not a data-loss bug, but does turn a
+clean parameter-binding rejection into a mid-deploy failure.
+
+**Changed:**
+
+- `unified_winpe_deploy.ps1` — added
+  `[ValidateRange(0, [int]::MaxValue)]` above the `[int]$MinImageSizeMB`
+  declaration. Extended the `.PARAMETER MinImageSizeMB` docstring to
+  name the validator and the failure mode it prevents. Zero remains
+  valid ("include every file") because the comparison is `-gt`, not
+  `-ge`, so a `$MinImageSizeMB` of 0 still hides zero-byte files.
+  Chose `[int]::MaxValue` over a tighter cap (e.g. 65535 MB) because
+  the semantic of "MinSize larger than any real WIM" is not itself a
+  bug — the operator just gets "No images found", which is a benign
+  outcome that already logs a clear error.
+- `docs/SCRIPT_REFERENCE.md` — appended a sentence to the
+  `### -MinImageSizeMB [int]` section describing the new binding-time
+  rejection.
+- `CHANGELOG.md` — bullet at the top of `## Unreleased / ### Changed`
+  quoting the exact PowerShell binder message the operator now sees
+  on `-MinImageSizeMB -1`. No version bump: the change is a safety
+  guard, not a behavior change on the happy path.
+
+**Verification:**
+
+- `pwsh` is unavailable in the container (no `/opt/pwsh`, no apt
+  package, the PowerShell/Releases 7.4.6 tarball download returns
+  HTTP 403 through the container's egress proxy — same block
+  captured in the 2026-05-16 routine entry). CI's `syntax` job on
+  `windows-latest` will run `tests/test_parse.ps1` on push and
+  catch any parse regression. Manually re-read the edited param
+  block and docstring for balanced brackets, correct attribute
+  placement (attributes must precede the `[type]variable` pair
+  on the same param entry — verified against
+  `[ValidateSet]/[Parameter]` uses elsewhere in the pipeline
+  scripts).
+- Semantically re-checked the one downstream consumer
+  (`Search-DirectoryForImages` at `unified_winpe_deploy.ps1:406-416`
+  post-edit): the comparison operand `$MinImageSizeMB * 1MB` is the
+  only use; the ValidateRange guarantees `$MinImageSizeMB >= 0`, so
+  the operand is always in `[0, [int]::MaxValue * 1MB]` and the
+  `-gt` comparison behaves as designed for every accepted input.
+- Confirmed no other production or test file relies on
+  `-MinImageSizeMB` being able to hold a negative value (grepped
+  `MinImageSizeMB` across the tree — only the four sites listed
+  above: script param + docstring + one comparison + doc/CHANGELOG
+  mentions).
+- Cross-verified that the same class of ValidateRange fix is NOT
+  applicable to `-TargetDisk = -1` or `-DataDiskNumber = -1` —
+  both use `-1` as the "unset / interactive" sentinel and are
+  validated later against the enumerated disk list at
+  `Start-Deployment` (lines ~1794 / 728 post-edit), so a
+  `ValidateRange` would break the sentinel.
+
+**Risks / follow-ups:**
+
+- Minimal. Single-attribute addition on a discovery-time parameter,
+  no destructive-op surface touched, no `-Force` / typed-confirmation
+  chain affected. Backwards compatible for every non-negative value
+  that any operator would reasonably pass.
+- Outstanding routine-backlog candidates not taken this pass:
+  - `refresh_usb.ps1` and `prepare_wim.ps1` accept a directory (not
+    just a file) as `-SourceIso` / `-SourceWim` because `Test-Path`
+    lacks `-PathType Leaf`. Downstream `prepare_wim.ps1` rejects it,
+    but with a confusing "SourceIso not found: <dir>" message that
+    doesn't hint at the leaf vs. container distinction. Usability
+    only; no data-loss risk.
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line dedupe
+    (in-flight as open PR #227) — do not touch until that lands
+    or is closed.
+  - `docs/BITLOCKER.md` stale "placeholder PIN refused" table row
+    is covered by open PR #136 — do not duplicate.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
