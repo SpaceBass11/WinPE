@@ -5,6 +5,71 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-18 — backlog-triage pass (no code change)
+
+**Investigated:** open PR inventory and their intersection with the
+plausible incremental-improvement surface. Cross-referenced against
+recent merges (#46 → #52) to confirm the "outstanding backlog"
+callouts from prior log entries have landed.
+
+**Found:**
+
+- **173+ open Claude routine PRs** against `main` (#54 → #229),
+  each targeting a small incremental improvement. Prior log-only
+  passes (#207 on 2026-07-05, #216 on 2026-07-11, #222 on
+  2026-07-12) recorded the same "surface is saturated" conclusion,
+  and no code changes have landed since 2026-05-24 (the last
+  merged routine PR that actually touched code was #46).
+- **Recently merged upstream** since the last log entry: PR #48
+  (BitLocker TUI PIN prompt), #49 (strip PIN content policy), #50
+  (`Get-SystemDisks` fixture test — closes the last-untested
+  parser callout), #51 (CCTK HAPI → DCH DLL migration), #52
+  (`build_boot_wim.ps1` behavioural invariant checks). All were
+  standing follow-ups from earlier log entries.
+- **Duplicate-PR density is high.** Sampling: five open PRs
+  target `Test-FinalWipeConfirmation` alone (#75 / #102 / #142 /
+  #174 / #202); four target `deploy.args` example-file usability
+  (#54 / #109 / #157 / #189); four target `test_disk_enumeration.ps1`
+  agent-doc sync (#57 / #112 / #138 / #193); several BitLocker
+  PIN-length, `-Force`, and `-BitLockerKeyPath` tightenings
+  overlap. Any small change I might have made this run would
+  almost certainly duplicate an existing open PR.
+- **No new code-safety regression** surfaced in the walk: the
+  masterize CI job's 26 invariant checks (Phase 1A #1-7 + Phase 1B
+  #8-26, gap at #21 by design after PR #49) are unchanged, and
+  the deploy script's brace/region balance, function inventory
+  (26 functions), and version-consistency (v4.7.1 across the four
+  files enumerated in CLAUDE.md line 108-116) all match.
+
+**Changed:** documentation only — this log entry.
+
+**Verification:** log-only pass; no code touched. `pwsh` was not
+installed in this session because there was nothing to run
+against.
+
+**Risks / follow-ups:**
+
+- The right-scoped work here is human triage of the 173-PR
+  backlog, not more automated additions. Routine runs continuing
+  to append log-only entries every few days accomplishes little
+  beyond noise until the backlog is drained.
+- The next meaningful automated pass should probably wait until
+  the merge queue moves — either by opening no PR at all, or by
+  the maintainer setting `AGENT_HAS_WORK` (or equivalent) once
+  the backlog clears.
+- Concrete follow-ups already carried by open PRs (do NOT
+  re-open):
+  - `Test-FinalWipeConfirmation` Pester coverage — #75 / #102 /
+    #142 / #174 / #202
+  - `deploy.args` example-file drop-in usability — #54 / #109 /
+    #157 / #189
+  - `test_disk_enumeration.ps1` agent-doc sync — #57 / #112 /
+    #138 / #193
+  - `Show-ImageSelection` / `Show-ImageList` render dedup —
+    #56 / #227
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
