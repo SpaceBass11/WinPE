@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-18 — Defensive `!` check on `-BitLockerPin` in `build_iso.ps1`
+
+**Investigated:** open PR list (223 open; last 3-4 routine passes were
+log-only for the "drain backlog first" reason set by #216/#220/#222).
+PR #223 (filed ~14h before this run) documented the delayed-expansion
+`!` mangling issue but explicitly deferred the defensive build-time
+check in `scripts/build_iso.ps1` as an uncovered follow-up. Verified
+via title search and body search on the cached PR list that no other
+open PR touches this specific gap.
+
+**Found:** `scripts/build_iso.ps1` line 297-299 embeds `$BitLockerPin`
+verbatim into the silent-mode `deploy.args` line. Because the
+`startnet.cmd` emitted by `scripts/build_boot_wim.ps1` (lines 273-310)
+runs under `setlocal enabledelayedexpansion` — required for the
+`{DRIVE}` placeholder substitution added by PR #35 — cmd.exe strips
+`!` from any variable value at `!DEPLOYARGS!` reference time, even
+inside double quotes. So a build with `-BitLockerPin "Sec!ret42"`
+produces an ISO whose deploy runs `-BitLockerPin "Secret42"`; the
+operator learns the mismatch at first post-deploy boot, at which point
+BitLocker is locked with a PIN they don't know and the only recovery
+path is the escrow key. Interactive mode never embeds the PIN into
+`deploy.args`, so the failure only reaches silent-mode builds.
+
+The failure surface is narrow (silent-mode ISO builds with a PIN
+containing `!`), but the failure mode is the worst class: silent PIN
+mangling that only surfaces after the machine is unrecoverable without
+the escrow key. A single throw at build time turns that into a loud
+early failure.
+
+**Changed:**
+- `scripts/build_iso.ps1` — new `if (-not $Interactive -and
+  $BitLockerPin.Contains('!'))` block inside the existing
+  `if ($BitLockerPin)` gate; throws a here-string explaining the
+  delayed-expansion interaction and pointing the operator at
+  `-Interactive` as the alternative for PINs with `!`. Comment above
+  the check explains why. Interactive mode is untouched.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top of
+  the section describing the check and its scope. Cross-references
+  PR #223 (docs-only companion).
+
+**Verification:**
+- `pwsh` install into `/opt/pwsh/` still returns HTTP 403 in this
+  session's proxy state (matches every routine PR since #219). Local
+  parse via `tests/test_parse.ps1` cannot run; CI's `syntax` job on
+  `windows-latest` will exercise `PSParser::Tokenize` on push.
+- Structural balance check (`git show HEAD:scripts/build_iso.ps1`
+  vs. edited file, raw character counts across the whole file):
+  braces 38/38 → 41/41 (+3/+3); parens 92/92 → 98/98 (+6/+6). Deltas
+  match the added code: one `if { ... }` block (+1/+1), two `{DRIVE}`
+  literals in comment + here-string (+2/+2 braces), three paren pairs
+  in the here-string prose (+3/+3), three paren pairs in the `if`
+  condition (+3/+3). Note: PowerShell here-string internals aren't
+  brace-counted by the parser, but a raw-char total is still balanced
+  either way — the counts prove no accidental unbalanced structural
+  brace was introduced.
+- No touch to `unified_winpe_deploy.ps1`, no touch to any
+  diskpart / DISM / BCDBoot / CCTK / BitLocker-first-boot path, no
+  new dependencies, no test-suite additions. The behavior change is
+  a fail-fast at parameter-processing time in `build_iso.ps1`; nothing
+  runtime in the deploy flow itself changes.
+
+**Risks / follow-ups:**
+- **Behavior change is silent-mode-only.** A pre-existing build
+  invocation that passed a `!`-containing PIN previously succeeded
+  and produced an ISO that silently mangled the PIN. It now throws
+  at build time. That is the goal (loud early failure > silent
+  unrecoverable BitLocker lock) but is a real behavior change for
+  any caller who was relying on the (broken) prior path. No such
+  caller is expected: the prior behavior was strictly a bug.
+- **PR #223's failure-modes doc bullet has not landed yet.** The
+  error message here is self-contained (doesn't reference the doc)
+  so it stays accurate whether or not PR #223 merges first.
+- **Symmetric characters not covered:** `&`, `|`, `<`, `>`, `%` in
+  the PIN would also require quoting per `docs/DEPLOY_ARGS.md`
+  Failure modes. They cause visible cmd.exe errors, not silent
+  mangling, so the value of a build-time check on them is lower.
+  Kept scope tight per the routine instructions.
+- Outstanding backlog cadence still stands: PRs #100-#222 largely
+  untouched. Recommendation from PR #222 to drain before further
+  routine passes is still active.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

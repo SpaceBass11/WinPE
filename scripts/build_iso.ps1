@@ -206,6 +206,29 @@ if ($BitLockerPin) {
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
     }
+    # startnet.cmd emitted by build_boot_wim.ps1 runs under
+    # `setlocal enabledelayedexpansion` (required for the {DRIVE}
+    # substitution). Under delayed expansion, cmd.exe interprets `!`
+    # inside %DEPLOYARGS%'s value at !DEPLOYARGS! reference time and
+    # strips it — even inside double quotes. A -BitLockerPin "Sec!ret42"
+    # reaches PowerShell as -BitLockerPin "Secret42", BitLocker sets
+    # up with the wrong PIN, and the operator only discovers the
+    # mismatch at first post-deploy boot (long past the point where
+    # they can recover without the recovery key). Interactive mode
+    # never embeds the PIN into deploy.args, so this only matters for
+    # silent ISOs. See docs/DEPLOY_ARGS.md failure modes.
+    if (-not $Interactive -and $BitLockerPin.Contains('!')) {
+        throw @"
+-BitLockerPin contains '!' which would be silently mangled at WinPE boot.
+The emitted startnet.cmd runs under 'setlocal enabledelayedexpansion' (required
+for the {DRIVE} substitution). cmd.exe strips '!' from variable values before
+!DEPLOYARGS! expands, even inside double quotes, so the deploy would run with a
+PIN missing every '!' and BitLocker would lock at first reboot with a PIN the
+operator does not know.
+Choose a PIN without '!' for silent-mode ISO builds (or use -Interactive so the
+operator supplies the PIN at the TUI).
+"@
+    }
 }
 
 # Resolve output directory

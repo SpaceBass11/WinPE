@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` rejects `!` in `-BitLockerPin` for silent
+  builds at build time.** The emitted `startnet.cmd` runs under
+  `setlocal enabledelayedexpansion` (required for `{DRIVE}`
+  substitution), which silently strips `!` from any variable value
+  before `!DEPLOYARGS!` expands — including inside double quotes.
+  A `-BitLockerPin "Sec!ret42"` would previously reach PowerShell as
+  `-BitLockerPin "Secret42"`; BitLocker would set up with the wrong
+  PIN and the operator would only discover the mismatch at first
+  post-deploy boot. The check fires only when
+  `-BitLockerPin` is set and `-Interactive` is not (interactive mode
+  never embeds the PIN into `deploy.args`). Companion to PR #223's
+  documentation-only pass on the same failure mode.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
