@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-18 — `!` in `deploy.args` PIN documented as a silent-corruption hazard
+
+**Investigated:** the open-PR backlog (20 PRs against `main`, #203–#222;
+several are log-only "backlog-drain" observations by PRs #207, #216,
+#222). PRs #216 and #222 explicitly flag `!` interacting with
+`startnet.cmd`'s delayed expansion as a candidate held for a
+post-backlog-drain routine run, referencing PR #54's body. Verified
+that no in-flight PR fixes this — `grep -n '!' configs/deploy.args.example
+docs/DEPLOY_ARGS.md` returned only the `!DEPLOYARGS!` invocation snippet
+and the GitHub-style `> [!WARNING]` block. Neither file mentions the
+delayed-expansion interaction.
+
+**Found:** `scripts/build_boot_wim.ps1` line 276 emits
+`setlocal enabledelayedexpansion` into the generated `startnet.cmd`
+(required for the `{DRIVE}` placeholder substitution added by PR #35's
+single-ISO workflow). Under delayed expansion, `!` inside a variable
+*value* is interpreted as an expansion marker at reference time even
+inside double quotes — a well-known cmd.exe behavior. The final
+`powershell.exe … !DEPLOYARGS!` invocation therefore mangles any `!` in
+the read value:
+`-BitLockerPin "Sec!ret42"` → `-BitLockerPin "Secret42"` (or worse when
+the `!` is unpaired). The corruption is silent — PowerShell accepts the
+mangled string, staging proceeds, BitLocker sets up with the
+wrong PIN, and the operator discovers the mismatch only at the first
+post-deploy boot.
+
+`docs/DEPLOY_ARGS.md` Failure modes listed `&`, `|`, `<`, `>`, `%` as
+characters to quote defensively but not `!`; the example
+`configs/deploy.args.example` contained no comment about it. A common
+6-20 char BitLocker PIN policy (upper + lower + digit + symbol) makes
+`!` a plausible pick.
+
+**Changed:**
+- `docs/DEPLOY_ARGS.md` — added a new bullet under Failure modes
+  explaining the delayed-expansion interaction, why double quotes
+  don't help, the concrete `Sec!ret42 → Secret42` failure, and the
+  two safe workarounds (pick a `!`-free PIN, or let the non-silent TUI
+  prompt via `Read-Host`, which is not subject to delayed expansion).
+- `configs/deploy.args.example` — three `::` comment lines above the
+  BitLocker-enabled example line pointing operators at the doc.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet at the top
+  describing the documentation gap and the fix.
+
+**Verification:**
+- Docs-only change. No `.ps1` file touched, so `tests/test_parse.ps1`,
+  `tests/test_wim_parser.ps1`, `tests/test_disk_enumeration.ps1`, and
+  the Pester suite are all unaffected. CI will run all suites on push.
+- `pwsh` install into `/opt/pwsh/` returned HTTP 403 (documented
+  network-policy constraint in CLAUDE.md's Pester note); no
+  runtime-code assertion depends on running `pwsh` locally.
+- Masterize check #1 (version consistency) unaffected —
+  `$Script:Config.ScriptVersion` and version mentions in `CHANGELOG.md`,
+  `CLAUDE.md`, `README.md` all unchanged at `4.7.1`.
+- Masterize checks 24 and 25 (`deploy.args` wiring and no-echo) are
+  built on `scripts/build_boot_wim.ps1` which is untouched.
+- Behavior of `startnet.cmd` and the deploy script itself is unchanged.
+  Loud caveat now, silent corruption before.
+
+**Risks / follow-ups:**
+- Minimal. Purely additive documentation. No script logic, no CI
+  check strings, no destructive path touched. Reader-facing change
+  is strictly clearer.
+- A defensive `!` check in `scripts/build_iso.ps1` when composing
+  the silent `deploy.args` line (throw if `$BitLockerPin` contains
+  `!`) would move the failure from first-boot to build-time — worth
+  considering once the backlog drains, but this docs pass covers the
+  documented interactive `deploy.args` editing path.
+- Outstanding routine-backlog candidates from PRs #207/#216/#222 that
+  I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` render-block dedup — flagged
+    across every routine entry since 2026-05-16, deferred because the
+    menu render is load-bearing TUI UX.
+  - Merging or closing PRs #100–#222 remains the biggest single lever
+    (per PR #216's recommendation). Every routine agent will continue
+    finding this pattern until the backlog drains.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

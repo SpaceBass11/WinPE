@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Documented `!` (exclamation mark) as a PIN / value hazard in
+  `deploy.args`.** `startnet.cmd` runs under
+  `setlocal enabledelayedexpansion` (required for the `{DRIVE}`
+  substitution), which silently mangles `!` in any variable value
+  even inside double quotes — a `-BitLockerPin "Sec!ret42"` reaches
+  PowerShell as `Secret42`. The prior "special characters" bullet
+  in `docs/DEPLOY_ARGS.md` listed `&`, `|`, `<`, `>`, `%` but not `!`,
+  and neither `configs/deploy.args.example` nor the doc mentioned the
+  delayed-expansion interaction. Added a dedicated bullet to
+  `docs/DEPLOY_ARGS.md` Failure modes and a `::` comment to
+  `configs/deploy.args.example` pointing at it. Docs-only.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

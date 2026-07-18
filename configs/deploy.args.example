@@ -1,5 +1,8 @@
 :: Two-partition USB (legacy workflow: FAT32 WinPE boot + NTFS IMAGES data partition)
 :: Drive letter is fixed at whatever letter the IMAGES partition gets (I: below is an example).
+:: -BitLockerPin: avoid `!` (exclamation mark). startnet.cmd runs under
+:: delayed expansion, which silently mangles `!` inside any variable value
+:: even in double quotes. See docs/DEPLOY_ARGS.md Failure modes.
 -WimFile "I:\images\Win11_Enterprise.wim" -TargetDisk 0 -UnattendFile "I:\configs\unattend.xml" -DataDiskNumber 1 -EnableBitLocker -BitLockerPin "ReplaceWithYourPin42" -Force -Silent
 
 :: Single-ISO workflow (build_iso.ps1 output — one file, Rufus to USB)

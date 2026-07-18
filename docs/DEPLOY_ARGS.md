@@ -104,6 +104,17 @@ files for `-TargetDisk 0` (production single-disk) vs `-TargetDisk
 - **PIN with unescaped special characters.** Wrap any PIN with `&`,
   `|`, `<`, `>`, or `%` in double quotes. The example file already
   does this defensively.
+- **PIN or path containing `!` (exclamation mark).** `startnet.cmd`
+  runs under `setlocal enabledelayedexpansion` (required for the
+  `{DRIVE}` placeholder substitution), which treats `!` as a
+  delayed-expansion marker *inside variable values* — double quotes
+  do **not** protect against this. When `!DEPLOYARGS!` is expanded on
+  the final `powershell.exe` invocation, any `!` in the value silently
+  drops the substring between it and the next `!`, or the trailing
+  `!` alone if unpaired. A PIN like `Sec!ret42` reaches PowerShell as
+  `Secret42` (or worse). Pick a `!`-free PIN, or omit `-BitLockerPin`
+  from `deploy.args` and let the non-silent TUI prompt handle it via
+  `Read-Host` (which is not subject to delayed expansion).
 - **File missing or empty.** `startnet.cmd` falls back to launching
   the script without args (interactive TUI). Not a failure — that's
   the documented default.
