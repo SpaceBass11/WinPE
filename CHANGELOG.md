@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`Apply-WindowsImage` DISM-log path hint now resolves via
+  `$env:WinDir`.** Previously the recovery-guidance messages for
+  DISM exit codes 1, 50, 87, and the default fallback pointed the
+  operator at a hardcoded `X:\Windows\Logs\DISM\dism.log`. In WinPE
+  that path is correct; in the `CONTINUE ANYWAY` non-WinPE escape
+  hatch the real log lives at `C:\Windows\Logs\DISM\dism.log` (or
+  wherever `%WinDir%` resolves), so the hint was misleading. Now
+  built with `"$env:WinDir\Logs\DISM\dism.log"` — WinPE output is
+  byte-identical, and the CONTINUE ANYWAY path finally points at the
+  right log. No behavior change for real deploys.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

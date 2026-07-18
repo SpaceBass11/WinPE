@@ -5,6 +5,119 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-18 — `Apply-WindowsImage` DISM-log hint via `$env:WinDir`
+
+**Investigated:** open PR list (100 open routine PRs #125-#224 via
+`mcp__github__list_pull_requests`) plus PR-body greps for
+`dism.log`, `$env:WinDir`, `WinDir`, and `X:\Windows\Logs` to find
+uncovered slivers. All 100 open PRs had "CONTINUE ANYWAY preserved"
+in their safety checklists, none touched the hardcoded DISM-log path
+in `Apply-WindowsImage`. PR #204 addresses `Get-WimInfo` output
+surfacing (different code path); PR #191 preserves the deploy-script
+log to `C:\Windows\Panther\WinPE-Deploy\` on reboot (different
+artifact). Cross-referenced against the routine log's own backlog:
+none of the items in the 2026-05-24 or 2026-06-27 "next
+recommended improvement" lists match this sliver either.
+
+**Found:** `Apply-WindowsImage` (line 1148 pre-edit) hardcodes
+`$dismLog = 'X:\Windows\Logs\DISM\dism.log'` and quotes it into
+recovery-guidance messages for DISM exit codes 1, 50, 87, and the
+default fallback (lines 1156, 1175, 1180, 1200). In WinPE that's
+correct because `%WinDir%` is always `X:\Windows`. But in the
+`CONTINUE ANYWAY` non-WinPE escape hatch (operator typed past
+`Test-WinPEEnvironment`), DISM writes to `%WinDir%\Logs\DISM\` on
+the host — usually `C:\Windows\Logs\DISM\dism.log`. The hint was
+pointing at a path that didn't exist on that path, which sends the
+operator down a wrong-file rabbit hole exactly when they've hit a
+DISM failure.
+
+Same shape as the "escape-hatch parity" fixes in PR #149
+(`Select-AdditionalWipeDisks` system-disk exclusion) and PR #204
+(surface DISM output on `Get-WimInfo` failure) — both address
+non-WinPE-run correctness on paths that only run when the operator
+overrides the `Test-WinPEEnvironment` gate. Silent path is
+unaffected (silent-mode hard-fails on non-WinPE per line 532-535).
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Apply-WindowsImage`: hardcoded
+  `'X:\Windows\Logs\DISM\dism.log'` replaced with
+  `"$env:WinDir\Logs\DISM\dism.log"`. Four-line block comment
+  added explaining the WinPE / CONTINUE-ANYWAY split. String
+  interpolation (rather than `Join-Path`) chosen for portability —
+  `Join-Path` treats colon-drive syntax as needing a PSDrive when
+  evaluated on Linux (relevant only to test tooling, not the
+  Windows runtime), and the interpolation form matches the
+  `-Level Info` `Write-Log` line syntax used two lines down.
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet at the top
+  describing the byte-identical WinPE behavior and the corrected
+  CONTINUE-ANYWAY path. No version bump (recovery-message
+  cleanup, no functional or CLI-surface change).
+
+**Verification:**
+- `pwsh` v7.4.6 installed once via packages.microsoft.com (the
+  `github.com/releases` path documented in CLAUDE.md is 403-blocked
+  in this session; documented alternative worked without
+  modification).
+- Baseline before edits:
+  - `tests/test_parse.ps1` → 48 / 0
+  - `tests/test_wim_parser.ps1` → 16 / 0
+  - `tests/test_disk_enumeration.ps1` → 34 / 0
+- Post-edit:
+  - `tests/test_parse.ps1` → 48 / 0 (unchanged)
+  - `tests/test_wim_parser.ps1` → 16 / 0 (unchanged)
+  - `tests/test_disk_enumeration.ps1` → 34 / 0 (unchanged)
+- Runtime probe (WinPE + non-WinPE emulation via `$env:WinDir` set):
+  - `$env:WinDir = 'X:\Windows'; "$env:WinDir\Logs\DISM\dism.log"`
+    → `X:\Windows\Logs\DISM\dism.log` (WinPE byte-identical)
+  - `$env:WinDir = 'C:\Windows'; "$env:WinDir\Logs\DISM\dism.log"`
+    → `C:\Windows\Logs\DISM\dism.log` (CONTINUE ANYWAY corrected)
+- Pester suite (`tests/validation-gates.Tests.ps1`) not run
+  locally — PSGallery blocked per CLAUDE.md. No Pester-covered
+  invariant is touched by this change (the four covered `Describe`
+  blocks are Config defaults, `Resolve-BitLockerKeyPath`,
+  `New-DiskpartScript` source-drive protection, and
+  `Start-Deployment` validation gates — none touch
+  `Apply-WindowsImage`).
+- Masterize CI check #1 (version consistency across CHANGELOG /
+  CLAUDE / README / deploy script) unaffected — version stays
+  `4.7.1` in all four required places.
+
+**Risks / follow-ups:**
+- Minimal. Pure recovery-message text change. No destructive
+  logic, no CLI-surface change, no confirmation-chain change.
+  WinPE behavior is byte-identical.
+- `$env:WinDir` is always set on Windows/WinPE; on the vanishingly
+  rare edge case where it's unset, the interpolated string would
+  read `\Logs\DISM\dism.log` (a leading backslash from the
+  interpolation) — still recognizable as "check the DISM log"
+  even without the drive-letter prefix.
+- Outstanding routine-backlog candidates from prior entries that
+  this pass did NOT take (all already tracked):
+  - `Show-ImageList` / `Show-ImageSelection` ~30-line render-block
+    dedup — deferred across every routine cycle back to 2026-05-16
+    as load-bearing TUI UX.
+  - `-MinImageSizeMB` accepts negative values — deferred as a
+    behavior change (parameter binder would go from
+    "silently broken" to "rejects").
+  - The routine log's cadence observation (30+ / now 100+ open
+    routine PRs against `main`) still stands. Future passes should
+    keep to genuinely uncovered slivers like this one or produce
+    log-only notes per rule 27.
+
+**Next recommended improvement:**
+- The three exit-code arms that quote `$dismLog` (1, 50, 87,
+  default) could be extended to also mention that `dism.log` is
+  cumulative — repeated failures append to the same file — so
+  operators grep for the most recent timestamp rather than reading
+  from the top. Cosmetic; deferred.
+- A tests/test_parse.ps1 drift guard for the `$env:WinDir` string
+  interpolation in `Apply-WindowsImage` could be added parallel to
+  the existing DISM exit-code-arm drift guards. Skipped this pass
+  to keep the change minimal and because the surrounding
+  exit-code-arm text is already covered by masterize CI grep #17.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
