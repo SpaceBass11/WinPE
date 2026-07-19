@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` warns when `-Interactive` is combined
+  with silent-only parameters.** `-Interactive` writes a deploy.args
+  line that only pre-sets `-ImagePath`, so anything else the caller
+  supplied (`-UnattendFile`, `-TargetDisk`, `-DataDiskNumber`,
+  `-WipeDisks`, `-BitLockerPin`) was silently dropped from the
+  generated args. The worst case was `-UnattendFile`: the file was
+  still staged to `configs\unattend.xml` on the ISO — looking like it
+  worked — but the interactive deploy.args never referenced it, so
+  first boot landed on manual OOBE. Now `build_iso.ps1` prints a
+  `[wrn]` block naming each dropped parameter at build time. No
+  behavior change to either build path; docs on `.PARAMETER
+  UnattendFile` and `.PARAMETER BitLockerPin` note the interactive
+  ignore.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

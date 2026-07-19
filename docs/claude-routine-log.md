@@ -5,6 +5,91 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-19 — `build_iso.ps1`: warn when `-Interactive` drops silent-only params
+
+**Investigated:** open PRs (~20 in flight, PR #211–#230). None cover
+the `-Interactive` + silent-only-parameter silent-drop in
+`scripts/build_iso.ps1`. Related PRs (#213 redact PIN echo, #214
+warn `-WimFile` + `-ImagePath`, #219 warn `-BitLockerKeyPath`
+without `-EnableBitLocker`, #224 reject `!` in PIN, #228 warn
+`-CctkSource` when `-RebuildBootWim No`) all follow the same
+"warn about the silently-ignored parameter" pattern this repo
+has adopted this quarter.
+
+**Found:** when `-Interactive` is passed to `build_iso.ps1`, the
+generated `deploy.args` line only sets `-ImagePath`. Any of
+`-UnattendFile`, `-TargetDisk`, `-DataDiskNumber`, `-WipeDisks`,
+`-BitLockerPin` supplied at build time is silently dropped from the
+args line. The docstrings note "Only used when -Interactive is not
+set" for three of these but there was no runtime warning at build
+time.
+
+The worst case is `-UnattendFile`: the file gets *copied to
+`configs\unattend.xml` on the staged ISO* regardless of `-Interactive`,
+so from the outside it looks like it worked — the ISO contains the
+file at the documented path. But the interactive deploy.args never
+passes `-UnattendFile` to `unified_winpe_deploy.ps1`, so
+`Start-Deployment` never stages it to `C:\Windows\Panther\` and
+first boot lands on manual OOBE. The operator only discovers this
+after wiping a machine.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a warning block right after the
+  existing "-BitLockerPin without -UnattendFile" warning (parity
+  with the existing warning zone). Uses `$PSBoundParameters.ContainsKey`
+  for `-TargetDisk` and `-DataDiskNumber` (their default values 0
+  and -1 are semantically meaningful in silent mode, so a plain
+  truthy check would misclassify). Prints one `Write-Warn` per
+  ignored parameter, plus a two-line explanation of the alternative.
+  Also updated `.PARAMETER UnattendFile` and `.PARAMETER BitLockerPin`
+  docstrings to explicitly note the interactive-mode ignore.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` entry at the top
+  describing the warning and the UnattendFile staging gotcha.
+
+**Verification:**
+- pwsh 7.4.6 installed via `packages.microsoft.com` (the GitHub
+  Releases URL still returns 403 through the session proxy — same
+  workaround as prior entries).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed before edits.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed (test-coverage of build_iso.ps1 was added in
+  PR #46; the syntax-valid assertion still passes with the new
+  block).
+- Behavioral: ran the warning block in isolation with three fixture
+  inputs — (a) `-Interactive` + all silent-only params bound →
+  warning fires listing them; (b) `-Interactive` alone → no
+  warning; (c) silent mode with `-BitLockerPin` bound → no warning
+  (that's the intended flow). All three matched expectations.
+- No touch to the destructive code paths (WIM copy, robocopy of
+  WinPE media, oscdimg invocation). Warning fires before either
+  the media copy or the args generation.
+
+**Risks / follow-ups:**
+- Minimal. Additive `Write-Warn` lines only; no code path
+  semantics change. An operator who previously invoked
+  `build_iso.ps1 -Interactive -UnattendFile foo.xml` and got the
+  ISO built without complaint now sees a warning, which is the
+  goal — they were silently getting an ISO that landed on manual
+  OOBE.
+- Follow-up option: pass `-UnattendFile` through in interactive
+  mode too. Unattend.xml processing is compatible with the TUI
+  (operator still picks disk/edition, unattend handles OOBE
+  post-apply). Skipped this pass because it's a behavior change
+  larger than a warning and would need its own PR.
+- Outstanding backlog items from prior entries not taken this
+  pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing render code — cleanup-only, deferred multiple times
+    because menu render is load-bearing TUI UX; PR #227 is
+    currently taking a swing at this.
+  - Silent-mode `-EnableBitLocker` prompt-behavior when the pin
+    hits the invalid-char rejects (`!` from #224) — worth checking
+    whether other cmd-metachars need the same treatment once #224
+    lands.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

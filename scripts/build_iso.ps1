@@ -33,6 +33,9 @@
     Optional path to an unattend.xml answer file. When given, it is staged at
     configs\unattend.xml inside the ISO and referenced in the generated
     deploy.args so Windows Setup processes it on first boot.
+    Ignored when -Interactive is set - the file is still staged to the ISO
+    but the interactive deploy.args does not reference it, so first boot
+    lands on manual OOBE. Drop -Interactive to make -UnattendFile effective.
 
 .PARAMETER TargetDisk
     Disk number the deploy script will target on the end-user machine.
@@ -45,6 +48,8 @@
     char window at runtime. Security note: the PIN is stored in
     plaintext in the ISO/on the USB - the USB is the trust boundary.
     Use a unique PIN per USB.
+    Ignored when -Interactive is set - a warning is printed at build
+    time so the drop is not silent.
 
 .PARAMETER DataDiskNumber
     Disk number of a secondary data drive to wipe and format as D:.
@@ -205,6 +210,29 @@ if ($UnattendFile) {
 if ($BitLockerPin) {
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
+    }
+}
+
+# Silent-only parameters dropped in -Interactive mode. The interactive
+# deploy.args line only sets -ImagePath and lets the TUI handle the rest,
+# so anything below is silently ignored by the deploy script at boot. The
+# UnattendFile case is worst: it still gets STAGED to configs\ on the ISO
+# (a few lines down), which looks like it worked, but the deploy script
+# never picks it up without an -UnattendFile flag in deploy.args — first
+# boot lands on manual OOBE. Warn loudly so the operator doesn't discover
+# the drop only after wiping a machine.
+if ($Interactive) {
+    $ignored = @()
+    if ($PSBoundParameters.ContainsKey('UnattendFile'))   { $ignored += '-UnattendFile' }
+    if ($PSBoundParameters.ContainsKey('TargetDisk'))     { $ignored += '-TargetDisk' }
+    if ($PSBoundParameters.ContainsKey('DataDiskNumber')) { $ignored += '-DataDiskNumber' }
+    if ($PSBoundParameters.ContainsKey('WipeDisks'))      { $ignored += '-WipeDisks' }
+    if ($PSBoundParameters.ContainsKey('BitLockerPin'))   { $ignored += '-BitLockerPin' }
+    if ($ignored.Count -gt 0) {
+        Write-Warn "-Interactive is set - these parameters are dropped from the generated deploy.args and will NOT apply at deploy time:"
+        foreach ($p in $ignored) { Write-Warn "    $p" }
+        Write-Warn "  Interactive mode only pre-sets -ImagePath so the TUI handles edition/disk/confirmations."
+        Write-Warn "  Drop -Interactive (with -ConfirmSilentDestructiveIso) to make these effective, or remove them."
     }
 }
 
