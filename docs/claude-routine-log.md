@@ -5,6 +5,68 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-19 — backlog-triage pass (no code change)
+
+**Investigated:** open PR queue against `main` (~180 open PRs, #54 →
+#232), the routine-log backlog, and a sampled read of every doc + doc
+area that hadn't been touched by an open PR in the last window
+(`docs/RELEASE_VALIDATION.md`, `docs/TROUBLESHOOTING.md`,
+`docs/END_USER_DEPLOY.md`, `docs/SIGNING.md`, `docs/CCTK.md`,
+`.claude/MASTERIZE.md`, `.claude/masterize-log.md`, and the top of
+`README.md` / `CHANGELOG.md`). Cross-checked candidate improvements
+against the open queue by grouping the 106+ Claude PRs by `(prefix,
+target file)`.
+
+**Found:** every plausible drift or small-fix candidate I could name is
+already covered by an open PR. Concrete spot-checks:
+
+- `README.md` `-BitLockerPin` row line 359 says "Placeholder PINs are
+  rejected at runtime" — stale, but PR #97 (`docs(readme): drop stale
+  "placeholder PIN" claim from -BitLockerPin row`) covers it.
+- `CHANGELOG.md` `## Unreleased` self-contradicts (the `### Removed`
+  block strips the forbidden-PIN policy but a `### Changed (security /
+  safety)` bullet still claims placeholder PINs are rejected) — PR #220
+  (`docs(changelog): drop stale "placeholder PIN rejected" bullet from
+  Unreleased`) covers it.
+- `docs/CCTK.md` line 115 has a `--valsetuppwd` typo where a
+  `--valsyspwd` should appear (password-change example authenticates the
+  old *setup* password twice instead of also authenticating the old
+  *system* password) — PR #103 (`docs(cctk): fix duplicate --valsetuppwd
+  typo in password-change example`) covers it.
+- `.claude/masterize-log.md` still references the historical
+  `docs/MASTERIZE.md` path (the playbook was moved to
+  `.claude/MASTERIZE.md`, per CHANGELOG.md) — intentionally
+  frozen historical log entries, not a live drift.
+
+The four immediately-prior routine passes (#207, #216, #222, #230) all
+concluded the same way and shipped as log-only PRs. This is a fifth
+consecutive log-only pass under the same conditions.
+
+**Changed:** this log entry only.
+
+**Verification:** none required — no production code, no test, no CI
+config, no doc user-visible content touched. Diff is one heading + one
+prose block in `docs/claude-routine-log.md`.
+
+**Risks / follow-ups:**
+
+- The routine agent is now consistently unable to find a fresh
+  improvement because the maintainer's open PR queue exceeds what the
+  routine agent's incremental-improvement surface can generate. The
+  useful lever here is on the merge side, not the finder side: merging
+  even 10-20 of the queued PRs (especially the `docs(*)` and `safety(*)`
+  clusters, which are the smallest / lowest-risk) would restore signal
+  for the next routine pass.
+- No new backlog items to add; prior backlog notes (`Show-ImageList` /
+  `Show-ImageSelection` refactor → PR #227 + #56; `Get-SystemDisks`
+  fixture → merged as PR #50 + still-open #83; CCTK exit-code table →
+  PR #232) are all already represented in the open queue.
+
+**Next recommended improvement:** none from this pass; see the merge-side
+lever above.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
