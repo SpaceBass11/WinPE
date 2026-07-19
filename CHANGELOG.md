@@ -9,6 +9,20 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **CCTK exit-code guidance is now per-code.** `Invoke-CctkConfig` used
+  to print the same three "common causes" lines for every non-zero
+  `cctk.exe` exit. It now runs a `switch` on the exit code with
+  bespoke guidance for 116 (BIOS communication error — verify DCC 4.0+
+  and the DCH API DLLs), 149 (setup/system password mismatch — add
+  `--valsetuppwd=<current>`), and 197 (setting not supported on this
+  model — cross-check against `cctk --help`). The three-cause block
+  survives as the `default` arm plus a pointer to the
+  `docs/TROUBLESHOOTING.md` exit-code table. Mirrors the DISM
+  apply-image exit-code switch added to `Apply-WindowsImage` earlier
+  in this release so operators get the same depth of guidance from
+  either failure path. No behavior change on the success path or on
+  the pre-CCTK gate (config selection, DEPLOY_IMAGE_DRIVE check,
+  `cctk.exe` invocation) — only the error-branch log lines expand.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

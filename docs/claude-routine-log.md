@@ -5,6 +5,79 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-19 — CCTK exit-code recovery guidance
+
+**Investigated:** open PRs #222-#231 (all 10 open, dated 2026-07-12
+through 2026-07-18) to avoid duplicating in-flight work. Log-only
+"backlog triage" passes (#222, #230) note the queue is ~173 PRs deep
+and mostly saturated on incremental improvements. Walked the deploy
+script looking for a bespoke-recovery-guidance gap that no open PR
+touches. Found it in `Invoke-CctkConfig` (~line 1362 pre-edit): the
+non-zero-exit branch printed the same three `Common causes` lines for
+every value of `$cctkExit`, while `docs/TROUBLESHOOTING.md`'s CCTK
+table (rows 116 / 149 / 197) and `docs/CCTK.md` already document
+per-exit-code meanings. `Apply-WindowsImage`'s DISM exit-code `switch`
+(added in the v4.7.0 line, ~line 1149) is the same shape and set the
+precedent this run copies.
+
+**Found:** operator-facing gap only — the deploy still aborts and the
+docs table is authoritative — but the operator has to leave the
+console to look up their code. On a Dell fleet where CCTK is a
+common early-failure path (RAID-to-AHCI, TPM enable, boot mode),
+folding the docs lookup into the console output saves a doc trip.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — replaced the three-line "common causes"
+  block in `Invoke-CctkConfig` with a `switch ($cctkExit) { ... }` on
+  exit codes 116 (BIOS communication error — verify DCC 4.0+, DCH API
+  DLLs), 149 (setup/system password mismatch — add
+  `--valsetuppwd=<current>`), and 197 (setting not supported on this
+  model — cross-check against `cctk --help`). The prior three causes
+  survive verbatim as the `default` arm plus a pointer to
+  `docs/TROUBLESHOOTING.md`. Structurally mirrors the DISM exit-code
+  switch in `Apply-WindowsImage`.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the switch conversion, calling out the parity with the DISM block.
+
+**Verification:**
+- Brace balance: 402 open / 402 close (was 397 / 397 pre-edit; +5 / +5
+  from the four `switch` arms, matches expectation).
+- Region balance: 10 `#region` / 10 `#endregion` (unchanged).
+- Masterize CI check #13 constraint holds — `Invoke-CctkConfig` call
+  at line 1809 stays above `Select-TargetDisk -Disks` at line 1813.
+- Masterize CI checks 8-19 grep for specific safety strings and
+  destructive-code invariants; none of them scan CCTK error-message
+  text, so this change cannot regress them.
+- `$Script:Config.ScriptVersion` untouched at `'4.7.1'` (test-adjacent
+  operator-facing logging change, not a functional bump).
+- `pwsh` is not installed in this Linux session and the network
+  policy blocks the PowerShell/Releases tarball (403 from the agent
+  proxy — repo-scoped), so `tests/test_parse.ps1` cannot run locally.
+  Same constraint documented across the last ~30 log entries and
+  in `.claude/reviews/2026-05-11-deep-review.md`. CI's `syntax` job
+  on `windows-latest` runs the real `PSParser::Tokenize` on push.
+
+**Risks / follow-ups:**
+- Minimal. Function-level change is pure additive operator-facing
+  logging inside an existing error branch; the success path (`return
+  $true` at line 1397), the pre-CCTK gates (embedding check,
+  `DEPLOY_IMAGE_DRIVE`, config selection precedence), and the
+  cctk.exe invocation itself are all unchanged.
+- The `switch` matches on `$cctkExit`, which was assigned from
+  `$LASTEXITCODE` (an `int`); the case labels are integer literals.
+  No type-coercion edge case.
+- Open PRs #222-#231 don't touch `Invoke-CctkConfig`; the merge order
+  will surface no textual conflict against any of them.
+- Outstanding backlog carried from prior entries: none of the
+  "next recommended improvement" items are still open — the classic
+  candidates (`Show-ImageList`/`Show-ImageSelection` refactor,
+  `Get-SystemDisks` fixture test) landed as PRs #227 and #50
+  respectively. Future passes may want to look at the `Set-BootConfiguration`
+  exit-code path, which currently only prints its diagnostics block
+  without an equivalent per-exit-code switch.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

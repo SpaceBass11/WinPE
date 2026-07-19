@@ -1361,10 +1361,35 @@ function Invoke-CctkConfig {
 
     if ($cctkExit -ne 0) {
         Write-Log "CCTK returned exit code $cctkExit - aborting deploy" -Level Error
-        Write-Log "  Common causes:" -Level Info
-        Write-Log "    - Invalid setting name in $configPath" -Level Info
-        Write-Log "    - Setup/system password mismatch (add --valsetuppwd=<current> to the config)" -Level Info
-        Write-Log "    - DCC binary or DCH API DLLs missing from boot.wim (rebuild with -CctkSource pointing at the full DCC X86_64 directory)" -Level Info
+
+        # Operator-facing recovery guidance for known CCTK exit codes.
+        # Full table lives in docs/TROUBLESHOOTING.md ('CCTK: CCTK returned
+        # exit code N') and docs/CCTK.md. This mirrors the DISM apply-image
+        # exit-code switch in Apply-WindowsImage so operators get the same
+        # depth of guidance whether the failure is CCTK or DISM.
+        switch ($cctkExit) {
+            116 {
+                Write-Log "Exit code 116 ('BIOS communication error') usually means the DCH API layer could not talk to the firmware." -Level Warning
+                Write-Log "  1. Verify Dell Command | Configure is version 4.0 or later (pre-4.0 HAPI-based DCC is not supported)." -Level Info
+                Write-Log "  2. Verify -CctkSource pointed at the full DCC X86_64 directory (must include dchapi64.dll, dchbas64.dll, BIOSIntf.dll)." -Level Info
+                Write-Log "  3. If CCTK still fails on a newer boot.wim, the firmware may not support DCC 4.0+ on this model." -Level Info
+            }
+            149 {
+                Write-Log "Exit code 149 ('Password mismatch') means CCTK could not authenticate against the existing BIOS setup/system password." -Level Warning
+                Write-Log "  Add --valsetuppwd=<current> (and --valsyspwd=<current> if the system password is also set) to $configPath so CCTK can authenticate before changing anything." -Level Info
+            }
+            197 {
+                Write-Log "Exit code 197 ('Setting not supported on this model') means one of the options in $configPath does not apply to this hardware." -Level Warning
+                Write-Log "  Cross-check the settings in $configPath against 'cctk --help' on a reference machine of this model, and consider a per-MODEL.ini override." -Level Info
+            }
+            default {
+                Write-Log "  Common causes:" -Level Info
+                Write-Log "    - Invalid setting name in $configPath" -Level Info
+                Write-Log "    - Setup/system password mismatch (add --valsetuppwd=<current> to the config)" -Level Info
+                Write-Log "    - DCC binary or DCH API DLLs missing from boot.wim (rebuild with -CctkSource pointing at the full DCC X86_64 directory)" -Level Info
+                Write-Log "See docs/TROUBLESHOOTING.md ('CCTK: CCTK returned exit code N') for the full exit-code table." -Level Info
+            }
+        }
         return $false
     }
 
