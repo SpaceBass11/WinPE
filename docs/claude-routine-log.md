@@ -5,6 +5,59 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-19 — Backlog-triage pass, no code change
+
+**Investigated:** open PR queue against `main` and this run's
+candidate-improvement surface.
+
+- Full open-PR enumeration (two pages, 100 PRs total: #54 → #236).
+- The two long-standing "next recommended improvement" candidates
+  from prior log entries: `Get-SystemDisks` fixture test (already
+  merged in PR #50 / commit 65d71e8) and `Show-ImageList` /
+  `Show-ImageSelection` render factoring (covered by open PRs #56
+  and #227).
+- Spot checks against files not visibly touched by open PRs:
+  `.lychee.toml`, `PSScriptAnalyzerSettings.psd1`, `AGENTS.md`,
+  `docs/USB_SETUP.md`, `configs/deploy.args.example`,
+  `docs/RELEASE_VALIDATION.md`, `scripts/first-login.ps1`,
+  `scripts/build_iso.ps1`, `.github/workflows/ci.yml`.
+
+**Found:** every concrete drift or improvement I could name is
+already carried by at least one open PR:
+
+- `build_iso.ps1` echoes the BitLocker PIN on line 306 →
+  PRs #66 / #131 / #213 / #236 (four duplicates).
+- `configs/deploy.args.example` has three uncommented DEPLOYARGS
+  lines but `set /p` reads only the first → PRs #54 / #109 /
+  #157 / #189.
+- `docs/USB_SETUP.md` manual startnet.cmd template omits the
+  deploy.args lookup added in v4.7.0 → PR #86.
+- `test_disk_enumeration.ps1` not listed in AGENTS.md /
+  CLAUDE.md local-test sections → PRs #57 / #112 / #138 / #193.
+- CI check #21 gap (numbering jumps 20 → 22) is intentional —
+  `CHANGELOG.md` ## Unreleased / ### Removed calls it out as the
+  slot the deleted PIN-content-policy check occupied.
+
+Adding another PR against any of these would just duplicate an
+existing one. This matches the saturation pattern documented by
+prior log-only entries #207 (2026-07-05), #216 (2026-07-11),
+#222 (2026-07-12), #230 (2026-07-18), #233 (2026-07-19).
+
+**Changed:** `docs/claude-routine-log.md` only — one dated
+heading + this prose. No production code, tests, CI, or
+user-facing docs touched.
+
+**Verification:** N/A — log entry only. No behavior change,
+no code path exercised. `pwsh` not installed this pass because
+there was no code target.
+
+**Next recommended improvement:** the useful lever is human PR
+triage on the merge side, not more automated additions. When the
+open-PR count drops below ~50 the finder surface should reopen;
+until then, log-only passes are the honest routine output.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
