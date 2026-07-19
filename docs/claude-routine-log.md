@@ -5,6 +5,110 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-19 — `build_iso.ps1` PIN leak in console echo
+
+**Investigated:** the 20 open Claude routine PRs (#216–#235, none of
+them touching this line), the two recent security-related fixes on
+PIN handling (PR #42 startnet.cmd redaction, PR #48 TUI PIN prompt,
+PR #49 removed PIN content policy), and the `deploy.args` generation
+flow in `scripts/build_iso.ps1`.
+
+**Found:** `scripts/build_iso.ps1` line 306, unchanged since PR #35
+introduced the single-ISO workflow, unconditionally echoed the
+generated `deploy.args` line to the build console in DarkGray:
+
+```powershell
+Write-Host "  $argsLine" -ForegroundColor DarkGray
+```
+
+When the operator passes `-BitLockerPin`, `$argsLine` contains
+`-EnableBitLocker -BitLockerPin "<real PIN>"` verbatim (built at
+line 298), so the PIN prints in plaintext on the build console.
+That is the exact leak PR #42 closed on the WinPE side of the
+pipeline: `startnet.cmd` was updated to print only
+"Parameters loaded. Secrets, if present, are not displayed." The
+build side of the same file never got the equivalent redaction, so
+a captured build log, CI transcript, screen-share, or terminal
+scrollback still exposes the PIN. `docs/DEPLOY_ARGS.md`'s Security
+caveat calls out USB-as-boundary but is silent on the build host,
+because until now the assumption was that the PIN never rendered
+there in the first place.
+
+The runtime summary at line 350 already redacts correctly
+("BitLocker: enabled (PIN embedded in deploy.args on ISO)"). Only
+the args-echo line was the leak.
+
+**Changed:**
+
+- `scripts/build_iso.ps1` — replace the direct `Write-Host $argsLine`
+  with a redacted `$displayLine` when `$BitLockerPin` is set. Uses
+  `String.Replace()` (case-sensitive literal, no regex meta-char
+  concerns) to swap the exact `-BitLockerPin "<PIN>"` construct
+  that line 298 emitted for `-BitLockerPin "***"`. The file on
+  disk (`Set-Content` at line 304) is unchanged — it still contains
+  the real value, because that's what boots into WinPE and the USB
+  trust boundary already covers it.
+- `CHANGELOG.md` — new `## Unreleased / ### Changed` bullet at the
+  top explaining the redaction and the parallel with PR #42.
+
+**Verification:**
+
+- `pwsh` cannot be installed in this session — the agent proxy
+  scopes GitHub HTTPS to `spacebass11/winpe` and refuses the
+  PowerShell/Releases tarball, so `tests/test_parse.ps1` cannot
+  run locally. Same constraint documented across every prior
+  routine entry (2026-05-16 through 2026-05-24). CI's `syntax` job
+  on `windows-latest` will run the real `PSParser::Tokenize` on
+  push.
+- Structural check: braces 10/10, parens 20/20, brackets 1/1 on
+  `scripts/build_iso.ps1` after edit (Python-based literal-strip
+  balance count).
+- Visual inspection of lines 296–315: the `if ($BitLockerPin) {
+  $argsLine.Replace(…) } else { $argsLine }` block is a
+  well-formed PowerShell expression, `$displayLine` receives its
+  value, and the following `Write-Host "  $displayLine"` is the
+  original shape minus the leak.
+- The redaction string literal (`"-BitLockerPin `"$BitLockerPin`""`)
+  matches line 298's build shape exactly, so `.Replace()` hits
+  verbatim; if a future change to line 298 alters the construct,
+  the replace becomes a no-op (echo still runs) rather than a
+  false positive.
+
+**Risks / follow-ups:**
+
+- Minimal. Build-side additive redaction. No destructive code path
+  touched (no diskpart, no DISM, no BCDBoot). No change to the
+  deploy runtime, to `boot.wim`, to `startnet.cmd`, or to the
+  generated `deploy.args` file itself.
+- Edge case: an operator supplying `-BitLockerPin ''` (empty
+  string) skips the redaction (empty-string falsy), but the empty
+  PIN also never gets appended to `$argsLine` at line 297, so
+  there's nothing to leak in that case either.
+- Outstanding backlog items I did not take this pass, still worth
+  considering:
+  - PR #227 (image-menu render factor) is the only cleanup PR
+    still open; if it merges, `Show-ImageList` / `Show-ImageSelection`
+    can be closed off the backlog.
+  - No fixture test exists for `build_iso.ps1`'s parameter-set
+    validation (silent-vs-interactive branch, unattend staging,
+    `-WipeDisks` format check).
+
+**Next recommended improvement:**
+
+- Consider whether `scripts/build_boot_wim.ps1` has an analogous
+  build-time echo that could leak configured secrets — a quick
+  grep of that file for `Write-Host.*Pin\|Write-Host.*args\|
+  Write-Host.*Secret` should confirm.
+- The routine log has drifted six weeks behind the open-PR stream
+  (the last entry before this one is 2026-05-24, but PRs #46–#235
+  landed since). A single "backlog-triage" pass that consolidates
+  the recurring "next recommended" entries from PRs #216, #220,
+  #222, #230, #233 into a single log update — and prunes items
+  that have since been addressed — would restore the log's
+  "avoid re-investigating the same area" value.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` no longer echoes the BitLocker PIN.**
+  The line that summarised the generated `deploy.args` printed the
+  raw args to the console, including `-BitLockerPin "…"` when set.
+  Now the PIN is displayed as `-BitLockerPin "***"` in the echo;
+  the file on disk still contains the real value. Aligns with
+  `startnet.cmd`'s "Secrets, if present, are not displayed." policy
+  (PR #42) and closes the same leak on the build side (captured
+  build logs, over-the-shoulder view, CI transcripts).
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

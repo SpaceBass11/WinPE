@@ -303,7 +303,16 @@ if ($Interactive) {
 
 Set-Content -Path $deployArgsPath -Value $argsLine -Encoding ASCII -Force
 Write-Ok "deploy.args written"
-Write-Host "  $argsLine" -ForegroundColor DarkGray
+# Redact the PIN in the console echo (the on-disk file above still has
+# the real value). Mirrors startnet.cmd's "Secrets, if present, are not
+# displayed." policy so an over-the-shoulder view or a captured build
+# log doesn't leak the PIN. See docs/DEPLOY_ARGS.md security caveat.
+$displayLine = if ($BitLockerPin) {
+    $argsLine.Replace("-BitLockerPin `"$BitLockerPin`"", '-BitLockerPin "***"')
+} else {
+    $argsLine
+}
+Write-Host "  $displayLine" -ForegroundColor DarkGray
 
 # --- Run oscdimg ---
 
