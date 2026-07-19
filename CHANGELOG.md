@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Test-FinalWipeConfirmation` now has behavioral test coverage.**
+  New Pester `Describe` block in
+  `tests/validation-gates.Tests.ps1` exercises the shared typed-
+  confirmation parser used by both disk-selection paths in
+  `Select-TargetDisk`. Covers positive cases (`ERASE`,
+  `DELETE ALL DATA`, case-insensitive, whitespace-padded), rejection
+  cases (empty, whitespace, `$null`, partial `DELETE`, extended
+  `ERASE ME`), and — critically — cross-accept rejection for the
+  three adjacent confirmation strings (`DESTROY SYSTEM`, `WIPE ALL`,
+  `WIPE DATA`) so a regression that widened the accepted set would
+  fail loudly rather than silently skip the last-mile confirmation.
+  No production code changed.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-19 — `Test-FinalWipeConfirmation` behavioral test coverage
+
+**Investigated:** the 30 currently-open Claude routine PRs (#205-#234)
+and the routine-log backlog to find a small, safe, high-value
+improvement that isn't already in flight. All the recurring backlog
+candidates from prior entries are now either merged (Get-SystemDisks
+fixture test → PR #50 merged; WIM parser → done; Show-ImageList
+refactor → PR #227 open; reg.exe stderr surfacing → PRs #205/#206/#215
+open; every other in-flight small doc/warn/safety improvement) or
+already have a PR open. The one gap I found: `Test-FinalWipeConfirmation`
+(unified_winpe_deploy.ps1:712) is on the required-functions check in
+`tests/test_parse.ps1` but has no *behavioral* test — it's a pure
+function that decides whether an operator's typed input at the last-
+mile ERASE prompt qualifies as a valid confirmation, and its accepted
+set (`ERASE` and `DELETE ALL DATA`, case- and whitespace-insensitive)
+is not tested against near-miss inputs or against the three adjacent
+typed-confirmation strings (`DESTROY SYSTEM`, `WIPE ALL`, `WIPE DATA`)
+that each satisfy a *different* prompt in the same flow.
+
+**Found:** A regression that widened the accepted set (e.g. adding
+`WIPE ALL` to the array on line 716 by copy-paste from
+Select-AdditionalWipeDisks) would silently skip the last-mile
+confirmation for a whole class of typo. Nothing currently detects that.
+This is the same "adjacent-prompt cross-accept" risk the masterize
+check #19 guards against at the *string-presence* level, but not at
+the *parser-behavior* level.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — new `Describe` block
+  ("Test-FinalWipeConfirmation typed-confirmation parser") with 13
+  `It` cases: 5 positive (exact `ERASE`, exact `DELETE ALL DATA`,
+  lowercase, mixed-case, whitespace-padded), 5 rejection (empty,
+  whitespace-only, `$null`, partial `DELETE`, extended `ERASE ME`),
+  and 3 adjacent-confirmation cross-accept guards (`DESTROY SYSTEM`,
+  `WIPE ALL`, `WIPE DATA` — each documented with the line number of
+  the prompt it satisfies elsewhere).
+- `CHANGELOG.md` — Unreleased/Changed bullet describing the coverage
+  addition. Kept short; no `$Script:Config.ScriptVersion` bump
+  (test-only change).
+
+**Verification:**
+- `pwsh` is not present in this Linux session and the network policy
+  blocks the GitHub-Releases tarball download (403 from proxy), so
+  neither Pester nor the parse-tokenization smoke test can run
+  locally — same constraint documented in prior routine entries and
+  in CLAUDE.md's Pester note ("runs in CI only").
+- Brace balance on the test file: 130 `{` / 130 `}` (was 117 / 117
+  pre-edit; +13 / +13 balanced, one per `It` block).
+- The new `Describe` block sits between the existing
+  "v4.7.0 default configuration" (first Describe) and
+  "Resolve-BitLockerKeyPath escrow precedence" (was second, now
+  third) Describes, both of which use the same
+  `& $script:DeployModule { ... }` invocation pattern against the
+  module loaded in `BeforeAll`. `Test-FinalWipeConfirmation` is
+  defined at line 712 of the deploy script and is inside the seam
+  (before the `# Execute main process` marker at line 1973), so
+  it's exported by `New-Module` alongside the other functions the
+  suite already exercises.
+- Structurally reviewed the deploy script's parser (line 712-717)
+  and the two callers (line 762 and 808) — the accepted set is
+  `@('ERASE', 'DELETE ALL DATA')`, matching every positive-case
+  string in the new test.
+
+**Risks / follow-ups:**
+- Test-only addition. No production code touched. No new mocks
+  (uses only the module load already in BeforeAll — no
+  BeforeEach setup needed for this Describe). No destructive
+  code paths, no diskpart/DISM/BCDBoot touches.
+- CI risk: if `Test-FinalWipeConfirmation` were ever moved out of
+  the seam (below the `# Execute main process` marker), the new
+  tests would fail with "function not recognized" on the first
+  CI run — but so would every other test in this file, which is
+  why the seam is well-established.
+- Outstanding backlog after this pass (unchanged from PR #234's
+  triage note): no low-hanging fruit remains that isn't already
+  represented in an open PR (#205-#234).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
