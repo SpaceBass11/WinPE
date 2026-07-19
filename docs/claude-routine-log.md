@@ -5,6 +5,82 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-19 — CLAUDE.md version-fence count off-by-one
+
+**Investigated:** open PR backlog (~87 PRs, #54–#233) and the five
+consecutive log-only routine passes preceding this one (#233 was
+published earlier today, concluding the finder surface is saturated
+by the merge-side backlog). Rather than a sixth log-only pass, spot-
+checked internal maintainer docs that no open PR touches: `AGENTS.md`,
+the version-bump fence in `CLAUDE.md`, and the CI's masterize check #1
+implementation (`.github/workflows/ci.yml` lines 140–146).
+
+**Found:** `CLAUDE.md` line 168 asserts "Version field lives in
+**four** places" but the bullet list immediately below enumerates
+**five** distinct places (the two-in-`unified_winpe_deploy.ps1`
+locations — `$Script:Config.ScriptVersion` and the `.VERSION` header
+block — are called out as separate bullets). Line 175's "touching all
+of these in the same commit" refers to the 5 bullets, so a maintainer
+following the bullet list will touch 5 places while the summary line
+above them claims 4. Small drift, but this is the exact fence CI check
+#1 exists to enforce, and reading maintainers off-by-one is precisely
+the kind of docs-vs-source mismatch this repo tries to avoid.
+
+Also confirmed CI check #1 only enforces four of the five bullets
+(the source of truth is `$Script:Config.ScriptVersion`; it checks
+CHANGELOG/CLAUDE/README contain that literal, but never validates the
+`.VERSION` block matches). Open PRs #96 and #122 already propose
+adding the `.VERSION` check to CI, so the direction of travel is
+five-enforced, but the doc claim of "CI enforces this" is currently
+overstated for the `.VERSION` bullet.
+
+Cross-checked page 1 + page 2 of the open PR queue for any body/title
+containing "four places", "five places", "four files", "five files",
+or "version-bump fence" — the one hit (#82) uses "four files" in a
+`.gitignore` context unrelated to this fence.
+
+**Changed:**
+- `CLAUDE.md` — line 168 "four" → "five", with a parenthetical noting
+  the `.VERSION` block is convention-only until CI enforcement lands.
+  Bullet list unchanged.
+
+Deliberately left alone:
+- `AGENTS.md` line 82 says "four files must move together" — that's
+  accurate at the file-cardinality level (two of the five bullets live
+  in the same `unified_winpe_deploy.ps1` file) so no drift there.
+- CI check #1 itself — expanding it to enforce the `.VERSION` block is
+  already covered by open PRs #96 / #122.
+- `CHANGELOG.md` — this is developer-internal maintainer guidance,
+  not a user-visible change. Matches the CHANGELOG convention of
+  omitting purely internal doc typos (recent routine PRs like #82
+  bulleted CHANGELOG changes, but those altered `.gitignore` /
+  `docs/CCTK.md` — user-observable surface).
+
+**Verification:**
+- Diff: exactly one line changed in `CLAUDE.md` (line 168), plus this
+  log entry. `git diff --stat` on `main`: `CLAUDE.md | 2 +-`,
+  `docs/claude-routine-log.md | +N`.
+- Bullet count under the changed sentence: 5 (unchanged).
+- No script, test, CI, or user-facing doc touched — nothing to
+  execute. Masterize check #1's own logic is unchanged.
+
+**Risks:** Zero. Docs-only, internal maintainer guidance, wording-only.
+No version literal moved (still `4.7.1` everywhere), so CI check #1
+stays green.
+
+**Next recommended improvement:** the backlog observation from #230,
+#233 still holds — the finder surface for high-confidence
+incremental improvements is saturated by ~87 open PRs. If future
+passes want something concrete before more of the queue merges:
+- Once PRs #96 or #122 merge, revisit the parenthetical added here
+  (the `.VERSION` bullet will then be CI-enforced too, and the
+  qualifier can be dropped).
+- `docs/RELEASE_VALIDATION.md` was flagged in #233 as unreached by
+  open PRs and worth a fresh read for drift against the current
+  v4.7.1 surface. Deferred here to keep the diff minimal.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

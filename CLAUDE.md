@@ -165,7 +165,7 @@ handling, and deploy.args parsing — none of which CI exercises.
 2. **Never let -Force bypass system disk protection** - DESTROY SYSTEM must always be typed
 3. **Test syntax after every edit** - run `pwsh -c "[System.Management.Automation.PSParser]::Tokenize((Get-Content unified_winpe_deploy.ps1 -Raw), [ref]$null)"`
 4. **Keep WinPE compatibility** - no modules that aren't available in WinPE (no Az, no ImportExcel, etc.)
-5. **Version field** lives in **four** places that must all match — masterize CI check #1 enforces this:
+5. **Version field** lives in **five** places that must all match — masterize CI check #1 enforces the four file-level ones (the `.VERSION` block is currently a convention, not CI-enforced):
    - `$Script:Config.ScriptVersion` in `unified_winpe_deploy.ps1` (~line 39)
    - The `.VERSION` block in the script's header comment
    - CLAUDE.md line 5 (`(v4.X.Y)` in the Project Overview paragraph)
