@@ -5,6 +5,65 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-25 — Backlog-triage pass (log-only, no code change)
+
+**Investigated:** open PR queue against `main` and the routine log
+history since the last merged entry (2026-05-24, PR #46). The queue
+now holds 181 open PRs (#54 → #237). Six of the most recent
+routine-log entries (#207 2026-07-05, #216 2026-07-11, #222
+2026-07-12, #230 2026-07-18, #233 2026-07-19, #237 2026-07-19) are
+themselves log-only passes recording the same saturation from
+successive routine runs. None of the six has merged, so the log file
+on `main` still shows 2026-05-24 as its head entry while six agents
+have independently observed and recorded the same state on side
+branches that never landed.
+
+**Duplicate density spot-checks against the current open queue:**
+
+- `Test-FinalWipeConfirmation` behavioral coverage: 6 open PRs
+  (#75 / #102 / #142 / #174 / #202 / #235).
+- `configs/deploy.args.example` line-1-is-a-comment fix: 4 open PRs
+  (#54 / #109 / #157 / #189).
+- `build_iso.ps1` BitLocker PIN redaction from build-console echo:
+  4 open PRs (#66 / #131 / #213 / #236).
+- `test_disk_enumeration.ps1` missing from AGENTS.md / CLAUDE.md
+  local-test sections: 4 open PRs (#57 / #112 / #138 / #193).
+- `-BitLockerKeyPath` warned when `-EnableBitLocker` is not set:
+  3 open PRs (#88 / #153 / #219).
+- `refresh_usb.ps1 -CctkSource` warned when `-RebuildBootWim No`:
+  2 open PRs (#161 / #228).
+
+**Changed:** this log entry only. No production code, tests, CI, or
+user-facing docs touched.
+
+**Verification performed:** none required — log entry only. `pwsh` was
+not installed for this pass because there was no code target to
+validate.
+
+**Risks / follow-ups:** zero risk. The one non-routine observation
+that goes beyond the prior six log-only entries: the six unmerged
+log-only PRs (#207 / #216 / #222 / #230 / #233 / #237) share a body
+shape and would all merge cleanly against the log file on `main` if
+sequenced in date order — but each duplicates the one before it and
+adds no new information. Closing five of the six and merging just
+the most recent (#237) would be reviewer-cheapest; alternatively,
+closing all six and merging just this entry consolidates the whole
+2026-07 log-only sequence into one line on `main`.
+
+The higher-order observation from six months of routine runs: the
+finder surface is genuinely saturated. Every incremental concrete
+improvement the routine agent generates is now either already in an
+open PR or too small to justify a seventh log-only pass. The lever
+worth pulling is on the merge side (draining the queue), not on
+producing more automated additions.
+
+**Next recommended improvement:** none from this routine pass. The
+maintainer's triage of the 181-PR backlog is the right-scoped work.
+When the queue drops below ~50, the routine agent's finder surface
+should un-saturate.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
