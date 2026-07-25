@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Find-ImageFiles` now rejects a file path for `-ImagePath`.** A file
+  path here is a parameter mix-up (should have been `-WimFile`) that
+  previously slipped through `Test-Path` and then either matched only
+  the file itself (if the extension happened to fit) or came back with
+  zero results — both surface as a confusing "no images found" chase.
+  The new check emits a clear `-ImagePath must be a directory` error
+  and points the operator at `-WimFile` before any scanning happens.
+  Behavior for a valid directory path or a nonexistent path is
+  unchanged. Flagged as a follow-up on PR #82.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

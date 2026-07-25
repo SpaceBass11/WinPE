@@ -5,6 +5,72 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-25 — `Find-ImageFiles`: reject a file path for `-ImagePath`
+
+**Investigated:** open PRs (~180 open, #54 → #238) and the routine log's
+prior "next recommended improvement" backlog to find a small, verified
+improvement not already in flight. Cross-referenced titles carefully
+against the surface I was considering.
+
+**Found:** PR #82's Follow-ups block called out a live gap:
+
+> `Find-ImageFiles` `-ImagePath` accepts a file path silently (deploy
+> script ~line 332) — same `-PathType` gap PR #77 fixed in
+> `refresh_usb.ps1`, but inside the destructive deploy script and
+> wanting a Pester regression.
+
+Confirmed the gap in `unified_winpe_deploy.ps1` line 331-336: the guard
+was `if (Test-Path $ImagePath)` with no `-PathType`, so both files and
+directories pass. The subsequent `Search-DirectoryForImages` call runs
+`Get-ChildItem` against whatever it was handed. If an operator meant
+`-WimFile foo.wim` but typed `-ImagePath foo.wim`, `Get-ChildItem
+foo.wim -Filter *.wim -Recurse` matches only the file itself — a
+silent success that hides the parameter mix-up. A non-matching
+extension returns zero results, surfacing later as a confusing "no
+images found" head-scratch. No open PR (checked #54-#238 titles + full
+bodies for the near-neighbor PRs #77, #82, #100, #109, #124, #133,
+#229) touches this specific validation.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Find-ImageFiles`: split the single
+  `Test-Path` into a `not-found` branch (unchanged error text) and a
+  new `Test-Path -PathType Leaf` guard that logs
+  `-ImagePath must be a directory to scan (got a file: X). Use -WimFile
+  for a single image file.` and returns `@()`. Same fail-loud posture
+  the sibling scripts (`refresh_usb.ps1` per PR #77) adopted.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing the
+  fix and the reference to PR #82's follow-up.
+
+**Verification:** `pwsh` 7.4.6 installed per the CLAUDE.md recipe.
+
+| Suite | Before | After |
+|---|---|---|
+| `tests/test_parse.ps1` | 48 / 0 | 48 / 0 |
+| `tests/test_wim_parser.ps1` | 16 / 0 | 16 / 0 |
+| `tests/test_disk_enumeration.ps1` | 34 / 0 | 34 / 0 |
+
+Behavior spot-check: authored a small pwsh harness that reproduces the
+three cases (existing file, existing directory, nonexistent path) and
+runs the exact three-arm guard through `Test-Path` locally. Result:
+`File input -> is_file_should_error`, `Dir input -> is_dir_proceed`,
+`Nonexistent input -> not_found` — matches the intended branch matrix.
+
+**Risks / follow-ups:**
+- Minimal. Additive validation, executes only when `-ImagePath` is
+  bound. No change to destructive paths. Directories and nonexistent
+  paths behave exactly as before.
+- No new dependency, no version bump (bug-fix / validation-only).
+- Pester regression for this guard would be a natural next-pass
+  addition (mock `Test-Path -PathType Leaf`, drive
+  `Find-ImageFiles` with a file path, assert the returned `@()` and
+  log line). Skipped this pass to keep the change minimal and to
+  avoid stepping on the many open Pester PRs (#69, #98, #102, #107,
+  #108, #123, #125, #137). Same for `-Recurse:$false` behavior on
+  root-directory scans and the `Sort-Object Path -Unique` dedup
+  path — untouched here.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
