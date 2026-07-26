@@ -136,6 +136,14 @@ if ($UsbDrive) {
     if ($UsbDrive -notmatch '^[A-Za-z]:$') {
         throw "-UsbDrive must be a drive letter like 'P:' (got '$UsbDrive')"
     }
+    # Refuse the running system drive - xcopy would dump the WinPE media
+    # tree into %SystemDrive%\ root (boot\, sources\boot.wim, efi\, ...)
+    # and -ReleaseUsbLetter would attempt `mountvol %SystemDrive% /d`
+    # against the live OS. `-ieq` is case-insensitive so a lowercase 'c:'
+    # typo is caught as well.
+    if ($UsbDrive -ieq $env:SystemDrive) {
+        throw "-UsbDrive $UsbDrive is the current system drive ($env:SystemDrive) - refusing. Pick the FAT32 boot partition on the USB (typically P:), not the workstation's OS drive."
+    }
     if (-not (Test-Path "$UsbDrive\")) {
         throw "USB drive $UsbDrive is not accessible - partition and assign the letter per docs/USB_SETUP.md Step 4 first."
     }

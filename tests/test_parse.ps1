@@ -136,6 +136,13 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # -UsbDrive must refuse the running system drive. Without this guard, a
+    # typo like `-UsbDrive C:` (or omitting the intended letter) would xcopy
+    # the WinPE media tree into %SystemDrive%\ root and, with -ReleaseUsbLetter,
+    # attempt `mountvol %SystemDrive% /d` against the live OS.
+    Write-Result -Test 'Builder: rejects -UsbDrive equal to $env:SystemDrive' `
+        -Pass ($bc -match '\$UsbDrive\s+-ieq\s+\$env:SystemDrive')
 }
 
 # Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)

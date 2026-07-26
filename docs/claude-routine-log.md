@@ -5,6 +5,86 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-26 — `build_boot_wim.ps1` `-UsbDrive` system-drive guard
+
+**Investigated:** the 20 open Claude routine PRs (#220-#239) to avoid
+duplicate work, then swept the four scripts under `scripts/` for
+destructive-without-guard paths that no open PR touches. Focused on
+`build_boot_wim.ps1` because its late-stage `xcopy` + `mountvol` calls
+run against a user-supplied drive letter and it has no CI Pester
+coverage (only PSSA + parse invariants).
+
+**Found:** `-UsbDrive` was validated for pattern (`^[A-Za-z]:$`) and
+existence (`Test-Path "$UsbDrive\"`) but **not** against
+`$env:SystemDrive`. A typo like `-UsbDrive C:` (or a default from a
+wrapper that resolved to the workstation OS drive) would satisfy both
+checks, then:
+  1. `xcopy /s /e /y "$mediaDir\*.*" "C:\"` — dump the WinPE media
+     tree (`boot\`, `sources\boot.wim`, `efi\microsoft\boot\`,
+     `scripts\unified_winpe_deploy.ps1`, `Windows\System32\startnet.cmd`)
+     into the admin's own `C:\` root. `xcopy` /s /e recurses; `y`
+     silently overwrites — a `sources\` or `Windows\System32\startnet.cmd`
+     collision would clobber real files.
+  2. With `-ReleaseUsbLetter`: `mountvol.exe C: /d` against the live OS.
+     Windows refuses to unmount the system volume so this fails with
+     an exit code — but the file-dump in step 1 has already happened
+     and won't be undone.
+
+The related `scripts/refresh_usb.ps1` `-BootUsbDrive` (default `P:`)
+passes through to `build_boot_wim.ps1 -UsbDrive`, so the fix propagates
+automatically to the wrapper flow without a second edit.
+
+**Changed:**
+- `scripts/build_boot_wim.ps1` — after the existing pattern and
+  `Test-Path` checks, add a `-ieq $env:SystemDrive` guard that throws
+  with a message pointing at the intended target ("Pick the FAT32 boot
+  partition on the USB (typically P:), not the workstation's OS drive").
+  `-ieq` (not `-eq`) so a lowercase `c:` typo is caught the same way.
+- `tests/test_parse.ps1` — Builder invariants block (Test 9) grew one
+  more `Write-Result` that greps for `\$UsbDrive\s+-ieq\s+\$env:SystemDrive`.
+  Matches the existing "DCH DLL check" / "copy block uses `$cctkDir`"
+  pattern; runs anywhere `pwsh` is available and in CI's `syntax` job.
+- `CHANGELOG.md` — Unreleased / Changed entry describing the guard,
+  its two failure modes, and the wrapper-script pass-through.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note (PowerShell
+  Releases v7.4.6 tarball into `/opt/pwsh/`; the network policy allows
+  the GitHub-Releases download).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` runs cleanly and the
+  new Builder invariant passes (regex hits the added `-ieq
+  $env:SystemDrive` line in `scripts/build_boot_wim.ps1`).
+- Structural sanity on `scripts/build_boot_wim.ps1`: brace balance and
+  region count unchanged; the added guard is a peer of the existing
+  two `if` blocks inside `if ($UsbDrive) { ... }`, no new nesting.
+- No production behavior change on the happy path: `-UsbDrive P:`
+  where `P:` is a real partitioned USB boot partition still validates
+  and proceeds; `mountvol P: /d` runs at end when `-ReleaseUsbLetter`
+  is set. Only the pathological "same as the OS drive" case newly aborts.
+
+**Risks / follow-ups:**
+- Minimal. New guard is a fail-fast `throw` before any file copy or
+  mountvol call; it can't turn a working invocation into a failed one
+  because the pathological case was itself broken. `refresh_usb.ps1`'s
+  default `-BootUsbDrive P:` is unaffected — the check only fires when
+  the letter matches `$env:SystemDrive`.
+- Outstanding routine-backlog candidates I did not take this pass
+  (mostly deferred across many prior entries):
+  - **Fixture test for `Get-SystemDisks` WMI-failure catch branch**
+    (line 671). Currently returns `@()` silently on any `Get-WmiObject`
+    exception; a silent-mode caller sees "no disks found" with no
+    hint that WMI itself is the problem. Same shape as the
+    `Test-SystemMemory` silent-mode hard-fail work in PR #221.
+  - **`Show-ImageList` / `Show-ImageSelection` code sharing** —
+    covered by open PR #227; no need to duplicate.
+  - **BitLocker PIN length pre-validated at `build_iso.ps1` time**
+    so a bad PIN fails at ISO-build rather than after distribution.
+    Similar in surface to PR #224 (which rejects `!` in the PIN); a
+    length-window addition (6-20) would compose cleanly on top after
+    #224 lands.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

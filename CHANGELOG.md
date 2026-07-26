@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_boot_wim.ps1 -UsbDrive` now refuses the running
+  system drive.** A typo like `-UsbDrive C:` (or omitting the intended
+  letter with the wrong default) would previously xcopy the WinPE
+  media tree — `boot\`, `sources\boot.wim`, `efi\microsoft\boot\`,
+  `scripts\` — straight into the admin workstation's `%SystemDrive%\`
+  root, and with `-ReleaseUsbLetter` set, would then run `mountvol
+  %SystemDrive% /d` against the live OS. Both failure modes now abort
+  with a clear message before any file copy or mountvol call.
+  `refresh_usb.ps1 -BootUsbDrive` inherits the guard for free since
+  it delegates. `tests/test_parse.ps1` grew a matching invariant so
+  a refactor that drops the check trips CI locally as well as in
+  the masterize job. Test-only change to `test_parse.ps1`; no
+  behavior change on the happy path (`-UsbDrive P:` still works).
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
