@@ -1,7 +1,81 @@
 # Claude Routine Maintenance Log
 
-Lightweight, one-entry-per-run log so the autonomous maintenance agent
-doesn't keep re-investigating the same areas. Newest entries on top.
+Lightweight, one-entry-on-top-per-run log so the autonomous maintenance
+agent doesn't keep re-investigating the same areas. Newest entries on top.
+
+---
+
+## 2026-07-26 — backlog-triage pass, no code change (10th consecutive log-only)
+
+**Investigated:** repo state after PRs #46-#52 merged (last merge
+`ef8fc2b`), open-PR queue (~100 PRs, #54-#243), and the actual
+function inventory in `unified_winpe_deploy.ps1` vs the required-
+functions list in `tests/test_parse.ps1`. Walked the destructive
+paths (`Start-Deployment` validation gates 1685-1725, `New-DiskpartScript`
+911-1030, `Invoke-Diskpart` error branches, `Apply-WindowsImage`
+DISM exit-code switch 1150-1202, `Set-BootConfiguration` 1211-1265,
+`Invoke-CctkConfig` 1269-1373, `Resolve-BitLockerKeyPath`
+1471-1499, `Initialize-BitLockerSetup` 1501-1650) and the four
+non-runtime scripts (`build_iso.ps1`, `refresh_usb.ps1`,
+`first-login.ps1`, `build_boot_wim.ps1`). Cross-checked every
+concrete drift against the open-PR queue via
+`mcp__github__search_pull_requests`.
+
+**Found:** each candidate improvement maps to an existing open PR:
+
+- Extra-wipe list vs WIM source physical disk → **PR #171**
+  (`New-DiskpartScript` `-ProtectedSourceDrive` is per-letter, not
+  per-disk; PR resolves letter → disk via WMI and aborts on overlap).
+- CCTK per-exit-code guidance → PR #232.
+- Silent-mode `-DataDiskNumber` dead-check reorder → **PR #243**
+  (opened ~2h before this pass, picking up the "novel finding" from
+  #242 exactly as intended by the log-forward-seed pattern).
+- Test coverage for `Test-FinalWipeConfirmation` → PR #235.
+- `-BitLockerKeyPath` without `-EnableBitLocker` warning → PRs #88 /
+  #153 / #219.
+- `refresh_usb.ps1 -CctkSource` silently dropped when
+  `-RebuildBootWim No` → PRs #161 / #228.
+- `build_iso.ps1` PIN console redaction → PRs #66 / #131 / #213 / #236.
+- `build_iso.ps1 -BitLockerPin` length pre-validation at build time
+  → PR #173.
+- `configs/deploy.args.example` line-1-is-a-comment fix → PRs #54 /
+  #109 / #157 / #189.
+- `docs/USB_SETUP.md` manual startnet.cmd template omits deploy.args
+  → PR #86.
+- `Test-SystemMemory` silent-mode WMI hardening → PR #221.
+- `Get-WimImageInfo` DISM-output surfacing on failure → PR #204.
+- `first-login.ps1` / `prepare_wim.ps1` / `build_boot_wim.ps1` reg.exe
+  stderr on load/unload failure → PRs #162 / #205 / #206.
+- Log preservation, stack-trace, unattend copy failure → PRs #191 /
+  #199 / #148 / #110 / #192.
+
+**Changed:** nothing. Rule 19 / 27 apply: no concrete drift survives
+the search-vs-open-PR cross-check as a novel candidate. Per rule 21,
+this pass is recorded so the next agent has the mapping ready without
+re-walking the same functions.
+
+**Verification:** N/A (no code touched). `pwsh` was not installed
+this pass because there was no code target to validate. The mapping
+above was verified via `mcp__github__search_pull_requests` +
+`mcp__github__list_pull_requests` + spot-checks of each PR's body.
+
+**Next recommended improvement:** the two most impactful merge-side
+actions the maintainer could take to unblock the routine agent:
+
+1. **Merge PR #171** (extra-wipe vs WIM source physical-disk
+   protection). This is the only *open* safety gap left in the
+   destructive path that isn't already covered by a shipped guard.
+   Every future routine pass will keep re-finding it as the top
+   novel candidate until it merges.
+2. **Consolidate the 2026-07 log-only chain** (#237 / #238 / #241 /
+   #242 + this entry) into a single merged entry. All five sit on
+   the same `ef8fc2b` base and record the same "queue-saturated,
+   log-only" observation from successive vantages; merging one and
+   closing the others collapses the noise on `main` without losing
+   information.
+
+If both land, the next routine pass has room to surface genuinely
+new work again instead of enumerating the same open-PR map.
 
 ---
 
