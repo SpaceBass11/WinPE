@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` now pre-validates `-BitLockerPin` length.**
+  A PIN outside the Windows Enhanced-PIN 6-20 character window is now
+  rejected at build time (before ISO staging or `oscdimg` invocation).
+  Previously the check ran only inside `unified_winpe_deploy.ps1`
+  `Start-Deployment`, so a malformed PIN was baked into `deploy.args`
+  on a multi-GB ISO and only surfaced at WinPE pre-flight on the
+  target. The thrown message reports the length but not the PIN
+  content, matching PR #236's console-echo redaction. `tests/test_parse.ps1`
+  Test 12 grew a matching invariant that greps for the length guard.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

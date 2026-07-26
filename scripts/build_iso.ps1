@@ -203,6 +203,14 @@ if ($UnattendFile) {
 }
 
 if ($BitLockerPin) {
+    # Fail fast on a PIN outside the Windows Enhanced-PIN 6-20 window.
+    # Without this, a malformed PIN is baked into deploy.args on the
+    # ISO, distributed, and only rejected by unified_winpe_deploy.ps1
+    # at pre-flight on the target. The length is echoed but the PIN
+    # itself is not, mirroring PR #236's redaction of the console echo.
+    if ($BitLockerPin.Length -lt 6 -or $BitLockerPin.Length -gt 20) {
+        throw "BitLockerPin must be 6-20 characters (Windows Enhanced PIN policy). Got: $($BitLockerPin.Length) character(s)."
+    }
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
     }

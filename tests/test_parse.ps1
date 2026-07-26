@@ -146,9 +146,19 @@ Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 
-# Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
+# Test 12: build_iso.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
+$isoBuilderOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($isoBuilderOk) {
+    $ibc = Get-Content $buildIsoPath -Raw
+
+    # BitLockerPin length must be validated at build time so a malformed
+    # PIN fails before ISO staging rather than being baked into deploy.args
+    # and only surfacing at WinPE pre-flight on the target hardware.
+    $pinLenLower = $ibc -match '\$BitLockerPin\.Length\s+-lt\s+6'
+    $pinLenUpper = $ibc -match '\$BitLockerPin\.Length\s+-gt\s+20'
+    Write-Result -Test "ISO builder: -BitLockerPin length pre-validated (6-20)" -Pass ($pinLenLower -and $pinLenUpper)
+}
 
 # Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan

@@ -5,6 +5,94 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-26 — `build_iso.ps1 -BitLockerPin` length pre-validation
+
+**Investigated:** current open routine PRs (#235-#244) to avoid
+duplicating in-flight work. The chain of recent routine passes was
+mostly log-only; the last log-only PR chain flagged PR #171
+(WIM-source-disk vs wipe-set safety) as its "top novel candidate"
+but that PR is already open and clean-mergeable. Scanned the "risks /
+follow-ups" section of merged and open safety PRs for a distinct,
+smaller candidate. PR #240's body called out **"BitLockerPin length
+pre-validation at build_iso.ps1 time so a bad PIN fails at ISO-build
+rather than after distribution"** as an unbooked follow-up that
+composes on top of the recently merged BitLocker plumbing.
+
+**Found:** `scripts/build_iso.ps1` accepts `-BitLockerPin` and, in
+non-`-Interactive` mode, embeds it into the generated `deploy.args`
+line (`-EnableBitLocker -BitLockerPin "…"`) that gets written into
+the ISO. There was no length check anywhere in `build_iso.ps1` — the
+only gate on PIN shape lived in `unified_winpe_deploy.ps1`
+`Start-Deployment` (lines 1691-1695) which rejects PINs outside the
+6-20 char Windows Enhanced-PIN window. That means a `-BitLockerPin
+"12345"` passed to `build_iso.ps1` cleared build, staged the WIM,
+ran `oscdimg` (minutes on a multi-GB WIM), produced the ISO — and
+the operator only saw the rejection when they burned the ISO,
+booted, and reached WinPE pre-flight. `docs/BITLOCKER.md` already
+documents the 6-20 window; the docs were ahead of the build script.
+
+PR #236 already redacts the PIN from `build_iso.ps1`'s console echo
+but does not add a length check, and edits a different set of lines
+— so this PR composes cleanly.
+
+**Changed:**
+- `scripts/build_iso.ps1` — inside the existing `if ($BitLockerPin) { … }`
+  block (lines 205-209 pre-edit), added a length-guard `if` that
+  throws with a message reporting the observed length but NOT the
+  PIN content. Comment references PR #236 to keep the redaction
+  reason in view for the next reader.
+- `tests/test_parse.ps1` — Test 12 grew from a syntax-only assertion
+  to a syntax + one-invariant block (following the same pattern as
+  Test 9 for `build_boot_wim.ps1`). The invariant greps for both the
+  `-lt 6` and `-gt 20` conjunction so a future refactor that drops
+  one arm still trips.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at top.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per CLAUDE.md recipe (GitHub Releases tarball
+  into `/opt/pwsh/`).
+- **Baseline:** `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0.
+- **Post-edit:** `pwsh -NoProfile -File ./tests/test_parse.ps1` → 49/0
+  (+1 for the new ISO builder invariant).
+- Sanity: `tests/test_wim_parser.ps1` → 16/0 unchanged;
+  `tests/test_disk_enumeration.ps1` → 34/0 unchanged.
+- Behavioral spot-check via scratch harness driving the guard block
+  through nine cases at the 5/6/20/21 boundaries plus empty and
+  a 29-char pathological. Empty → no branch (outer `if` short-circuits,
+  matching the pre-edit path). 5, 21, 29 → throw with the length
+  reported and no PIN content. 6, 8, 20 → pass. Boundaries confirmed
+  inclusive as expected.
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per CLAUDE.md;
+  it does not exercise `build_iso.ps1` and was not touched.
+
+**Risks / follow-ups:**
+- **Minimal.** Fail-fast `throw` before any file copy, `robocopy`, or
+  `oscdimg` call. Cannot turn a working invocation into a broken one:
+  the pathological case (`-BitLockerPin` len < 6 or > 20) was already
+  broken end-to-end, just at a much later (and more expensive) failure
+  point. Happy path (`-BitLockerPin 'goodpin6'`) is unchanged. No
+  destructive runtime code (`unified_winpe_deploy.ps1` diskpart / DISM
+  / BCDBoot) touched.
+- No new dependencies.
+- Outstanding routine-backlog candidates from prior entries I did not
+  take this pass:
+  - **PR #171 (WIM-source-disk vs wipe-set safety)** — still open,
+    still clean-mergeable, still the largest unmerged safety gap
+    according to prior log entries. Requires a merge, not a new PR.
+  - **Fixture test for `Get-SystemDisks` WMI-failure catch branch**
+    (parallel in spirit to `Test-SystemMemory` hardening, called out
+    by PR #240's body).
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines of
+    listing-render code that could be factored out — deferred across
+    routine entries because the menu render is load-bearing TUI UX.
+
+**Next recommended improvement:** Merge PR #171. It is the biggest
+un-shipped safety guard in the destructive path; the fixture-test
+follow-up on `Get-SystemDisks` is second priority.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
