@@ -5,6 +5,57 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-26 — Backlog-triage pass, no code change
+
+**Investigated:** open PR queue (#54 → #240, ~100 open PRs) plus fresh
+same-day bug-fix PRs from other sessions (#239 `-ImagePath -PathType Leaf`
+guard, #240 `-UsbDrive == $env:SystemDrive` guard). Cross-referenced the
+routine log's backlog and the every-obvious drift I could still spot
+against the open-PR set:
+
+- `build_iso.ps1` `-BitLockerPin` length pre-validation → PR #173
+- `Test-FinalWipeConfirmation` behavioral coverage → PR #235 + 5 siblings
+- `configs/deploy.args.example` line-1-is-a-comment fix → PR #189 + siblings
+- `build_iso.ps1` PIN redaction from build console → PR #236 + 3 siblings
+- `test_disk_enumeration.ps1` in AGENTS/CLAUDE local-test blocks → PR #57
+- CCTK per-exit-code guidance → PR #232
+- `-BitLockerKeyPath` without `-EnableBitLocker` warning → PR #219
+- `refresh_usb.ps1 -CctkSource` silently dropped → PR #161/#228
+- CHANGELOG `Unreleased` self-contradiction on PIN policy → PR #220
+- `Get-SystemDisks` disk-size math fixture test → PR #170
+- Unattend Copy-Item failure trap → PR #192/#148/#110
+- README `-BitLockerPin` placeholder-rejection stale claim → PR #97
+- `CLAUDE.md` "four places" version-fence count → PR #234
+
+Sampled less-touched docs (`SIGNING.md`, `RELEASE_VALIDATION.md`,
+`TROUBLESHOOTING.md`, `docs/CCTK.md`, `.claude/MASTERIZE.md`,
+`.lychee.toml`, `PSScriptAnalyzerSettings.psd1`, `.github/workflows/ci.yml`)
+for concrete drift not already in an open PR — none surfaced this pass
+that wasn't a subjective judgment call (e.g. `SIGNING.md` doesn't
+enumerate every wrapper script, but every wrapper runs `-ExecutionPolicy
+Bypass` where it matters, so it's a stylistic gap, not a correctness bug).
+
+**Changed:** this log entry only. No production code, no test, no
+user-facing docs. Per rule 19 ("if no worthwhile verified improvement
+is found, make no code changes") and the acknowledged saturation
+recorded in PRs #207/#216/#222/#230/#233/#237/#238 on the maintainer's
+open queue.
+
+**Verification performed:** none needed. Log-only change. `pwsh` was
+not installed this run because there was no `.ps1` target to validate.
+
+**Risks / follow-ups:** zero risk. The persistent operational
+observation from the last seven log-only passes still holds: the
+routine agent's finder surface is saturated by the merge-side backlog,
+and the useful lever is on the merge side — the maintainer picking
+which open PRs to accept, close, or consolidate — not on the finder
+side generating more PRs. Consolidation candidates from the July log-
+only sequence: closing #207/#216/#222/#230/#233/#237/#238 in favor of
+whichever is most recent would collapse the whole month of log-only
+PRs into a single line on `main`.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
