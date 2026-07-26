@@ -338,6 +338,12 @@ jobs:
           grep -qE 'BitLockerPin\s*=\s*\$null' $script || { echo "  BitLockerPin default is not \$null"; ok=0; }
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: BitLocker / data-disk defaults drifted on"; fail=1; fi
 
+          # NOTE: check #21 (ForbiddenBitLockerPins list) was intentionally
+          # removed in PR #49 along with the forbidden-list itself; PIN
+          # content policy is the admin's call, only the Windows 6-20 char
+          # window is enforced. Numbering is preserved (no renumber) so
+          # historical CHANGELOG and PR references to specific check
+          # numbers stay unambiguous.
           echo ""
           echo "=== 22. WIPE DATA typed confirmation present, gated by -Force only ==="
           # The data-disk format MUST go through a typed prompt; -Force may

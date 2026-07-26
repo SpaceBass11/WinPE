@@ -5,6 +5,75 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-26 — CI masterize check-#21 gap explanatory comment
+
+**Investigated:** open Claude routine PRs (20 open, `#227`-`#246`),
+the routine-log backlog including 10 consecutive log-only entries
+mapped in PRs `#237` / `#238` / `#241` / `#242` / `#244`. Every
+concrete drift / warning / test-coverage / doc-fix candidate the
+prior passes surfaced already has 1+ open PR. Baseline verified with
+`pwsh 7.4.6` (installed once per session per CLAUDE.md): `test_parse`
+48/0, `test_wim_parser` 16/0, `test_disk_enumeration` 34/0.
+
+**Found:** one novel, tiny drift that no open PR touches. The
+`masterize` job in `.github/workflows/ci.yml` numbers its Phase 1B
+code-safety checks sequentially — `1 → 20`, then jumps straight to
+`22 → 26`. There is no `#21`. Check `#21` was intentionally removed
+in PR #49 (the `ForbiddenBitLockerPins` list strip) but the deletion
+left an unexplained hole in the numbered echo output. A future
+maintainer reading the CI logs sees `... === 20. ... === 22. ...`
+and cannot tell whether the gap is a silent regression or an
+intentional artifact. Renumbering (`22→21, 23→22, ...`) would break
+the historical CHANGELOG note "Removed the corresponding Pester rows
+and CI masterize check #21" (line 34) — that reference would suddenly
+point at a completely different check about `WIPE DATA`. So the fix
+has to be a marker, not a renumber.
+
+**Changed:**
+- `.github/workflows/ci.yml` — six-line `#` comment above the
+  `=== 22.` echo explaining that `#21` was intentionally removed in
+  PR #49 and why numbering is preserved. Pure comment; no shell
+  behavior change.
+- `CHANGELOG.md` — one bullet under `## Unreleased / ### Changed`
+  describing the marker. No version bump (comment-only change,
+  no `$Script:Config.ScriptVersion` touch).
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- YAML validity: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` → OK.
+- Numbered echo count unchanged: `grep -c '=== [0-9]'` still yields
+  the same 25 numbered check lines (1-20, 22-26).
+- All three PowerShell test suites re-run post-edit:
+  - `pwsh -NoProfile -File ./tests/test_parse.ps1` → **48/0**
+  - `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → **16/0**
+  - `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → **34/0**
+- The comment lives inside the `run: |` heredoc; comments in shell
+  scripts are the standard `#` form and don't affect execution.
+  `actionlint` in CI will re-parse the workflow on push.
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per the
+  CLAUDE.md note (PSGallery blocked by container network policy);
+  no touch to any Pester-covered code path anyway.
+
+**Risks / follow-ups:**
+- Minimal. Comment-only change inside the existing `masterize` job's
+  `run:` block. No touch to any test, script, or deploy path.
+- Outstanding routine-backlog candidates already carried by open PRs
+  (do NOT re-open):
+  - `-BitLockerKeyPath` orphan warning → PRs #88 / #153 / #219
+  - Extra-wipe vs WIM source physical disk protection → PR #171
+    (the top novel-candidate seed flagged in PR #244)
+  - CCTK per-exit-code guidance → PR #232
+  - `-DataDiskNumber` silent-mode dead-check reorder → PR #243
+  - `Test-FinalWipeConfirmation` fixture test → PR #235 / #246
+  - `build_iso.ps1 -BitLockerPin` length pre-validation → PR #245
+  - `build_iso.ps1 -Interactive` silent-param drops → PR #231
+  - `refresh_usb.ps1 -CctkSource` warning → PR #228
+  - `-MinImageSizeMB` binding-time validation → PR #229
+  - `configs/deploy.args.example` first-line comment → PRs #54 / #109 / #157 / #189
+  - `Write-ImageMenuTable` refactor → PR #227
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

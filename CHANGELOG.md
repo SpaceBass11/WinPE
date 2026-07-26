@@ -9,6 +9,13 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **CI masterize check gap explained.** Added a comment above check
+  `#22` in `.github/workflows/ci.yml` noting that `#21` was
+  intentionally removed with the `ForbiddenBitLockerPins` list (PR #49)
+  and that numbering is preserved so historical CHANGELOG / PR
+  references to specific check numbers stay unambiguous. No behavior
+  change to any CI job.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
