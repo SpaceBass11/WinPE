@@ -5,6 +5,80 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-26 — backlog-triage pass + dead-check observation (no code change)
+
+**Investigated:** open-PR queue against `main` (241 open, `#54 → #241`,
+plus today's `#239`/`#240` from other sessions), the routine log's
+"next recommended improvement" backlog, and a targeted re-read of
+seven functions in `unified_winpe_deploy.ps1` that had not been
+walked in prior log entries: `Search-DirectoryForImages`,
+`Show-ImageSelection`, `Get-SystemDisks`, `Invoke-Diskpart` error
+branch, `Get-WimImageInfo`, `Resolve-BitLockerKeyPath`,
+`Initialize-BitLockerSetup`, and the silent-mode validation gates in
+`Start-Deployment` (lines 1700-1725). Cross-checked `scripts/`
+(`build_iso.ps1`, `prepare_wim.ps1`, `refresh_usb.ps1`,
+`first-login.ps1`, `build_boot_wim.ps1`) end-to-end against the open
+PR titles for concrete drift not already carried.
+
+**Found:** Same saturation state as the last eight log-only passes.
+Every concrete drift I could still spot this pass maps to an open PR:
+
+- `Test-SystemMemory` silent-mode WMI hardening → PR #221 (merged
+  in queue, still open).
+- `Get-SystemDisks` classifier fixture-test coverage → PR #221's
+  companion + `tests/test_disk_enumeration.ps1` already shipped.
+- `Get-WimImageInfo` DISM-output surfacing on failure → PR #204.
+- `Invoke-CctkConfig` per-exit-code guidance → PR #232.
+- `Set-BootConfiguration` BCDBoot diagnostics → prior merged.
+- `build_boot_wim.ps1 -UsbDrive == $env:SystemDrive` → PR #240
+  (fresh, opened today).
+- `Find-ImageFiles` file-path guard for `-ImagePath` → PR #239
+  (fresh, opened today).
+- `build_iso.ps1` `-Interactive` silently drops silent-only flags
+  → PRs #155 / #156 / #231.
+- `build_iso.ps1` PIN console redaction → PRs #66 / #131 / #213 / #236.
+- `refresh_usb.ps1 -CctkSource` ignored on `-RebuildBootWim No`
+  → PRs #161 / #228.
+- `-BitLockerKeyPath` without `-EnableBitLocker` warning
+  → PRs #88 / #153 / #219.
+- `prepare_wim.ps1 -OutputWim == -SourceWim` guard → PR #210.
+- Various log-preservation / stack-trace / diagnostics fixes
+  → PRs #191, #199, #148, #192.
+
+**One novel observation** this pass, deliberately NOT taken as a code
+change: `unified_winpe_deploy.ps1` line 1721-1724 is a dead check.
+Inside the `if ($Silent -and -not $ListOnly)` block, line 1710 hard-
+fails when `-not $Force`, so the more-specific `-DataDiskNumber +
+-not $Force` message at line 1721 can never fire. Removing it is a
+one-line style cleanup; a slightly better change is to make the
+data-disk-specific message the one operators see when both apply
+(swap the order or reword line 1711 to mention `-DataDiskNumber`).
+Deferred because (a) it is stylistic — behavior is already correct,
+just the error text is less specific than the code intends, and
+(b) any small edit here should compose cleanly with #229's binding-
+time validation refactor rather than race it.
+
+**Changed:** `docs/claude-routine-log.md` only. No production code,
+tests, CI, or user-facing docs touched.
+
+**Verification:** N/A — log entry only. Diff is one new heading at
+the top of the file, matching the pattern of `#207`/`#216`/`#222`/
+`#230`/`#233`/`#237`/`#238`/`#241`. `pwsh` was not installed this
+pass because there was no code target to validate.
+
+**Risks / follow-ups:** Zero risk — pure log entry.
+
+The `1721-1724 dead check` observation is the freshest concrete
+finding not already in an open PR. If the maintainer wants a
+one-line PR for that, it would swap the two branches so operators
+running `-Silent -DataDiskNumber N` (without `-Force`) see the more
+informative "typed 'WIPE DATA' prompt cannot run silently" reason
+instead of the generic "requires -Force" line. Kept out of this
+pass to avoid piling on top of the ~15 open silent-mode-related
+PRs already in the queue.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
