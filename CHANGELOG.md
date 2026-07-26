@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Test-FinalWipeConfirmation` now has fixture-test coverage.**
+  New `tests/test_confirmation_parser.ps1` locks the accept/reject
+  behavior of the typed-confirmation parser that gates every
+  disk-erase step: accepts `ERASE` / `DELETE ALL DATA` (with the
+  documented trim + case-fold normalization), rejects empty / null
+  input, near-matches (`DELETE`, `DELETE ALL`, `ERASE!`), and the
+  strings used by neighbouring gates (`DESTROY SYSTEM`, `WIPE ALL`,
+  `WIPE DATA`). Includes a drift guard that fails if either
+  accepted literal disappears from the function body. Wired into
+  the CI `syntax` job. Docs table in `CLAUDE.md` updated. No
+  production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

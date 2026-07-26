@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-26 — `Test-FinalWipeConfirmation` fixture-test coverage
+
+**Investigated:** Open PRs #236-#245 to avoid duplicating in-flight work,
+the last several routine-log entries for backlog candidates, and the
+inventory of testable pure functions in `unified_winpe_deploy.ps1`.
+`Test-FinalWipeConfirmation` (line 712) is the single accept/reject gate
+between the operator typing at the "ERASE" prompt and the script
+proceeding to `Invoke-Diskpart`. Multiple call sites hit it —
+`Select-TargetDisk` (typed 'ERASE' for the -TargetDisk path) and the
+interactive final-confirmation flow. Only `tests/test_parse.ps1` Test 5
+covered it (function-name presence). No fixture test locked its
+accept/reject semantics; a silent regression there — e.g. dropping one of
+the two accepted strings, becoming case-sensitive after the prompt
+already reads `Type 'ERASE'`, or loosening the equality to a substring
+match — would either bypass the confirmation or break the documented UX
+without any existing test noticing.
+
+Cross-checked open PR titles (#236-#245) — nothing addresses this parser.
+
+**Changed:**
+- `tests/test_confirmation_parser.ps1` — new standalone fixture test.
+  Loads the deploy script as a dynamic module (same test seam pattern
+  as `validation-gates.Tests.ps1`: strip the `# Execute main process`
+  block plus the `#Requires -RunAsAdministrator` directive so the body
+  evaluates outside an admin shell), then feeds the real function 24
+  inputs and asserts each outcome:
+    - 9 accept cases — exact strings, case variants, whitespace/tab
+      padding, trailing-space-after-'DELETE ALL DATA' (Trim handles it).
+    - 15 reject cases — empty, `$null`, single space, `y`/`yes`/`OK`,
+      partial phrases (`DELETE`, `DELETE ALL`), extra characters
+      (`ERASE!`, `ERASEit`, `DO ERASE`), double-spaced
+      `DELETE  ALL  DATA`, and the strings used by neighbouring
+      gates (`DESTROY SYSTEM`, `WIPE ALL`, `WIPE DATA`) so a
+      cross-gate loosening also surfaces here.
+  Drift guard at the bottom locates the function body via regex and
+  asserts both accepted literals still appear inside it — if a
+  maintainer drops one from the `-in` list, this fires.
+- `.github/workflows/ci.yml` — wired into the `syntax` job as a new
+  step after `test_disk_enumeration.ps1`.
+- `CLAUDE.md` — Running Checks test-file table gained a row for the
+  new test, and the local-run bash block was extended with two new
+  invocations (also fixing the pre-existing "three test files" phrase
+  that already understated the count once
+  `tests/test_disk_enumeration.ps1` landed).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet.
+
+**Verification:**
+- `pwsh` v7.4.6 installed once per the CLAUDE.md note (tarball into
+  `/opt/pwsh/`, network policy permits the GitHub-Releases download).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0.
+- New test: `pwsh -NoProfile -File ./tests/test_confirmation_parser.ps1`
+  → 27/0 (9 accepts + 15 rejects + 3 drift-guard checks).
+- Behavior discovered / pinned during exploration:
+  `'DELETE ALL DATA '` (trailing space) is accepted because the
+  function normalizes via `.Trim()`. `DELETE  ALL  DATA` (double
+  interior space) is rejected because the function does no interior
+  whitespace collapse. Both behaviors are intentional given the
+  `.Trim().ToUpperInvariant()` + `-in @('ERASE', 'DELETE ALL DATA')`
+  implementation; the fixtures pin both so a maintainer who "cleans
+  up" the parser can see which contract they'd break.
+- No production code touched. No new script dependencies. No CI
+  runtime cost beyond a single sub-second script invocation.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No safety-critical code path touched.
+  The load-as-dynamic-module test seam is the same one
+  `validation-gates.Tests.ps1` has used since 4.7.0.
+- Outstanding backlog carried across recent routine entries that I
+  did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** ~30 lines of shared
+    listing-render code — still deferred (load-bearing TUI UX).
+  - **`Invoke-CctkConfig` selection precedence** (per-servicetag → per-model
+    → default) has no fixture test yet. Higher mock burden because of
+    `Get-WmiObject Win32_BIOS.SerialNumber` and file-system probes; a
+    pure fixture around a factored-out selector helper is one path.
+
+**Next recommended improvement:**
+- Fixture-cover the `Invoke-CctkConfig` config-file selection helper
+  (per-servicetag → per-model → default), likely gated on first
+  factoring the pure selector out of the WMI/file-probe wrapper.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
