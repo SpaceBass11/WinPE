@@ -5,6 +5,69 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-26 — CI XML well-formedness for `configs/unattend.example.xml`
+
+**Investigated:** open-PR queue (10 PRs, #238-#247, several of which
+are log-only backlog-triage passes) and the areas each already covers:
+`Test-FinalWipeConfirmation` fixture (#246), `-BitLockerPin` upstream
+length (#245), `-DataDiskNumber` gate ordering (#243), masterize
+`#21`-gap comment (#247), `-UsbDrive` == `$env:SystemDrive` guard
+(#240), `-ImagePath` file-vs-dir guard (#239). None cover the example
+config files under `configs/`, and the deploy script's own runtime
+`[xml](Get-Content ...)` guard only catches the operator's supplied
+file — not the template they copied from.
+
+**Found:** `configs/unattend.example.xml` (211 lines) is referenced
+from README.md, `docs/UNATTEND.md`, `docs/SCRIPT_REFERENCE.md`, and
+CHANGELOG.md as the canonical starting point. A drift there (unclosed
+tag, encoding slip, bad attribute) would be invisible to CI and only
+surface at first boot after Windows Setup silently ignored the
+malformed answer file — by which point the target is already wiped.
+
+**Changed:**
+- `.github/workflows/ci.yml` — new `=== 27. ===` block appended to
+  the masterize Phase 1A step. Runs `xmllint --noout` on
+  `configs/unattend.example.xml`; on failure, prints the parser error
+  and fails the phase. `xmllint` is preinstalled on ubuntu-latest
+  runners (libxml2 package) so no `apt-get` is needed. Check number
+  27 is one past the current Phase 1B end (26); the `#21`-gap
+  precedent (removed in PR #49) shows the numbering scheme tolerates
+  non-contiguous slots.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top,
+  ahead of the existing `Get-SystemDisks` entry.
+
+**Verification:**
+- Local: `xmllint --noout configs/unattend.example.xml` → exit 0 on
+  the current file.
+- Fault-injected a broken end tag (`</unattnd>`), re-ran the same
+  command → exit 1 with a parser error naming line 211. Restored
+  the file and re-verified exit 0.
+- `git diff --stat`: only `.github/workflows/ci.yml`, `CHANGELOG.md`,
+  and this log entry — no production code touched.
+- No `pwsh` change; the four PowerShell test scripts and the Pester
+  suite are unaffected.
+
+**Risks / follow-ups:**
+- Minimal. CI-only additive check. If `xmllint` is ever removed from
+  ubuntu-latest (extremely unlikely — it's part of the default image
+  toolchain), the check would need an `apt-get install libxml2-utils`
+  preamble. On failure, users see the file, line, and reason — no
+  cryptic bash exit.
+- Outstanding backlog from prior entries that I did not take this pass:
+  - **`Invoke-CctkConfig` selection precedence fixture** (per-servicetag
+    → per-model → default). PR #246's next-recommendation note calls
+    it out. Higher touch because it requires factoring the pure selector
+    out of the WMI/file-probe wrapper first.
+  - **`Show-ImageList` / `Show-ImageSelection`** shared ~30 lines of
+    listing-render code (cleanup only, deferred repeatedly).
+
+**Next recommended improvement:**
+- Extend the same well-formedness check to any future example config
+  file (e.g. if `configs/deploy.args.example` grows a machine-readable
+  companion). Right now it's the only one that benefits.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

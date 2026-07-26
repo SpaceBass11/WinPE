@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`configs/unattend.example.xml` now has CI XML well-formedness coverage.**
+  New masterize check (`=== 27. ===` in Phase 1A) runs
+  `xmllint --noout` against the example unattend that README /
+  `docs/UNATTEND.md` tell users to copy. The deploy script's runtime
+  `[xml](Get-Content ...)` guard already catches an operator's own
+  malformed file, but the *example* file could drift silently
+  (unclosed tag, encoding slip) — a naive copy would then fall
+  through to manual OOBE at first boot, after the target is
+  already wiped. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
