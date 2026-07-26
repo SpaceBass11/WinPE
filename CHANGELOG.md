@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **Silent-mode `-DataDiskNumber` validation now surfaces the specific
+  reason.** The `-DataDiskNumber + -not -Force` check in `Start-Deployment`
+  ran after the generic `-not -Force` gate, so it was unreachable and the
+  operator always saw the generic "avoid interactive final confirmation"
+  message instead of the intended "typed 'WIPE DATA' prompt cannot run
+  silently" reason. Reordered the two branches; behavior is identical
+  (silent + `-DataDiskNumber` still requires `-Force`), only the error
+  message improves.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

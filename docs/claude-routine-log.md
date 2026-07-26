@@ -5,6 +5,55 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-07-26 — Reorder silent-mode `-DataDiskNumber` check ahead of generic `-Force` gate
+
+**Investigated:** open PR #242's "novel finding (not implemented)" callout
+about a dead check at `unified_winpe_deploy.ps1` line 1721-1724, plus a
+sweep of open PRs (#54 → #242) for any that already fixed the same lines.
+No overlap: the six log-only PRs (#207, #216, #222, #230, #233, #237, #238,
+#241, #242) all note this specific finding and deliberately defer it.
+
+**Found:** the silent-mode validation block in `Start-Deployment` had two
+`-not $Force` checks. The generic one (`Silent mode requires -Force to
+avoid interactive final confirmation`) ran first, so the more specific
+one (`Silent mode with -DataDiskNumber requires -Force (typed 'WIPE DATA'
+prompt cannot run silently)`) was unreachable. Behavior was correct —
+silent + `-DataDiskNumber` still required `-Force` — but the operator
+always saw the generic reason instead of the intended actionable one.
+
+**Changed:** `unified_winpe_deploy.ps1` — swapped the two check bodies so
+the `-DataDiskNumber`-specific branch runs first. Also refreshed the
+inline comment to document the ordering rationale. `CHANGELOG.md` — new
+`## Unreleased / ### Changed` bullet.
+
+**Verification:**
+- `pwsh` installed once per session per `CLAUDE.md` (PowerShell 7.4.6
+  tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0 pre-edit and
+  48/0 post-edit (block-count/structural assertions all unchanged;
+  the swap is inside a single existing `if` body).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0 unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged (no contamination of sibling fixture tests).
+- Structural spot-check via regex extraction: the two `if (-not $Force)`
+  branches are now in the intended `DataDiskNumber`-first order, both
+  still return `$false` before the destructive path, and the
+  `-WipeDisks` format regex still trails them.
+
+**Risks / follow-ups:**
+- Minimal. No behavior change — silent + `-DataDiskNumber` still needs
+  `-Force`; silent without `-DataDiskNumber` still needs `-Force`. Only
+  the operator-facing error text differs. No destructive path (diskpart,
+  DISM, BCDBoot) touched.
+- Pester (`tests/validation-gates.Tests.ps1`) already exercises the
+  silent-mode gate matrix; CI will run the real Windows suite on push.
+- Deferred: a Pester assertion pinning the specific `WIPE DATA` message
+  to the `-DataDiskNumber` branch (guards against a future re-swap).
+  Not added this pass to keep the change minimal and off the huge open
+  Pester queue (#69, #98, #102, #107, #108, #123, #125, #137).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
