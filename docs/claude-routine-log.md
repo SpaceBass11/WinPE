@@ -5,6 +5,93 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-01 — Docs drift: placeholder-PIN rejection was removed but two docs still claim it
+
+**Investigated:** open PRs (#231-#249) to avoid duplicating in-flight
+work. Many touch BitLocker adjacent areas (PR #245 pre-validates
+`-BitLockerPin` length at build_iso time; #232 CCTK exit-code
+guidance; #236 PIN redaction in build_iso console echo; #98 / #64 /
+#123 Pester boundary tests for the length gate). Cross-referenced
+the current script with `CHANGELOG.md` `## Unreleased / ### Removed`
+which records that the `ForbiddenBitLockerPins` list and its
+placeholder-PIN policy were removed in v4.7.1.
+
+**Found:** two current-state doc files were still describing the
+removed policy:
+- `README.md:359` (parameters table row for `-BitLockerPin`) — "6–20
+  characters. Placeholder PINs are rejected at runtime."
+- `docs/BITLOCKER.md:54` (confirmation-chain table row) —
+  "`-EnableBitLocker` with placeholder PIN | (refused outright) | No"
+
+The v4.7.0 header-changelog entry inside `unified_winpe_deploy.ps1`
+line 94 also mentions "placeholder PIN rejected at runtime", but that
+is a historical release-note about what shipped in 4.7.0 (it was true
+then), so it is intentionally left alone — the header is a running
+per-version changelog, not current-state docs. `docs/BITLOCKER.md`
+line 35 already correctly reads "PIN content is the admin's call".
+
+No open PR touches either of these two lines (verified by
+`search_pull_requests` on `placeholder`/`ForbiddenBitLockerPins` and
+by scanning `docs/BITLOCKER.md` in each open BitLocker PR's diff).
+
+**Changed:**
+- `README.md` — parameters row for `-BitLockerPin` rewritten to
+  describe the length gate as the only shape check the script
+  enforces, and to name it as the Windows Enhanced-PIN window (matches
+  the phrasing already in `docs/BITLOCKER.md` line 35).
+- `docs/BITLOCKER.md` — confirmation-chain row swapped from
+  "placeholder PIN" to "PIN outside the 6-20 char window (length
+  gate)". Row stays in the same slot in the table so the visual
+  chain (system-disk refusal → length-gate refusal → `-Silent`
+  without `-Force` refusal) still tracks the order in
+  `Start-Deployment` (`unified_winpe_deploy.ps1` lines 1687-1698).
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of
+  `## Unreleased` describing the doc drift and pointing at the
+  existing `### Removed` entry below it for the underlying policy
+  change.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per the CLAUDE.md recipe (GitHub Releases
+  tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 49/0 (unchanged
+  from baseline; docs-only change doesn't affect parser tests).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0 (unchanged).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  (unchanged).
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md and does not assert on docs — not exercised here.
+- Grep sweep confirms the phrase "placeholder PIN"/"placeholder"
+  now appears only in the CHANGELOG `### Removed` entry (which is
+  historically accurate) and the v4.7.0 header release-note line in
+  the deploy script (also historically accurate).
+
+**Risks / follow-ups:**
+- **Minimal.** Docs-only. No script parameter, function, safety
+  gate, or test touched. No destructive path exercised. Change is
+  a straight replacement of two lines that no longer describe
+  current behavior.
+- No new dependencies.
+- Outstanding routine-backlog candidates from prior entries I did
+  not take this pass:
+  - **PR #171 (WIM-source-disk vs wipe-set safety)** — still
+    flagged as the largest unmerged safety gap by prior routine
+    entries. Requires a merge, not a new PR.
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines
+    of listing-render code — cleanup only, deferred across
+    multiple routine entries because the menu render is
+    load-bearing TUI UX.
+
+**Next recommended improvement:** review whether other v4.7.0 →
+v4.7.1 removals (e.g. anything else the `### Removed` block
+references) also left docs drift. The one that surfaced this pass
+was the highest-signal because it lived in the top-level README
+parameters table; a targeted grep for other reversed-policy claims
+across `README.md` + `docs/*.md` would be a similarly cheap next
+routine.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

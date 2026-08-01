@@ -8,6 +8,15 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Docs drift on placeholder-PIN rejection.** `README.md` parameter
+  table and `docs/BITLOCKER.md` confirmation chain both still claimed
+  `-BitLockerPin` values matching a placeholder list were refused at
+  runtime. That policy was removed alongside `ForbiddenBitLockerPins`
+  (see this file's `### Removed` entry below); the script now enforces
+  only the Windows Enhanced-PIN 6-20 character window. Both docs now
+  describe the length gate as the actual shape check.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
