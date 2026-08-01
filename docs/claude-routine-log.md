@@ -5,6 +5,62 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-01 — Backlog-triage pass, no code change
+
+**Investigated:** open Claude routine PRs against `main` (95 in the
+first page, 100+ in the second — well over 200 open in total; nothing
+merged since #52 on 2026-06-something), the routine log's `next
+recommended improvement` backlog, and a re-scan of the deploy script's
+main safety functions (`Get-SystemDisks`, `Select-AdditionalWipeDisks`,
+`Start-Deployment` validation gates, `Initialize-BitLockerSetup`
+staged first-boot script, `prepare_wim.ps1` whitelist loader).
+
+**Found:** every small-to-medium high-confidence improvement I looked
+at is already covered by at least one open PR — often three or four
+overlapping ones. Sampled matches:
+
+- Doc gap: `tests/test_disk_enumeration.ps1` (added by #50) is wired
+  into CI but not listed in CLAUDE.md's tests table or in AGENTS.md's
+  Required-Validation section. Already covered by PRs #57, #112,
+  #138 (three separate PRs for the same doc fix).
+- Safety: exclude system disk from additional-wipe candidates in
+  `Select-AdditionalWipeDisks` — PR #149.
+- Test coverage: `Test-FinalWipeConfirmation` typed-confirmation
+  parser fixture — PRs #75, #102, #142, #235, #246 (five overlapping
+  PRs for the same test).
+- Safety: `-BitLockerPin` redaction in build-console echo — PRs
+  #66, #131, #236 (three overlapping PRs for the same redaction).
+- Safety: absolute-path resolution for `-UnattendFile` and `-WimFile`
+  before destructive ops — PRs #124, #133.
+
+**Changed:** Nothing beyond this log entry. Per rule 19 ("If no
+worthwhile verified improvement is found, make no code changes"),
+adding a 251st PR to a backlog with heavy duplication and zero merge
+throughput would waste operator review time and add merge-conflict
+noise to the log file itself (every open PR that touches this file
+will conflict with every other one on the next-entry line).
+
+**Verification:** N/A — no code changed.
+
+**Next recommended improvement:** *A human triage of the open PR
+queue is worth more than any new PR I could open today.* Concrete
+suggestions for whoever picks this up:
+
+1. Pick one PR per duplicated cluster (e.g. one of #75/#102/#142/#235/#246
+   for `Test-FinalWipeConfirmation`), close the others as duplicates,
+   and merge the survivor. Repeat for the BitLocker-PIN-redaction
+   cluster (#66/#131/#236), the test_disk_enumeration doc cluster
+   (#57/#112/#138), and the absolute-path cluster (#124/#133).
+2. Once merge throughput recovers, the routine's `next recommended
+   improvement` chain will start producing genuinely new work again
+   instead of re-discovering the same gaps every run.
+3. If the routine is going to keep running while the backlog is
+   frozen, consider changing its instructions to skip categories that
+   have >N open PRs already touching them — that would let it find
+   the sparse untouched corners of the repo instead.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
