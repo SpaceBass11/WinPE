@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` pre-validates silent-mode disk-number
+  overlaps.** The deploy script aborts at runtime when
+  `-DataDiskNumber` equals `-TargetDisk`, or when `-WipeDisks`
+  contains either of them. Previously `build_iso.ps1` accepted these
+  overlaps silently, so the operator only discovered the broken ISO
+  after burning it and booting target hardware. `build_iso.ps1` now
+  throws with a clear message for all three cases before any file
+  copy. Silent-mode only; interactive mode is unaffected (TUI lets
+  the operator override). Adds one `$WipeDisks -split` reuse to
+  keep the existing format-validation regex intact. No behavior
+  change on well-formed builds.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -5,6 +5,83 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-01 — `build_iso.ps1`: pre-validate silent-mode disk-number overlaps
+
+**Investigated:** open PRs (48 in flight, PR #204-#253) plus the recent
+merged history (PRs #33-#52). Scanned every open PR title for anything
+touching `scripts/build_iso.ps1`'s cross-parameter validation between
+`-TargetDisk`, `-DataDiskNumber`, and `-WipeDisks`. Related open PRs
+(#213 redact PIN echo, #224 reject `!` in PIN, #231 warn about
+silently-dropped params in `-Interactive` mode, #236 redact PIN echo v2,
+#245 pre-validate PIN length, #251 warn on `-VolumeLabel` mismatch) all
+follow the same "catch operator error at build time instead of at deploy
+time" pattern this repo adopted this quarter — but none cover the
+disk-number overlap case.
+
+**Found:** the deploy script rejects three overlap conditions at runtime
+(`unified_winpe_deploy.ps1` lines 1796, 1830): `-DataDiskNumber ==
+-TargetDisk`, `-WipeDisks` containing `-TargetDisk`, and `-WipeDisks`
+containing `-DataDiskNumber`. `build_iso.ps1` accepted all three
+silently and generated a fully-formed deploy.args with the overlap
+embedded. The operator only discovered the mistake after burning the
+ISO to USB, booting the target hardware, and watching the deploy
+script abort before the first apply — an entire failed physical-test
+cycle for a mistake catchable at build time on the admin workstation.
+
+The existing `-WipeDisks` regex format check (silent-mode branch, ~line
+287) was already in the right spot; the overlap checks were the missing
+peers. Pattern parallels PR #245 (pre-validate PIN length): catch it
+where the operator is standing, not where the wiped machine is standing.
+
+**Changed:**
+- `scripts/build_iso.ps1` — hoisted the `-WipeDisks` format check above
+  the args-generation block, parsed the wipe list once into `$wipeList`,
+  then added three `throw` guards for the overlap cases. Each throw
+  names the actual conflicting values in the message so the operator
+  can see what to change. Silent-mode branch only — interactive mode
+  is unchanged since the TUI lets the operator override at deploy time.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top.
+
+**Verification:**
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed
+  / 0 failed before edits (`pwsh` installed once per the CLAUDE.md
+  procedure).
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed
+  / 0 failed (unchanged; the syntax-valid assertion for `build_iso.ps1`
+  still passes with the new block).
+- Sanity: `test_wim_parser.ps1` and `test_disk_enumeration.ps1` both
+  unchanged (16 / 0 and 22 / 0 respectively).
+- Behavioral: extracted the new validation block into a fixture harness
+  (`scratchpad/test_overlap.ps1`) and drove it through 11 cases —
+  baseline pass, `DataDisk == TargetDisk` throw, `DataDisk != TargetDisk`
+  pass, `WipeDisks` containing `TargetDisk` throw, `WipeDisks` containing
+  `DataDiskNumber` throw, disjoint pass, malformed `WipeDisks` throw
+  (existing regex still works), whitespace-tolerant parse pass and
+  overlap-throw, sentinel edge, self-target overlap. All 11 match
+  expectations.
+- No touch to destructive code paths (WIM copy, robocopy of WinPE media,
+  oscdimg invocation). Throws happen before `Set-Content` writes
+  deploy.args, so a rejected build leaves no partial ISO artifacts.
+
+**Risks / follow-ups:**
+- Minimal. New code is throw-only; the args-generation logic is
+  unchanged, just moved below the checks. An operator whose previously
+  "accepted" build was actually broken now sees a clear early failure
+  instead of a distant runtime failure on target hardware — this is
+  the goal.
+- Same "silently accepts an invalid combination" pattern may exist in
+  `scripts/prepare_wim.ps1` for its parameter set validation, but PR
+  #210 (`-OutputWim` resolving to `-SourceWim` path) already tackles
+  the highest-impact case there.
+- Outstanding backlog items from prior entries not taken this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code — cleanup-only; PR #227 in flight tackles this.
+  - Multi-disk overlap between the two `-WipeDisks` entries themselves
+    (e.g. `-WipeDisks "2,2"`) — silent duplication; low-value edge
+    case, skipped this pass.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
