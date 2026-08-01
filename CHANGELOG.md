@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`.github/PULL_REQUEST_TEMPLATE.md` Test plan resynced to the current
+  CI + local-test surface.** The template listed only
+  `test_parse.ps1` in its local-`pwsh` checkbox (missing
+  `test_wim_parser.ps1` and `test_disk_enumeration.ps1`) and its CI
+  short-name list `(syntax, PSSA, lychee, actionlint, masterize)` omitted
+  the `pester` job. A contributor following the template only ran 1 of
+  the 3 local `pwsh` tests, and had no template-level cue to check the
+  Pester job. Kept as a single consolidated checkbox — no extra
+  checkboxes added, only the parenthetical list widened. PR #201
+  addresses the adjacent Safety-checklist typed-confirmation gap; this
+  is the Test-plan half of the same doc-drift class. Docs only.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

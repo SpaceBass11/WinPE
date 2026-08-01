@@ -5,6 +5,92 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-01 — `.github/PULL_REQUEST_TEMPLATE.md` Test-plan resync
+
+**Investigated:**
+- The maintenance-log backlog and the ~80 open Claude-routine PRs
+  (numbers up through #248) to avoid duplicating in-flight work.
+- Grepped the doc surface for stale references to the pre-v4.7.x
+  test / CI inventory. Focused on template files (PR template,
+  ISSUE_TEMPLATE) because CLAUDE.md/AGENTS.md doc-drift is already
+  being addressed by open PRs #193 (test_disk_enumeration.ps1
+  addition to CLAUDE.md + AGENTS.md) and #201 (typed-confirmation
+  chain in AGENTS.md + PR-template Safety checklist).
+
+**Found:** `.github/PULL_REQUEST_TEMPLATE.md`'s Test-plan section was
+two-way stale:
+
+1. Line 35 checkbox listed only `pwsh -NoProfile -File ./tests/test_parse.ps1`.
+   The repo ships three local `pwsh`-runnable tests
+   (`test_parse.ps1`, `test_wim_parser.ps1`,
+   `test_disk_enumeration.ps1`) — a contributor following the
+   template ran 1 of 3.
+2. Line 36 CI job list `(syntax, PSSA, lychee, actionlint, masterize)`
+   omitted the `pester` job (`Pester validation-gate smoke tests` in
+   `.github/workflows/ci.yml`), which runs on every push and covers
+   the BitLocker default-invariant and `Resolve-BitLockerKeyPath`
+   Pester suite. A reviewer scanning "CI is green" against this
+   list would not think to check Pester's status.
+
+PR #193's body explicitly deferred the PR-template half of this
+gap: "adding two more required checkboxes changes PR-submission UX.
+Worth a separate think, not folded into this PR." That's the gap
+this pass takes. PR #201 handled the adjacent Safety-checklist
+typed-confirmation gap in the same file; this is the Test-plan
+half of the same doc-drift class and does not overlap the diff.
+
+**Changed:**
+- `.github/PULL_REQUEST_TEMPLATE.md` — Test-plan checkbox 1
+  rewritten as a single consolidated line
+  ("Local `pwsh` tests pass (`test_parse.ps1`, `test_wim_parser.ps1`,
+  `test_disk_enumeration.ps1`)") — no extra checkboxes added, only
+  the parenthetical list widened, addressing PR #193's UX concern.
+  CI job list widened to include `pester`.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`
+  describing the resync and pointing at PR #201 as the adjacent
+  Safety-checklist fix.
+
+**Verification:**
+- No `.ps1` file touched. `test_parse.ps1` result unchanged.
+- Confirmed against `.github/workflows/ci.yml` that all six job
+  names in the widened CI list correspond to actual `jobs.<name>:`
+  entries (`syntax`, `pester`, `pssa`, `link-check`, `actionlint`,
+  `masterize`). The template's casual short-names (`PSSA`, `lychee`
+  for `link-check`) are preserved verbatim; `pester` inserted in
+  job-order between `syntax` and `PSSA`.
+- Confirmed all three local test files exist and parse:
+  `tests/test_parse.ps1`, `tests/test_wim_parser.ps1`,
+  `tests/test_disk_enumeration.ps1`.
+- Confirmed no open PR touches
+  `.github/PULL_REQUEST_TEMPLATE.md` (searched: PR-template,
+  test-plan, pester template combos — only PR #201 hits the file,
+  and it edits a different section).
+- `pwsh` install in this container blocks on the GitHub Releases
+  tarball fetch per the CLAUDE.md caveat; docs-only change means
+  the syntax/parser tests are unaffected either way. CI's `syntax`
+  job will run all three test scripts on push.
+
+**Risks / follow-ups:**
+- Minimal. Docs-only, single file plus the CHANGELOG bullet.
+  Cannot regress any deploy behavior. Cannot cause a merge conflict
+  with any open PR (checked).
+- Outstanding routine-backlog candidates left for a future pass:
+  - **`Get-SystemDisks` fixture test** has landed in PR #50 (merged
+    per commit `65d71e8`) — the "last untested parser" flag in the
+    backlog is now stale, remove it from the next routine entry's
+    follow-up list.
+  - **`Show-ImageList` / `Show-ImageSelection`** listing-render
+    factoring — cleanup only; deferred across many prior routine
+    entries because the menu render is load-bearing TUI UX.
+  - **The `SIGNING.md` "Signing the Built boot.wim" example** signs
+    `unified_winpe_deploy.ps1` + `scripts/build_boot_wim.ps1` but
+    doesn't cover `scripts/prepare_wim.ps1`, `scripts/build_iso.ps1`,
+    or `scripts/refresh_usb.ps1`. An admin workstation enforcing
+    `AllSigned` would need those signed too. Worth a separate
+    doc-only pass.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
