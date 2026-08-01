@@ -9,6 +9,39 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **CCTK migrated from the pre-4.0 HAPI kernel driver to the DCC 4.0+
+  userspace DCH API stack.** Older Dell Command | Configure releases
+  relied on a HAPI kernel driver (`hapint*.inf` / `hapint.sys`) that
+  had to be injected into the WinPE `boot.wim` offline via
+  `dism /Add-Driver` before `cctk.exe` could talk to the BIOS. DCC
+  **4.0 and later** ship a userspace DCH API stack instead
+  (`dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`, `ABI.dll`) — no
+  driver injection needed. `scripts/build_boot_wim.ps1` now validates
+  those three DCH DLLs are present alongside `cctk.exe` under
+  `-CctkSource` and **throws** if any are missing, rather than
+  silently embedding a non-functional CCTK tree. `unified_winpe_deploy.ps1`'s
+  CCTK-failure hint no longer talks about "HAPI driver not loaded"
+  and instead points at the DCH DLL set. Pre-4.0 DCC source trees
+  are no longer supported — download DCC 4.0 or later. `docs/CCTK.md`,
+  `docs/TROUBLESHOOTING.md`, and `docs/SCRIPT_REFERENCE.md` rewritten
+  in lockstep; `docs/CCTK.md` gains a "Legacy DCC (Pre-4.0 / HAPI Era)"
+  section for anyone searching "CCTK HAPI deprecated". Also folds in
+  a docs pass converting plain-bold callouts (`**WARNING:**`,
+  `**Note:**`, `**Tip:**`, `**Important:**`) to proper GitHub
+  callout syntax (`> [!WARNING]`, `> [!NOTE]`, `> [!TIP]`,
+  `> [!IMPORTANT]`) across `USB_SETUP.md`, `UNATTEND.md`,
+  `DEPLOY_ARGS.md`, and `TROUBLESHOOTING.md`.
+- **`scripts/build_boot_wim.ps1` now has behavioral-invariant fixture
+  coverage in `tests/test_parse.ps1`.** Beyond the existing syntax
+  check, four new assertions pin the DCH API DLL validation contract
+  (each of `dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll` referenced;
+  the `$missingDlls` guard actually throws), plus a fifth assertion
+  guards against re-introducing the "copy block recomputes
+  `$cctkExe.DirectoryName` independently of the validated `$cctkDir`"
+  drift that the CCTK migration fixed. A regression that dropped any
+  of the DLL checks or reintroduced the divergent-path bug would fail
+  the local `test_parse.ps1` run instead of only surfacing as a broken
+  runtime boot.wim.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

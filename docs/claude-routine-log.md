@@ -5,6 +5,115 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-01 — CHANGELOG `## Unreleased` missing CCTK migration (PR #51) + build_boot_wim tests (PR #52) entries
+
+**Investigated:** merged history since the last routine log entry
+(2026-05-24) and the full open-PR list (~100 routine PRs against
+`main`, most recent visible: #241-#251). Compared `git log
+--oneline main --since="2026-05-24"` against `CHANGELOG.md`'s
+`## Unreleased` section to find merged behavior changes that never
+got a changelog bullet. Followed CLAUDE.md's convention (§"When
+Modifying the Script → CHANGELOG convention"): landings between
+version bumps are recorded as `### Changed` / `### Fixed` bullets
+inside `## Unreleased` that name the version in prose.
+
+**Found:** Two merged PRs since the last log entry landed a
+user-visible behavior change with no `CHANGELOG.md` entry:
+
+1. **PR #51 (merged 2026-05-27, commit `10c74a3`)** — CCTK support
+   migrated from the pre-4.0 HAPI kernel driver to the DCC 4.0+
+   userspace DCH API stack. `build_boot_wim.ps1` now **throws** when
+   `-CctkSource` is missing `dchapi64.dll` / `dchbas64.dll` /
+   `BIOSIntf.dll` (before: warned only, silently embedded a broken
+   tree). `unified_winpe_deploy.ps1`'s CCTK-failure hint rewritten
+   away from "HAPI driver" and towards "DCH API DLLs missing". Pre-4.0
+   DCC is no longer supported. `docs/CCTK.md`, `docs/TROUBLESHOOTING.md`,
+   `docs/SCRIPT_REFERENCE.md` all rewritten. Also folded in a
+   plain-bold → `> [!WARNING]` / `> [!NOTE]` / `> [!TIP]` /
+   `> [!IMPORTANT]` callout-syntax pass across four other docs.
+2. **PR #52 (merged 2026-06-XX, commit `ef8fc2b`)** — extended
+   `tests/test_parse.ps1` with five new behavioral-invariant
+   assertions on `scripts/build_boot_wim.ps1`: pins the DCH API DLL
+   validation contract and prevents re-introducing the "copy block
+   recomputes `$cctkExe.DirectoryName` independently of the
+   validated `$cctkDir`" drift that the CCTK migration fixed.
+
+Grep across all ~100 open PRs (`is:open in:title CCTK`, `HAPI`,
+`DCH`, `CHANGELOG`) surfaced only PR #82 as adjacent — but PR #82's
+CHANGELOG bullet describes just the `.gitignore` safety-net extension
+for the DCH DLLs, not the migration itself. PR #220 removes a stale
+BitLocker-PIN bullet from `## Unreleased` (subtractive, not
+additive). No open PR adds a CHANGELOG entry for the CCTK migration
+proper or the build_boot_wim test-coverage extension. Genuine
+sliver.
+
+The Unreleased section already documents parallel test-only test
+coverage additions (PR #46 for `test_parse.ps1` covering
+`build_iso.ps1` + `first-login.ps1`, PR #50 for
+`test_disk_enumeration.ps1`) — so the convention for including test
+work in `### Changed` is already established. Not adding the same
+entry for the build_boot_wim test extension would leave the
+CHANGELOG asymmetric.
+
+**Changed:**
+- `CHANGELOG.md` — two new `### Changed` bullets added at the top of
+  `## Unreleased`, above the existing `Get-SystemDisks` fixture-test
+  entry. First bullet describes the CCTK HAPI → DCC 4.0+ DCH API
+  migration (script + docs + callout-syntax pass); second describes
+  the `test_parse.ps1` fixture coverage extended to
+  `build_boot_wim.ps1`.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- Doc-only change; no `.ps1`, `.xml`, or CI workflow file touched.
+- Post-edit grep for the version anchor (`grep -F "4.7.1"
+  CHANGELOG.md`) still succeeds — masterize Phase 1A check #1
+  (version consistency across CHANGELOG / CLAUDE / README) unaffected.
+  `4.7.1` still present at CHANGELOG lines 125, 131, 140.
+- Post-edit grep across `## Unreleased` for CCTK-migration keywords
+  (`dchapi64`, `dchbas64`, `BIOSIntf`, `HAPI`) now returns the new
+  bullets. Before: only the pre-4.0 `## 4.5.0` block mentioned HAPI.
+- Section-heading count unchanged (`grep -c "^## " CHANGELOG.md`
+  = 6, same as before).
+- `pwsh` is not installed in this container by default; per the
+  CLAUDE.md note the Pester suite runs in CI only. Docs-only change
+  cannot regress `tests/test_parse.ps1` / `test_wim_parser.ps1` /
+  `test_disk_enumeration.ps1`; CI runs all three on push regardless.
+
+**Risks / follow-ups:**
+- Minimal. Docs-only fix. No script logic, no CI-check strings, no
+  destructive path touched. If PR #82 merges before this one, its
+  `.gitignore` bullet ends up sibling to (not conflicting with) this
+  new CCTK-migration bullet — different focus, both belong under
+  `### Changed`.
+- Outstanding routine-backlog candidates NOT taken this pass (either
+  in flight, deferred, or explicitly not-a-single-slice):
+  - **~100 open routine PRs against `main`** at the time of this
+    run, covering: `build_iso` safety (11 PRs), BitLocker/PIN docs
+    and code (12 PRs), `deploy.args` handling (5 PRs), CCTK
+    exit-code recovery / selection precedence (4 PRs), typed-wipe
+    parser tests (4 PRs), Get-SystemDisks / image-menu factoring
+    (3 PRs), `first-login.ps1` reg-stderr surfacing (3 PRs),
+    unattend validation (7 PRs), refresh_usb parity (4 PRs),
+    prepare_wim path safety (5 PRs), `WipeDisks` gates (2 PRs),
+    DISM / Get-WimInfo diagnostics (3 PRs), masterize CI check
+    hardening (4 PRs), and multiple SCRIPT_REFERENCE / ARCHITECTURE
+    / USB_SETUP resyncs. Topic surface is heavily saturated.
+    Future passes should prefer log-only notes (rule 27) unless a
+    genuinely uncovered sliver like this one surfaces.
+  - **`Show-ImageList` / `Show-ImageSelection` ~30-line render-block
+    dedup** — deferred across every routine cycle back to 2026-05-16
+    as load-bearing TUI UX. Now covered by open PR #227
+    (`refactor: factor shared image-menu render into
+    Write-ImageMenuTable`). No need to duplicate.
+  - **CCTK per-exit-code recovery guidance** — deploy script line
+    1362-1368 only lists three catch-all causes for any non-zero
+    exit; docs/CCTK.md and docs/TROUBLESHOOTING.md name specific
+    codes (116, 149) with distinct fixes. Covered by open PR #232.
+    Not duplicated.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
