@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-01 — `docs/SCRIPT_REFERENCE.md` docs drift on `-UnattendFile` XML pre-flight
+
+**Investigated:** open PRs (#78, #79, #120, #151, #192, #223-#252 — the
+current-flight cluster) touching unattend / build_iso / docs, plus
+`git log main --oneline` since the 2026-05-17 `-UnattendFile`
+well-formedness landing. Grepped `README.md` + `docs/*.md` for
+`must exist`, `well-formed`, `validated`, `XML` around `UnattendFile`
+to find any docs that still described the pre-flight as
+existence-only.
+
+**Found:** two lines in `docs/SCRIPT_REFERENCE.md` still described the
+`-UnattendFile` pre-flight the way it worked before the 2026-05-17
+routine pass (routine-log entry at the same date; landed in
+`unified_winpe_deploy.ps1:1732-1745`):
+
+- Line 86-87 (`### -UnattendFile [string]` block):
+  "The file is validated (must exist) before any destructive disk
+   work begins — the deploy aborts early if the path is wrong."
+- Line 211 (safety-chain ASCII diagram):
+  "-UnattendFile validation (fail fast if path doesn't exist)"
+
+Neither mentioned the `[xml](Get-Content ...)` well-formedness check
+that now runs alongside `Test-Path` — despite `docs/RELEASE_VALIDATION.md`
+row 7 already documenting the XML gate in prose, and
+`docs/UNATTEND.md §6` documenting the same manual recipe.
+
+No open PR touched either line. The seven adjacent unattend PRs
+(#78, #79, #120, #151, #192, #226, and PR #78's UNATTEND.md walkthrough
+resync) are all on `build_iso.ps1` / deploy-script / `UNATTEND.md` /
+`first-login.ps1`. `SCRIPT_REFERENCE.md` was untouched. Verified via
+`gh search_pull_requests` on `SCRIPT_REFERENCE UnattendFile`,
+`SCRIPT_REFERENCE well-formed`, and `unattend XML validation docs`.
+
+**Changed:**
+
+- `docs/SCRIPT_REFERENCE.md` — parameter block rewritten from
+  "validated (must exist)" to "validated (must exist and parse as
+  well-formed XML via `[xml](Get-Content ...)`)". Added a sentence
+  explaining why the check exists (Windows Setup silently ignores
+  malformed unattend and falls through to manual OOBE) and a
+  cross-link to `UNATTEND.md#6-verify-it-parses` so operators can
+  follow the same recipe manually. Safety-chain diagram line updated
+  to "fail fast if path doesn't exist or XML is malformed".
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of `## Unreleased`.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed per the CLAUDE.md recipe.
+- Baseline: `tests/test_parse.ps1` → 48/0, `tests/test_wim_parser.ps1` →
+  16/0, `tests/test_disk_enumeration.ps1` → 34/0.
+- Post-edit: same counts (48/0, 16/0, 34/0). Docs-only change; no
+  `.ps1` file touched, no CI-check strings altered, no version-fence
+  literals moved.
+- Manual verification of the anchor `#6-verify-it-parses` against
+  the CLAUDE.md anchor-slug rules: heading `## 6. Verify it parses`
+  → lowercase → `6. verify it parses` → drop `.` → `6 verify it parses`
+  → spaces to hyphens → `6-verify-it-parses`. Matches.
+
+**Risks / follow-ups:**
+
+- **Minimal.** Docs-only. No script parameter, function, safety
+  gate, test, or CI-check touched. No destructive path exercised.
+- Outstanding routine-backlog candidates I did not take this pass:
+  - **`docs/UNATTEND.md §6`** could add a one-line note that the
+    deploy script runs the same recipe as a pre-flight, so operators
+    know the manual step is a defense-in-depth check rather than the
+    only guard. Deferred to avoid conflicting with PR #78's
+    UNATTEND.md walkthrough resync (touches sections 2/3/4 but not §6).
+  - **`Show-ImageList` / `Show-ImageSelection`** listing-render
+    factoring — still deferred as load-bearing UX (covered by open
+    PR #227).
+  - **~250 open routine PRs** as of this run — topic surface is
+    heavily saturated. Future passes should prefer log-only notes
+    unless a genuinely uncovered sliver (like this one) surfaces.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

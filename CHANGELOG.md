@@ -8,6 +8,17 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Docs drift on `-UnattendFile` validation.** `docs/SCRIPT_REFERENCE.md`
+  still described the `-UnattendFile` pre-flight as "validated (must
+  exist)" and its safety-chain diagram as "fail fast if path doesn't
+  exist". The 2026-05-17 routine pass added an `[xml](Get-Content ...)`
+  well-formedness check ahead of any destructive disk work — landed in
+  `unified_winpe_deploy.ps1` lines 1732-1745 and in `docs/RELEASE_VALIDATION.md`
+  row 7 — but the parameter reference and the safety-chain block never
+  got the update. Both now describe both checks and cross-link to
+  `docs/UNATTEND.md §6` for the same recipe operators can run manually.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
