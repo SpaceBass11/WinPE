@@ -5,6 +5,96 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-01 — `build_iso.ps1` warns on `-VolumeLabel` mismatch
+
+**Investigated:** open PRs (#231-#250 are the most recent open Claude
+branches, many still unmerged) and the `git log --all` topic history
+for `build_iso`, `label`, `IMAGES`. Cross-referenced against the
+`build_iso.ps1` parameter surface to find something not already in
+flight. Recent open PRs cover PIN redaction (#236), PIN length
+(#245), silent-mode disk collisions (existing side branch dc13e72),
+Interactive-mode param drops (#231), and PR-template resync (#249).
+Nothing addresses the volume-label mismatch case.
+
+**Found:** `scripts/build_iso.ps1` takes an optional `-VolumeLabel`
+parameter (default `IMAGES`, line 145). The `startnet.cmd` baked into
+`boot.wim` by `scripts/build_boot_wim.ps1` (lines 279-286) scans
+mounted volumes for the *literal* string `IMAGES` to set
+`%DEPLOY_IMAGE_DRIVE%`. If the operator builds an ISO with
+`-VolumeLabel 'X'` (any value other than `IMAGES`), the runtime chain
+silently degrades in three places:
+
+1. **`deploy.args` never loads.** `startnet.cmd` gates the
+   `set /p DEPLOYARGS=...` block on `defined DEPLOY_IMAGE_DRIVE`, so
+   without a label hit, the silent-mode ISO reverts to a bare
+   `powershell.exe -File unified_winpe_deploy.ps1` launch — an
+   interactive TUI, not the silent wipe the operator paid for with
+   `-ConfirmSilentDestructiveIso`.
+2. **CCTK BIOS config apply is skipped.** `Invoke-CctkConfig`
+   (unified_winpe_deploy.ps1 line 1290-1293) prints
+   `"CCTK embedded but DEPLOY_IMAGE_DRIVE is unset - skipping BIOS config"`
+   and returns success. The BIOS is left untouched. On a Dell fleet
+   with CCTK profiles staged, that means the machine boots with
+   whatever the previous BIOS state was — not the deploy contract.
+3. **BitLocker recovery keys fall back to `C:\Windows\Setup\BitLockerKeys`.**
+   `Resolve-BitLockerKeyPath` (line 1485-1497) only picks the IMAGES
+   partition when `$env:DEPLOY_IMAGE_DRIVE` is set. Otherwise it
+   silently falls back to a path on the encrypted volume itself,
+   which the operator must remember to copy off before first
+   reboot — or lose the recovery key on TPM reset.
+
+All three are runtime failures on the end-user's laptop, discoverable
+only after the ISO has been produced, flashed to USB, and booted. The
+docs (build_iso.ps1 `.PARAMETER VolumeLabel` block, lines 83-86)
+already tell the operator "Change only if you also rebuild boot.wim
+with a matching label" but there's no runtime guard.
+
+**Changed:**
+
+- `scripts/build_iso.ps1` — new `if ($VolumeLabel -ne 'IMAGES')` block
+  right after the existing `-BitLockerPin` warning, before staging
+  starts. Emits four `Write-Warn` lines: header naming the mismatch,
+  then a bullet list of the three silent degradations, then the
+  fix-it hint (rebuild boot.wim or revert to default). Kept as a
+  warning (not `throw`) because an advanced user who has already
+  rebuilt boot.wim with a custom startnet.cmd should be able to
+  proceed — this fires early enough (during input validation, before
+  the WIM robocopy) that they can Ctrl-C if they didn't mean it.
+- `CHANGELOG.md` — new `## Unreleased / ### Changed` bullet placed
+  atop the existing entries; describes the three downstream effects.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+
+- `pwsh` v7.4.6 installed once per the CLAUDE.md note (GitHub Releases
+  tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed (was 48/0 before the edit — `+0` new assertions, but the
+  `build_iso.ps1` syntax-valid line now covers the new block).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0 unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  unchanged (sanity: no cross-contamination).
+- Manual read of the edit against the flow above: the block sits at
+  build_iso.ps1 line 211-234 (post-edit), between the BitLocker PIN
+  warning and the output-dir resolution — before any file operation
+  or oscdimg invocation, after all input validation.
+
+**Risks / follow-ups:**
+
+- Minimal. Warning-only, PSv5.1-safe (only `Write-Host` + string
+  comparison), no destructive code paths touched, no new parameters
+  added. Worst case: an advanced-user warning noise on custom-label
+  builds — which is exactly the point.
+- Outstanding backlog candidates from prior entries (unchanged from
+  the 2026-05-24 pass, all still open or unclaimed):
+  - `Show-ImageList` / `Show-ImageSelection` still share ~30 lines of
+    listing-render code. A `Write-ImageMenuTable` helper was extracted
+    on side branch 569ada0 but is not yet merged.
+  - Many other `warn(...)` and `safety(...)` side branches are
+    open (#231-#250, and older). None duplicate this change.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`build_iso.ps1` warns when `-VolumeLabel` differs from `IMAGES`.**
+  The `startnet.cmd` baked into `boot.wim` by `build_boot_wim.ps1`
+  scans mounted volumes for the literal label `IMAGES` to set
+  `%DEPLOY_IMAGE_DRIVE%`. Building an ISO with a different label
+  silently drops three things at boot: `deploy.args` loading (a silent
+  ISO reverts to interactive TUI), CCTK BIOS config apply, and
+  BitLocker recovery-key escrow to the IMAGES partition (falls back
+  to `C:\Windows\Setup\BitLockerKeys` on the encrypted volume itself).
+  The new pre-flight logs a multi-line warning listing each downstream
+  effect and reminds the operator to rebuild `boot.wim` with a
+  matching custom `startnet.cmd`. Warning only — an advanced user who
+  has already rebuilt `boot.wim` for a custom label can proceed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

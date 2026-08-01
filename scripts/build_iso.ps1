@@ -208,6 +208,31 @@ if ($BitLockerPin) {
     }
 }
 
+# --- Volume-label / boot-integration warning ---
+# startnet.cmd (baked into boot.wim by build_boot_wim.ps1) scans mounted
+# volumes for the LITERAL label "IMAGES" to set %DEPLOY_IMAGE_DRIVE%.
+# That env var is what enables three downstream behaviors:
+#   1. deploy.args loading — a silent-mode ISO built without a matching
+#      label reverts to interactive TUI at boot (startnet.cmd falls
+#      through to a bare deploy launch), so -ConfirmSilentDestructiveIso
+#      does not actually produce a silent deploy.
+#   2. CCTK BIOS config apply — Invoke-CctkConfig skips silently when
+#      DEPLOY_IMAGE_DRIVE is unset.
+#   3. BitLocker recovery-key escrow — falls back to
+#      C:\Windows\Setup\BitLockerKeys (on the encrypted volume itself),
+#      which the operator must copy off before first boot or risk lockout.
+# A custom -VolumeLabel needs a matching custom startnet.cmd in boot.wim
+# to preserve any of the three. Warn once at build time so the surprise
+# lands here, not on the end-user's laptop.
+if ($VolumeLabel -ne 'IMAGES') {
+    Write-Warn "-VolumeLabel '$VolumeLabel' differs from the 'IMAGES' literal that startnet.cmd scans for."
+    Write-Warn "  DEPLOY_IMAGE_DRIVE will stay unset at boot, which means:"
+    Write-Warn "    * deploy.args will NOT be loaded (a silent ISO reverts to interactive TUI)"
+    Write-Warn "    * CCTK BIOS config apply will be skipped"
+    Write-Warn "    * BitLocker recovery keys will fall back to C:\Windows\Setup\BitLockerKeys"
+    Write-Warn "  Rebuild boot.wim with a matching startnet.cmd, or keep the default 'IMAGES'."
+}
+
 # Resolve output directory
 $outputDir = Split-Path -Parent $OutputIso
 if ($outputDir -and -not (Test-Path $outputDir)) {
