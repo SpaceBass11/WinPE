@@ -45,13 +45,20 @@ pre-select but still require typed confirmation. **Never bypasses
 `DESTROY SYSTEM`** — the system-disk gate always requires the typed string.
 
 ### -WipeDisks [string]
-Comma-separated disk numbers to also wipe (clean-only, no repartitioning)
-alongside the primary target. Validated against the
-`^\s*\d+(\s*,\s*\d+)*\s*$` pattern in silent mode. Requires `-Force` for
-unattended runs.
+**Silent-mode only.** Comma-separated disk numbers to also wipe
+(clean-only, no repartitioning) alongside the primary target.
+Validated against the `^\s*\d+(\s*,\s*\d+)*\s*$` pattern. Requires
+`-Force` (the interactive `WIPE ALL` typed confirmation cannot run
+unattended).
+
+In interactive mode this parameter is **ignored** — the extra-wipe
+menu prompts for disk numbers regardless of what was passed on the
+command line. To pre-select extra wipes for automation, use the
+silent-mode invocation below.
 
 ```powershell
-.\unified_winpe_deploy.ps1 -TargetDisk 0 -WipeDisks "1,2" -Force
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" `
+    -TargetDisk 0 -WipeDisks "1,2" -Force -Silent
 ```
 
 ### -MinImageSizeMB [int]

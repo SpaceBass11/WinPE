@@ -5,6 +5,87 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-02 — `-WipeDisks` docs clarified as silent-mode only
+
+**Investigated:** Behavior/documentation drift between the
+`-WipeDisks` parameter's `.PARAMETER` help block
+(`unified_winpe_deploy.ps1` lines 19-23), its `docs/SCRIPT_REFERENCE.md`
+section (lines 47-55), and its actual runtime handling in
+`Select-AdditionalWipeDisks` (line 1389). Also swept the ~100 open
+Claude PRs to confirm no in-flight work covers this specific
+clarification.
+
+**Found:** `Select-AdditionalWipeDisks` reads `$WipeDisks` only inside
+`if ($Silent)`. In interactive mode the entire silent branch is
+skipped and the operator is prompted via `Read-Host` regardless of
+what was passed on the command line — the CLI value is silently
+dropped. Both doc blocks mentioned "silent mode" in passing (in the
+regex-validation and `-Force` clauses) but neither said explicitly
+that interactive mode *ignores* the value. Worse, the
+`SCRIPT_REFERENCE.md` example was `-TargetDisk 0 -WipeDisks "1,2"
+-Force` with no `-Silent`, implying the parameter took effect in
+interactive-with-`-Force` scenarios. It doesn't. An operator running
+that example would still see the extra-wipe prompt and wonder why
+their pre-selection didn't stick.
+
+No open PR covers this specific gap. PR #214 documents the similar
+`-WimFile` vs `-ImagePath` drop and PR #231 covers `build_iso.ps1`'s
+silent-only params in `-Interactive`, but neither touches the deploy
+script's `-WipeDisks` interactive behavior.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `.PARAMETER WipeDisks` block. Opens
+  with "Silent-mode only." Ends with "In interactive mode this
+  parameter is IGNORED - the extra-wipe menu prompts for disk numbers
+  regardless of what was passed on the command line." Removed the
+  redundant "when combined with -Silent" clause on `-Force` (now
+  redundant since the whole param is silent-only).
+- `docs/SCRIPT_REFERENCE.md` — `-WipeDisks` section. Opens with
+  **Silent-mode only.** in bold. Adds a paragraph explaining the
+  interactive-mode ignore. Updates the example to include `-Silent`
+  and `-WimFile` (silent mode requires `-WimFile` per the existing
+  validation gate, so an example without it would fail at runtime).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the doc clarification. Explicit "No code change —
+  behavior is unchanged."
+
+**Verification:**
+- `pwsh` installed once per session per CLAUDE.md
+  (PowerShell/Releases v7.4.6 tarball).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed (no regression; the `.PARAMETER` block is inside
+  the comment-based help, so the syntax parser and required-functions
+  list are unaffected).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+  unchanged.
+- Structural sanity: the changed `.PARAMETER` block starts and ends at
+  the same file positions; no brace or `#region` count perturbation.
+- No production code touched. `Select-AdditionalWipeDisks` behavior is
+  identical byte-for-byte; the CI masterize doc-consistency checks
+  (Phase 1A #1-7) don't look at `.PARAMETER` block wording, so no
+  masterize risk.
+
+**Risks / follow-ups:**
+- Zero runtime risk (docs only).
+- A follow-up idea that would provide the OTHER half of this fix —
+  actually honoring `-WipeDisks` in interactive mode by pre-populating
+  the prompt or auto-adding to the pick set — is intentionally not
+  taken here. That's a feature (behavior change), not a doc fix, and
+  the current "silent-only" semantics are load-bearing for the
+  operator-typed `WIPE ALL` confirmation gate. Doc first, feature
+  later (if ever).
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **`Get-SystemDisks` fixture test** — landed in PR #50, merged.
+  - **`Show-ImageList` / `Show-ImageSelection`** shared ~30 lines —
+    PR #227 covers this refactor (open).
+  - **`Invoke-CctkConfig` selection precedence fixture test** — PR
+    #203 covers this (open).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

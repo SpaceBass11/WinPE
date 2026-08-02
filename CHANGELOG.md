@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-WipeDisks` doc clarified as silent-mode only.** The parameter is
+  read only inside `Select-AdditionalWipeDisks`'s `if ($Silent)` branch;
+  in interactive mode the extra-wipe menu prompts for disk numbers
+  regardless of what was passed on the command line. The prior wording
+  ("Validated ... in silent mode. Requires -Force when combined with
+  -Silent") implied silent-mode context without saying the interactive
+  path *ignores* the value, and the `SCRIPT_REFERENCE.md` example
+  omitted `-Silent` entirely. Both the `.PARAMETER` block in
+  `unified_winpe_deploy.ps1` and the `-WipeDisks` section of
+  `docs/SCRIPT_REFERENCE.md` now say silent-mode only up front, and the
+  example includes `-Silent`. No code change — behavior is unchanged.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
