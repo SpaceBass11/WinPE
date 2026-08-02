@@ -5,6 +5,97 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-02 — Backlog-triage pass (no code change)
+
+**Investigated:** open-PR queue against `main`, the routine-log
+"next recommended improvement" backlog, and the current safety /
+validation surface of `unified_winpe_deploy.ps1` +
+`scripts/*.ps1` + `tests/*.ps1`. Cross-checked candidate
+improvement areas against the open-PR titles to find something
+novel that a future merge sweep wouldn't already deliver.
+
+**Found:** the open queue at run start is ~74 routine PRs (across
+`claude/*` branches) plus a handful of earlier `#54`-`#62` PRs,
+all against `main`, none merged yet. Every high-signal improvement
+I inspected already has an open PR covering it:
+
+| Area I inspected                                          | Already covered by |
+|-----------------------------------------------------------|--------------------|
+| `build_iso.ps1` PIN redaction / length / char validation  | #66, #131, #141, #173, #213, #224, #236, #245 |
+| `build_iso.ps1` disk-collision / silent-mode pre-flight   | #188, #200, #254 |
+| `build_iso.ps1` volume-label warning                      | #251 |
+| Additional-wipe candidate list excludes system disks      | #259 |
+| CCTK service-tag alnum normalization                      | #260 |
+| `refresh_usb.ps1` `-OutputName` path-separator validation | #261 |
+| `-WipeDisks` silent-mode-only docs                        | #262 |
+| `deploy.args` `{DRIVE}` placeholder docs + drift guard    | #209, #257, #258 |
+| `deploy.args` `::` comment / blank-line handling          | #54, #189 |
+| DISM exit-code recovery fixture                           | #175, #256 |
+| Get-WimInfo failure surfacing                             | #204 |
+| `unified_winpe_deploy.ps1` `-ImagePath` file-guard        | #166, #186 |
+| `-UnattendFile` XML pre-flight docs                       | #253 |
+| Set-Content trap in `New-DiskpartScript`                  | #198 |
+| `refresh_usb.ps1` `$LASTEXITCODE` false-fail on reg unload | #164 |
+| Panther log preservation across reboot                    | #191 |
+| BitLocker staging guard against silent New-Item/Set-Content | #194 |
+| Fatal-catch stack trace                                   | #199 |
+| Unattend `Copy-Item` failure abort                        | #192 |
+| WIM source disk in wipe set                               | #171 |
+| Disk-size validation math tests                           | #170 |
+| BitLocker `LookupMode` / `Resolve-BitLockerKeyPath` tests | #178 |
+| `Test-FinalWipeConfirmation` typed-confirmation tests     | #174, #202 |
+| `Invoke-CctkConfig` selection-precedence tests            | #203 |
+| `WipeDisks` regex-gate tests                              | #165 |
+| Various doc resyncs (SCRIPT_REFERENCE, ARCHITECTURE)      | #55, #58, #163, #176, #183, #196, #253 |
+| PR template / AGENTS.md typed-confirmation lists          | #201 |
+| Router of `.VERSION` block top entry                      | #169 |
+| `-NoNewWindow` invariant                                  | #187 |
+| Masterize typed-confirmation string pins                  | #184 |
+
+Novel improvements I considered but did not open a PR for:
+
+- Whitespace-trimming the interactive Read-Host PIN prompt at
+  `unified_winpe_deploy.ps1:1684`. Would prevent a trailing-space
+  PIN from silently baking into `bitlocker-setup.ps1`. Held off:
+  a whitespace-containing PIN could be intentional (passphrase
+  style), and quietly stripping it is a behavior change on an
+  input the operator directly typed. Deferred pending human
+  policy call.
+- Warning when `-WipeDisks` is passed without `-Silent` (the
+  parameter is silently ignored in interactive mode — the docs
+  clarify this in PR #262, but the runtime doesn't). Held off:
+  overlaps in spirit with #262's docs-only clarification; want to
+  avoid stacking a runtime change on top of an unmerged doc PR.
+
+**Changed:** nothing except this log entry. Per routine rule #27,
+"if not [a high-confidence, small, verifiable improvement],
+produce a concise review note and next-step recommendation, and
+stop."
+
+**Verification:** N/A — no code / test / CI files touched. Working
+tree confirmed clean pre-write via `git status`.
+
+**Risks:** none. Doc-only append at the top of the routine log.
+
+**Next recommended improvement:**
+
+- **Merge the routine backlog before generating more.** The queue
+  is now ~74 PRs; the previous entry (2026-07-04, PR #201) already
+  flagged this and the count has climbed since. Further routine
+  passes should keep leaning on rule #27 unless a genuinely novel
+  finding appears. Consider running a human-side triage pass
+  (close-vs-merge decisions across the `claude/lucid-keller-*` and
+  `claude/routine-*` branches) so future runs have a clean signal
+  for what's still open.
+- The two candidate improvements listed above (PIN whitespace
+  trim; `-WipeDisks` non-silent warning) are recorded here for
+  when the backlog is caught up.
+- Follow-ups carried forward from prior entries (`Show-ImageList`
+  / `Show-ImageSelection` dedup; masterize check-numbering gap at
+  #20 → #22) still stand.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
