@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-02 — `scripts/refresh_usb.ps1 -OutputName` input validation
+
+**Investigated:** open PRs (#231–#260 all still open, no overlap with
+this area), the routine log's outstanding backlog, and every consumer
+of `$OutputName` in `scripts/refresh_usb.ps1`.
+
+**Found:** `-OutputName`'s `.PARAMETER` doc has always said "no extension,
+no path" but nothing enforced it. The value is passed through unchecked
+into `Join-Path $ImagesPath "$OutputName.wim"` on line 159, so:
+- `-OutputName 'foo/bar'` produces `I:\images\foo\bar.wim`, a nested
+  subdir path that `prepare_wim.ps1` then fails to create ~20 minutes
+  in when it tries to export the WIM.
+- `-OutputName 'Win11.wim'` produces `I:\images\Win11.wim.wim`, which
+  the actual deploy script then can't find on the IMAGES partition at
+  boot — no error surfaces until the operator watches the deploy
+  scanner say "no images found."
+
+Both are documented invariants the code silently violated. Catching
+them at the wrapper's entry keeps the failure fast and lets the
+operator retype instead of waiting for prepare_wim to fail deep.
+
+**Changed:**
+- `scripts/refresh_usb.ps1` — added two throws right after the
+  `$OutputName` derivation block (lines 159–169). First guards against
+  path separators and Windows-invalid filename characters
+  (`[\\/:*?"<>|]`); second guards against a trailing `.wim`/`.esd`
+  extension via `[IO.Path]::GetExtension` scoped to those two values
+  (so dotted version tokens like `Win11.24H2` still pass — verified
+  end-to-end below). Both fire before the Read-Host rebuild prompt
+  and before `prepare_wim.ps1` is invoked. Updated the `.PARAMETER
+  OutputName` doc block to match the new enforced shape.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`
+  describing the validation. No version bump (wrapper-script UX
+  improvement, no `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+- `pwsh 7.4.6` installed once for this session per the CLAUDE.md note
+  (tarball into `/opt/pwsh/`, ADK-independent).
+- Baseline: `tests/test_parse.ps1` 48/0, `tests/test_wim_parser.ps1`
+  16/0, `tests/test_disk_enumeration.ps1` 34/0 — all green before
+  edits.
+- Post-edit: same three suites, same three counts, all green. No
+  drift-guard fired.
+- End-to-end sanity via a synthetic `.iso` fixture, one invocation
+  per case, all with `-RebuildBootWim No` so the interactive prompt
+  is bypassed:
+    - `-OutputName 'Win11_valid'` → passes validation, hits prepare_wim
+      (which fails on `C:` not existing in the Linux env — expected).
+    - `-OutputName 'foo/bar'` → throws the path-separator message
+      before prepare_wim runs.
+    - `-OutputName 'Win11.wim'` → throws the extension message before
+      prepare_wim runs.
+    - `-OutputName 'Win11.24H2'` → passes validation (no false
+      positive on dotted version tokens), then hits prepare_wim.
+
+**Risks / follow-ups:**
+- Minimal. No production `.ps1` file (deploy script, boot builder,
+  build_iso) touched; changes are wrapper-only and pre-flight. No
+  destructive code path affected (no diskpart, DISM apply, BCDBoot,
+  BitLocker, or CCTK behavior changed). The two new predicates are
+  intentionally narrow — the character-class one covers the exact
+  set Windows reserves, and the extension one is scoped to two
+  literals so it can't drift into rejecting legitimate names.
+- Outstanding routine-backlog candidates that stay deferred:
+  - **`Show-ImageList` / `Show-ImageSelection` factoring** — repeatedly
+    flagged as ~30 lines of duplicated listing-render code across
+    prior routine entries, still deferred because the menu render is
+    load-bearing TUI UX and a subtle change to spacing or color
+    would ship to every operator on the next release without hardware
+    test coverage.
+  - **Fixture test for `Invoke-CctkConfig` config-precedence logic** —
+    would be valuable (last untested destructive-adjacent parser in
+    the deploy script), but PR #260 is actively touching the exact
+    code path (service-tag alnum normalization) so a test PR now
+    would need a rebase after that lands.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/refresh_usb.ps1 -OutputName` is now validated at entry.**
+  The doc has always said "no extension, no path" but there was no
+  runtime enforcement: `Join-Path` silently concatenated the value,
+  so `-OutputName 'foo/bar'` produced `I:\images\foo\bar.wim` (a
+  nested path prepare_wim.ps1 then fails to create) and
+  `-OutputName 'Win11.wim'` produced `Win11.wim.wim` (which the
+  deploy tool later can't find on the IMAGES partition). Both now
+  throw with a specific message before the 20-minute prepare_wim
+  run kicks off. Dotted version tokens like `Win11.24H2` are still
+  accepted — only `.wim`/`.esd` extensions are rejected.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
