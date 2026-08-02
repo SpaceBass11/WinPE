@@ -221,6 +221,64 @@ Write-Result -Test "Model .Trim() yields clean string" `
     -Pass ($trimmed -eq 'Samsung 980 PRO') -Detail "got '$trimmed'"
 
 # ---------------------------------------------------------------------------
+# Select-AdditionalWipeDisks candidate filter — system disks must be excluded
+# so a 'WIPE ALL' confirmation cannot clean the running system disk without
+# the DESTROY SYSTEM typed confirmation that Select-TargetDisk gates. In
+# WinPE the IsSystemDisk flag is always $false; this covers the non-WinPE
+# CONTINUE ANYWAY escape hatch as defense-in-depth.
+# ---------------------------------------------------------------------------
+
+Write-Host "`n--- Select-AdditionalWipeDisks candidate filter ---" -ForegroundColor Cyan
+
+function Get-AdditionalWipeCandidates {
+    param([array]$AllDisks, $TargetDisk)
+    # Mirrors the filter in Select-AdditionalWipeDisks.
+    return @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number -and -not $_.IsSystemDisk })
+}
+
+$mixedDisks = @(
+    [PSCustomObject]@{ Number=0; Model='Boot NVMe';    IsSystemDisk=$true  }  # host system disk (non-WinPE)
+    [PSCustomObject]@{ Number=1; Model='Target NVMe';  IsSystemDisk=$false }  # primary deploy target
+    [PSCustomObject]@{ Number=2; Model='Data NVMe';    IsSystemDisk=$false }  # legitimate extra-wipe candidate
+    [PSCustomObject]@{ Number=3; Model='OEM Recovery'; IsSystemDisk=$false }  # legitimate extra-wipe candidate
+)
+$target = $mixedDisks | Where-Object { $_.Number -eq 1 }
+$candidates = Get-AdditionalWipeCandidates -AllDisks $mixedDisks -TargetDisk $target
+
+Write-Result -Test "Target disk (1) is excluded from candidates" `
+    -Pass (($candidates | Where-Object { $_.Number -eq 1 }).Count -eq 0)
+Write-Result -Test "System disk (0) is excluded from candidates" `
+    -Pass (($candidates | Where-Object { $_.Number -eq 0 }).Count -eq 0) `
+    -Detail 'system disk must not be a WIPE ALL candidate'
+Write-Result -Test "Non-target non-system disks (2, 3) remain in candidates" `
+    -Pass ($candidates.Count -eq 2 -and ($candidates.Number | Sort-Object) -join ',' -eq '2,3') `
+    -Detail "got '$(($candidates.Number | Sort-Object) -join ',')'"
+
+# All-system pool (edge case): only the target is non-system; no candidates remain.
+$allSystem = @(
+    [PSCustomObject]@{ Number=0; Model='Sys A'; IsSystemDisk=$true  }
+    [PSCustomObject]@{ Number=1; Model='Sys B'; IsSystemDisk=$true  }
+    [PSCustomObject]@{ Number=2; Model='Target'; IsSystemDisk=$false }
+)
+$targetAll = $allSystem | Where-Object { $_.Number -eq 2 }
+$candAll = Get-AdditionalWipeCandidates -AllDisks $allSystem -TargetDisk $targetAll
+Write-Result -Test "All-system pool with one non-system target yields zero candidates" `
+    -Pass ($candAll.Count -eq 0) -Detail "got $($candAll.Count)"
+
+# WinPE happy path: nobody is flagged IsSystemDisk, so the filter is a no-op
+# and every non-target disk stays a candidate — matches pre-change behavior.
+$winpeDisks = @(
+    [PSCustomObject]@{ Number=0; Model='NVMe0'; IsSystemDisk=$false }
+    [PSCustomObject]@{ Number=1; Model='NVMe1'; IsSystemDisk=$false }
+    [PSCustomObject]@{ Number=2; Model='NVMe2'; IsSystemDisk=$false }
+)
+$targetWpe = $winpeDisks | Where-Object { $_.Number -eq 0 }
+$candWpe = Get-AdditionalWipeCandidates -AllDisks $winpeDisks -TargetDisk $targetWpe
+Write-Result -Test "WinPE path (no IsSystemDisk set) keeps all non-target disks" `
+    -Pass ($candWpe.Count -eq 2 -and ($candWpe.Number | Sort-Object) -join ',' -eq '1,2') `
+    -Detail "got '$(($candWpe.Number | Sort-Object) -join ',')'"
+
+# ---------------------------------------------------------------------------
 # Drift guard: safety-critical code shapes must still live in the deploy script
 # ---------------------------------------------------------------------------
 
@@ -263,6 +321,10 @@ if (-not (Test-Path $scriptPath)) {
     Write-Result -Test "CD exclusion still present on Model" `
         -Pass ($scriptText -match 'Model -notlike "\*cd\*"') `
         -Detail 'expected Model -notlike "*cd*"'
+
+    Write-Result -Test "Select-AdditionalWipeDisks excludes IsSystemDisk from candidates" `
+        -Pass ($scriptText -match '-ne \$TargetDisk\.Number -and -not \$_\.IsSystemDisk') `
+        -Detail 'expected the IsSystemDisk clause in the candidate Where-Object'
 }
 
 # --- Summary ---

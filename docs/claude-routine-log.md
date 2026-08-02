@@ -5,6 +5,79 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-02 — `Select-AdditionalWipeDisks` system-disk exclusion
+
+**Investigated:** the 20 open PRs (#239-#258) to avoid duplicating in-flight
+work, then walked every call site that consumes `IsSystemDisk` in
+`unified_winpe_deploy.ps1`. `Show-DiskMenu`, `Select-TargetDisk` (three
+places), and the `-DataDiskNumber` validation in `Start-Deployment`
+all guard on the flag. `Select-AdditionalWipeDisks` did not — its
+candidate `Where-Object` filter only removed the primary target.
+
+**Found:** a real defense-in-depth gap. In WinPE the flag is always
+`$false` (Get-SystemDisks short-circuits when `$env:SystemDrive -eq 'X:'`),
+so the WinPE deploy path is unaffected. But if the operator types
+`CONTINUE ANYWAY` at the `Test-WinPEEnvironment` gate (e.g. running the
+deploy script from a live Windows host for dev/testing), disk 0 gets
+flagged as system disk and can end up in the additional-wipe list.
+The single `WIPE ALL` confirmation at the end of the interactive path
+would then clean the running system disk without ever triggering the
+`DESTROY SYSTEM` typed prompt that `Select-TargetDisk` enforces for the
+primary target. Silent mode with `-WipeDisks 0` (or whatever number
+the system disk lands at) exhibited the same bypass.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Select-AdditionalWipeDisks`:
+  - Candidate `Where-Object` filter now also excludes `IsSystemDisk`.
+  - System disks are logged as excluded for operator transparency
+    (mirrors the USB-skip log line in `Get-SystemDisks`).
+  - Silent path with a requested system disk fails fast with a
+    specific "use `-TargetDisk` + DESTROY SYSTEM" message before the
+    generic "not a valid non-target disk" one.
+  - Interactive path replaces the generic "not a valid additional-wipe
+    target" line with a specific system-disk message pointing the
+    operator at `-TargetDisk` when the typed number matches a system
+    disk.
+- `tests/test_disk_enumeration.ps1` — new "Select-AdditionalWipeDisks
+  candidate filter" block (four assertions covering: target-excluded,
+  system-excluded, non-system remaining, all-system pool, WinPE
+  no-op) plus a drift-guard row that fails if the `IsSystemDisk`
+  clause is removed from the deploy script's candidate `Where-Object`.
+- `CHANGELOG.md` — new `## Unreleased / ### Fixed` bullet describing
+  the gap and the guard.
+
+**Verification:**
+- `pwsh` installed per CLAUDE.md recipe (PowerShell/Releases v7.4.6
+  tarball into `/opt/pwsh/`).
+- Baseline before edits: `test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0.
+- Post-edit: `test_parse.ps1` 48/0 (unchanged), `test_wim_parser.ps1`
+  16/0 (unchanged), `test_disk_enumeration.ps1` **40/0** (+6 for the
+  new fixture assertions + drift guard).
+- Negative-case check: `sed`-reverted the deploy-script filter to the
+  pre-edit form (`-ne $TargetDisk.Number` only), re-ran the disk-
+  enumeration test, saw `[FAIL] Select-AdditionalWipeDisks excludes
+  IsSystemDisk from candidates` and `Failed: 1`. Restored and
+  re-verified 40/0.
+
+**Risks / follow-ups:**
+- Minimal. In WinPE the change is a no-op (no disk is ever flagged
+  IsSystemDisk in that path). No destructive code path touched — the
+  edit only tightens which disks may enter the extra-wipe candidate
+  pool. The primary deploy target's own system-disk protection
+  (`Select-TargetDisk` `DESTROY SYSTEM` typed confirmation, lines
+  735/753/794) is unchanged.
+- Test-only side: the new fixture block uses PSCustomObject stand-ins,
+  no real WMI calls, PSv5.1-compatible (only `Where-Object`,
+  `Sort-Object`, and property-existence checks — no PSv7-only syntax).
+- The Pester suite (`tests/validation-gates.Tests.ps1`) doesn't cover
+  `Select-AdditionalWipeDisks` directly. A future pass could add a
+  Pester row that exercises the silent-mode reject-system-disk path
+  end-to-end through `Start-Deployment`, but that's a distinct topic
+  (the current PR is a one-file safety fix + fixture-level test).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

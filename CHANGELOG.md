@@ -8,6 +8,24 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`Select-AdditionalWipeDisks` now excludes system disks from the
+  extra-wipe candidate pool.** Previously the function only excluded the
+  primary target disk, so if the operator had typed `CONTINUE ANYWAY`
+  at the `Test-WinPEEnvironment` gate (e.g. running the deploy script
+  from a live Windows host for dev/testing), the running system disk
+  was eligible to be cleaned via a single `WIPE ALL` typed
+  confirmation — bypassing the `DESTROY SYSTEM` prompt that
+  `Select-TargetDisk` enforces for the primary target. In WinPE
+  `IsSystemDisk` is always `$false` so the practical WinPE deploy path
+  is unaffected; this is defense-in-depth for the non-WinPE escape
+  hatch. Silent mode with `-WipeDisks` containing a system disk now
+  fails fast with a specific message pointing the operator at
+  `-TargetDisk` + `DESTROY SYSTEM`. Interactive path skips the disk
+  and logs why. Excluded system disks are logged for transparency.
+  Fixture test added in `tests/test_disk_enumeration.ps1` with a
+  drift guard.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
