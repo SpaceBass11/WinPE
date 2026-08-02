@@ -5,6 +5,75 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-02 — regression guard for `startnet.cmd` `{DRIVE}` substitution
+
+**Investigated:** open PRs (#228-#257 — 28 open, most one-line
+routine improvements) and the current state of the `{DRIVE}`
+placeholder mechanism used by single-ISO `deploy.args`. PR #257
+documents the placeholder in `docs/DEPLOY_ARGS.md`. PR #248 adds a
+masterize check for `configs/unattend.example.xml`
+well-formedness. Nothing tests the actual substitution logic in
+`scripts/build_boot_wim.ps1`.
+
+**Found:** the `{DRIVE}` → `%DEPLOY_IMAGE_DRIVE%` substitution at
+line 306 of `scripts/build_boot_wim.ps1` is the only mechanism that
+lets `build_iso.ps1`-generated USBs use portable paths like
+`-WimFile "{DRIVE}\images\Win11.wim"` regardless of which letter
+WinPE assigns the USB. A refactor that removes the substitution (or
+renames `DEPLOY_IMAGE_DRIVE`) leaves the literal `{DRIVE}` in the
+PowerShell arg string; PowerShell's parameter binding accepts it as
+a string, and the deploy aborts at the `Test-Path` check with
+"WIM file not found" — a confusing, downstream error whose root
+cause is dozens of lines away. The two nearest CI masterize checks
+(#24 and #25) only verify that `deploy.args` is read via `set /p`
+and not echoed raw; they don't cover the substitution.
+
+**Changed:**
+
+- `tests/test_parse.ps1` — new invariant under the existing Test 9
+  builder block: `Builder: startnet.cmd substitutes {DRIVE}
+  placeholder`, greping for `DEPLOYARGS:\{DRIVE\}=%DEPLOY_IMAGE_DRIVE%`
+  in the raw script text. Same pattern as the existing DCH DLL checks
+  added by PR #52.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet documenting
+  the guard. No version bump (test-only, no
+  `$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+
+- `pwsh` installed per the CLAUDE.md tarball recipe.
+- Baseline `pwsh -NoProfile -File ./tests/test_parse.ps1` before
+  edits: 48/0.
+- After edit: 49/0 (+1 for the new invariant).
+- Sanity `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0
+  unchanged. `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1`
+  → 34/0 unchanged (no cross-test contamination).
+- Negative-case check: temporarily edited
+  `scripts/build_boot_wim.ps1` to rename `%DEPLOY_IMAGE_DRIVE%` to
+  `%OOPS%` in the substitution line, re-ran the suite, saw the new
+  invariant flip to `[FAIL] Builder: startnet.cmd substitutes
+  {DRIVE} placeholder` and the summary jump to `Failed: 1`. Restored
+  the original file and re-ran to confirm return to 49/0. Confirms
+  the assertion goes green-to-red on the exact drift it targets.
+
+**Risks / follow-ups:**
+
+- Minimal. Test-only change. No production code touched. No new
+  network dependency. Pattern (regex match on
+  `Get-Content -Raw` output) mirrors the DCH DLL / copy-block
+  invariants added by PR #52.
+- Outstanding routine-backlog candidates untouched this pass:
+  - `Show-ImageList` / `Show-ImageSelection` still share ~30 lines
+    of listing-render code that could be factored out (cleanup only;
+    deferred across multiple entries because menu render is
+    load-bearing TUI UX).
+  - The two open PRs that also touch `tests/test_parse.ps1` (PR #256
+    DISM exit-code fixture, PR #246 Test-FinalWipeConfirmation
+    fixture) will need trivial rebases against this change; both add
+    new tests, so line-conflicts are unlikely.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

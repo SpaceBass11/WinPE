@@ -136,6 +136,14 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # startnet.cmd must substitute the {DRIVE} placeholder with the actual
+    # image-drive letter. build_iso.ps1's per-USB deploy.args uses this so
+    # paths like "{DRIVE}\images\Win11.wim" resolve regardless of which
+    # letter WinPE assigns the USB. Documented in docs/DEPLOY_ARGS.md.
+    # A silent regression would leave literal "{DRIVE}" in the WIM path
+    # and abort every single-ISO deploy with a confusing "WIM not found".
+    Write-Result -Test 'Builder: startnet.cmd substitutes {DRIVE} placeholder' -Pass ($bc -match 'DEPLOYARGS:\{DRIVE\}=%DEPLOY_IMAGE_DRIVE%')
 }
 
 # Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)

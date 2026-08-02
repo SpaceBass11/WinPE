@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`tests/test_parse.ps1` now guards the `startnet.cmd` `{DRIVE}`
+  substitution.** Adds a positive invariant that
+  `scripts/build_boot_wim.ps1` still contains
+  `DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%`. The `{DRIVE}` placeholder
+  is what makes single-ISO `deploy.args` paths (e.g.
+  `-WimFile "{DRIVE}\images\Win11.wim"`) resolve regardless of which
+  letter WinPE assigns the USB (documented in `docs/DEPLOY_ARGS.md`).
+  A refactor that dropped the substitution would leave the literal
+  `{DRIVE}` in the path and abort every deploy with a confusing
+  "WIM file not found" — this check surfaces the regression at PR
+  time. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
