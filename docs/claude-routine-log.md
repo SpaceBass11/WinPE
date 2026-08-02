@@ -5,6 +5,97 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-02 — Fixture test for `Apply-WindowsImage` DISM exit-code guidance
+
+**Investigated:** open Claude routine PRs (#255, #254, #253, #252, #251,
+#250, #249, #248, #247, #246, plus older stragglers #176, #58, #212,
+#201, #63, #64, #65, #57), CHANGELOG `## Unreleased` inventory, and the
+routine log's outstanding backlog items. Compared these against the
+untested pieces of `unified_winpe_deploy.ps1`. Two candidates
+frequently flagged (`Get-SystemDisks` fixture / `Show-ImageList` code
+factoring) are already done or already in flight. Older backlog
+entries also called out "consider whether `Apply-WindowsImage`'s DISM
+exit-code → recovery message table covers the other common WinPE
+failure modes" (2026-05-16 entry).
+
+**Found:** `Apply-WindowsImage`'s switch on `$process.ExitCode` in
+`unified_winpe_deploy.ps1` carries bespoke `Write-Log` recovery
+guidance per known DISM failure mode (1, 2, 11, 50, 87, 112, 1168,
+1392, default). Each arm's guidance was hand-crafted (verify
+integrity, re-copy, USB 2.0 port, chkdsk, etc.) and is exactly what
+an operator needs at the exact moment the target has been wiped
+and DISM refused the image. A silent regression - someone deletes
+an arm during a cleanup or renames `$process` in a refactor - would
+degrade the operator experience to a generic `exit code N` line
+with no next step. `test_parse.ps1` catches parse errors and missing
+required functions but does not verify individual switch arms, so
+this class of regression would land silently.
+
+**Changed:**
+- `tests/test_dism_exitcodes.ps1` — new fixture test. Locates the
+  `switch ($process.ExitCode)` block by drift-guard regex, extracts
+  its body via brace-balancing, and asserts each expected exit code
+  in `{1, 2, 11, 50, 87, 112, 1168, 1392}` has a dedicated arm that
+  still contains at least one `Write-Log` line. Also asserts a
+  `default` catch-all remains. Runs on PowerShell 5.1 and 7+; no
+  Pester dependency.
+- `.github/workflows/ci.yml` — wired the new test into the `syntax`
+  job as a follow-on step. Runs on every push and PR to `main`.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the coverage extension.
+
+**Verification:**
+- `pwsh` installed per CLAUDE.md's `Install-Module`-blocked note
+  (v7.4.6 tarball into `/opt/pwsh/`; the network policy allows the
+  GitHub Releases download).
+- Baseline: `test_parse.ps1` 48/0, `test_wim_parser.ps1` 16/0,
+  `test_disk_enumeration.ps1` 34/0 before edits (no contamination).
+- Post-edit: `test_dism_exitcodes.ps1` 20/0. All 8 expected arms
+  present, all 8 have Write-Log guidance, default arm present,
+  drift-guard finds the switch.
+- Sanity: proved the test detects real regressions. Modified a copy
+  of the deploy script to (a) strip the `112 {` arm entirely and
+  (b) rename `$process.ExitCode` to `$result.ExitCode` in the
+  switch. In the first case the arm-114 check went `False`; in the
+  second case the drift-guard's `switch` regex missed entirely.
+  Both are exactly the failure modes the test is meant to catch.
+- Rerun of the three baseline tests post-edit still 48/0, 16/0,
+  34/0 (test-only addition; no deploy-script bytes changed).
+
+**Risks / follow-ups:**
+- Minimal. Test-only change, no production code touched, no new
+  network dependencies, no new modules imported. Pattern mirrors
+  `test_wim_parser.ps1` and `test_disk_enumeration.ps1` exactly
+  (drift-guard + fixture assertions + summary).
+- If `Apply-WindowsImage`'s call-site variable is legitimately
+  renamed from `$process` in the future, the drift-guard regex
+  needs a matching update; the failing test line points at exactly
+  the regex to change.
+- Outstanding backlog items I did NOT take this pass (still open
+  across in-flight routine PRs):
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out - deferred
+    across many entries because the menu render is load-bearing
+    TUI UX.
+  - ARCHITECTURE.md resync to v4.7.x (BitLocker / data-disk / build_iso
+    additions) is already in flight as PR #176 and PR #58 - avoided
+    duplicating.
+
+**Next recommended improvement:**
+- Consider whether the diskpart-exit-code diagnostics block
+  (`Invoke-Diskpart`, `unified_winpe_deploy.ps1:1067-1109`) needs
+  parallel coverage. Today the GPT-hint and read-only-hint text
+  is triggered by string-matched dpOutput; a similar fixture test
+  could feed synthetic diskpart output and assert the right hint
+  fires. Lower urgency than DISM guidance because a diskpart failure
+  is caught before the target disk is meaningfully touched, but the
+  hint quality is still what the operator sees first.
+- The `Test-FinalWipeConfirmation` typed-confirm parser is being
+  fixture-tested in PR #246; once merged, that closes the "typed
+  prompt parser" category entirely.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

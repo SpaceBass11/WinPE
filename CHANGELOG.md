@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Apply-WindowsImage` DISM exit-code guidance now has
+  fixture-test coverage.** New `tests/test_dism_exitcodes.ps1`
+  asserts the recovery-guidance switch in `Apply-WindowsImage`
+  still contains a dedicated arm for each documented DISM failure
+  mode (1, 2, 11, 50, 87, 112, 1168, 1392), that each arm still
+  carries at least one bespoke `Write-Log` line (not just a
+  fall-through), and that a `default` catch-all remains so unknown
+  exit codes still point the operator at TROUBLESHOOTING.md. A
+  drift guard also confirms the switch still dispatches on
+  `$process.ExitCode` - a rename of the process variable is caught
+  by the test instead of by an operator staring at a silent
+  fall-through after a wiped target. Wired into the CI `syntax`
+  job. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
