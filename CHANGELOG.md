@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/DEPLOY_ARGS.md` documents the `{DRIVE}` placeholder.**
+  `scripts/build_boot_wim.ps1` substitutes `{DRIVE}` in `deploy.args`
+  with the IMAGES-partition drive letter at boot, and `build_iso.ps1`
+  generates its `deploy.args` with `{DRIVE}\...` paths for exactly
+  that reason — but the reference doc never mentioned the token,
+  and its "How it works" cmd.exe block skipped the substitution
+  step. The stale "no environment-variable expansion, so the
+  example uses absolute drive letters because those are stable"
+  wording was also outdated (only one of the three example rows
+  now uses a hardcoded letter). Added a "Drive-letter placeholder"
+  section with a before/after example, the case-sensitivity note,
+  and the single-ISO-workflow rationale. No script changes.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

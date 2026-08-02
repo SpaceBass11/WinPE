@@ -35,6 +35,11 @@ if defined DEPLOY_IMAGE_DRIVE (
         echo   Parameters loaded. Secrets, if present, are not displayed.
     )
 )
+if defined DEPLOY_IMAGE_DRIVE (
+    if defined DEPLOYARGS (
+        set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"
+    )
+)
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
 ```
 
@@ -43,6 +48,36 @@ a `deploy.args` was loaded — never its contents — so a BitLocker
 PIN or other secret in the file does not appear on the WinPE
 console, KVM, or any over-the-shoulder view. To inspect the args,
 read the file from the IMAGES partition directly.
+
+## Drive-letter placeholder — `{DRIVE}`
+
+The literal token `{DRIVE}` anywhere in `deploy.args` is substituted
+with the IMAGES partition's drive letter (`%DEPLOY_IMAGE_DRIVE%`,
+including the trailing colon — e.g. `I:`) before the args are
+handed to PowerShell. So:
+
+```text
+-WimFile "{DRIVE}\images\Win11_Pro.wim" -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
+```
+
+becomes, at boot:
+
+```text
+-WimFile "I:\images\Win11_Pro.wim" -UnattendFile "I:\configs\unattend.xml" -Force -Silent
+```
+
+Use `{DRIVE}` when you don't know — or don't want to hardcode —
+which letter WinPE will assign the USB. That is the normal case
+for the single-ISO workflow: `build_iso.ps1` generates its
+`deploy.args` with `{DRIVE}\...` paths for exactly this reason,
+so the same ISO works on any host regardless of how WinPE lays
+out drive letters. The two-partition USB workflow can hardcode
+letters if the operator has verified them on the target hardware,
+but `{DRIVE}` works there too.
+
+Substitution is a literal text replace — the token must be
+capitalized exactly (`{DRIVE}`, not `{drive}`), and no other
+placeholders are recognized.
 
 ## Constraints
 
@@ -54,9 +89,10 @@ read the file from the IMAGES partition directly.
   double quotes. PowerShell re-parses the args on its end so the
   normal `-Param "value"` pattern works.
 - **No environment-variable expansion** beyond what cmd.exe and
-  startnet.cmd already set (notably `%DEPLOY_IMAGE_DRIVE%` is
-  available, but the example uses absolute drive letters because
-  those are stable on the IMAGES USB).
+  startnet.cmd already set. The only path-portability tool is the
+  `{DRIVE}` token described above; `%DEPLOY_IMAGE_DRIVE%` is
+  reserved for use inside `startnet.cmd` itself and is not
+  substituted inside `deploy.args`.
 
 ## Security caveat — same as CCTK
 

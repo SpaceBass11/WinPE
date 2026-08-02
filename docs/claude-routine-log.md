@@ -5,6 +5,76 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-02 — `docs/DEPLOY_ARGS.md` `{DRIVE}` placeholder documentation
+
+**Investigated:** open Claude routine PRs (54 in flight — heavy
+contention) and the "next recommended improvement" backlog. Ruled out
+overlap with three already-in-flight docs cluster PRs (#57, #112, #138)
+that add `tests/test_disk_enumeration.ps1` to AGENTS/CLAUDE/README, and
+the `build_iso.ps1` silent-mode contention zone (#251, #254). Skimmed
+the pipeline docs against actual script behaviour for drift.
+
+**Found:** the `{DRIVE}` token in `deploy.args` — substituted at boot
+by `startnet.cmd` with the IMAGES-partition drive letter (built by
+`scripts/build_boot_wim.ps1` at lines 301-308: `set "DEPLOYARGS=
+!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"`) — is nowhere referenced
+in `docs/DEPLOY_ARGS.md`. Two of the three examples in
+`configs/deploy.args.example` use `{DRIVE}\images\...`, and
+`scripts/build_iso.ps1` auto-generates its `deploy.args` with
+`{DRIVE}\...` paths (line 275, 279, 264) so the same ISO works
+regardless of the letter WinPE assigns the USB. The reference doc's
+"How it works" cmd.exe block also skipped the substitution step, so
+the code sample didn't match the real `startnet.cmd`. And the
+constraints section still claimed "the example uses absolute drive
+letters because those are stable" — factually stale once the
+single-ISO workflow shipped.
+
+Not covered by any of the 54 open PRs (searched titles + files
+touched via the GitHub MCP).
+
+**Changed:**
+- `docs/DEPLOY_ARGS.md`:
+  - Added the `{DRIVE}` substitution step to the "How it works"
+    cmd.exe block so the code sample now mirrors `startnet.cmd`
+    verbatim.
+  - New "Drive-letter placeholder — `{DRIVE}`" section between
+    "How it works" and "Constraints": explains the token, shows
+    a before/after example, points at `build_iso.ps1` as the
+    reason it exists, calls out that the token is
+    case-sensitive.
+  - Updated the "No environment-variable expansion" constraint to
+    tell the reader that `{DRIVE}` (not `%DEPLOY_IMAGE_DRIVE%`) is
+    the path-portability tool.
+- `CHANGELOG.md`: added a `## Unreleased / ### Changed` bullet at
+  the top of the Unreleased block describing the doc fix.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md note
+  (`v7.4.6` tarball into `/opt/pwsh/`).
+- Baseline before edits: `test_parse.ps1` → 48 passed / 0 failed;
+  `test_wim_parser.ps1` → 16 / 0; `test_disk_enumeration.ps1` → 34
+  / 0.
+- Docs-only change — no script surface touched. Re-verification
+  was not required, but the parser test still passes end-to-end
+  because none of the scripts were edited. Cross-checked the new
+  cmd.exe block against `scripts/build_boot_wim.ps1:293-309`
+  line-for-line.
+
+**Risks / follow-ups:**
+- Minimal. Docs-only. No script surface changed, no version bump
+  required (per CLAUDE.md — version fence is script-side only).
+- Outstanding backlog items still available from prior entries:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — cleanup
+    only, deferred repeatedly because the menu render is
+    load-bearing TUI UX.
+  - `Test-FinalWipeConfirmation` silently accepts an undocumented
+    `DELETE ALL DATA` synonym alongside `ERASE` — worth flagging
+    for a human decision (drop it or surface it), not a routine
+    change because the confirmation is safety-critical.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
