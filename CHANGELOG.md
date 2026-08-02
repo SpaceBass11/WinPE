@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Invoke-CctkConfig` now normalizes `Win32_BIOS.SerialNumber` the
+  same way it normalizes `Win32_ComputerSystem.Model` — strip to
+  `A-Z a-z 0-9` before using the value as a config filename. Real Dell
+  service tags are 7-character alphanumeric so this is a no-op for
+  supported hardware. Closes a defense-in-depth gap where a BIOS value
+  containing path separators or `..` could escape the `<IMAGES>\cctk\`
+  directory through `Join-Path` (which does not reject `..`). Matching
+  update to `docs/CCTK.md` config-selection precedence table.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

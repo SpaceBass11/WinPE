@@ -5,6 +5,94 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-02 — `Invoke-CctkConfig` service-tag alnum normalization
+
+**Investigated:** open PRs #240-#259 (all Aug 1/2 backlog work — pin
+validation, disk-wipe scoping, docs churn, changelog resync, small
+safety tightenings) to avoid duplicating in-flight work. Then walked
+`Invoke-CctkConfig` (unified_winpe_deploy.ps1:1269) end-to-end,
+because it's the only per-machine identifier path that both (a) builds
+filenames from external-provider data and (b) has no existing fixture
+test. Cross-checked which functions still lack targeted coverage after
+PR #246 (`Test-FinalWipeConfirmation`) and PR #50
+(`Get-SystemDisks`); `Invoke-CctkConfig` is the last unlensed one.
+
+**Found:** the CCTK config-file resolver reads two per-machine
+identifiers from WMI and uses each as a filename inside `<IMAGES>\cctk\`:
+
+- `Win32_ComputerSystem.Model` → stripped to alnum via
+  `($rawModel -replace '[^A-Za-z0-9]', '').Trim()` (line 1314). Cannot
+  produce a path-navigation character.
+- `Win32_BIOS.SerialNumber` → only `.Trim()`ed (line 1308). Passed
+  verbatim into `Join-Path $cctkDir "$serviceTag.ini"` on line 1323.
+
+`Join-Path` does not reject `..` or path separators — on Windows it
+happily builds `X:\images\cctk\..\..\evil.ini` from a poisoned
+`serviceTag = '..\..\evil'`, and `Test-Path` resolves and matches
+that. The blast radius is low (poisoning BIOS SerialNumber needs
+physical/BMC access to reflash), but the fix is trivial, keeps the
+two identifier paths consistent, and closes a defense-in-depth gap
+that reviewers would flag.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Invoke-CctkConfig` now strips
+  `SerialNumber` to alnum via the same
+  `($raw -replace '[^A-Za-z0-9]', '').Trim()` shape used for
+  `Model`. Selection-precedence header comment (line 1275ff)
+  updated to document the alnum normalization on both identifiers
+  and to explain the `Join-Path` traversal rationale.
+- `docs/CCTK.md` — "Config Selection Precedence" section now
+  documents the service-tag normalization. Real Dell tags are
+  7-char alnum (no-op) so this doesn't change supported-hardware
+  behavior; noted that whitebox / OEM-placeholder serials are
+  now stripped rather than used verbatim.
+- `CHANGELOG.md` — new `## Unreleased / ### Changed` bullet above
+  the existing `Get-SystemDisks` entry.
+
+**Verification:**
+- `pwsh` installed per the CLAUDE.md recipe (PowerShell 7.4.6).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → **48/0**
+  (unchanged from PR #52 baseline).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → **16/0**.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → **34/0**.
+- Behavior spot-check via scratchpad script — the sanitized outputs are
+  what the fix intends:
+  - `'7ABCD12'` → `'7ABCD12'` (real Dell tag, no-op)
+  - `'To Be Filled By O.E.M.'` → `'ToBeFilledByOEM'`
+  - `'System Serial Number'` → `'SystemSerialNumber'`
+  - `'../../../evil'` → `'evil'` (traversal characters stripped;
+    resolved path stays inside `$cctkDir`)
+  - `'..\..\evil'` → `'evil'` (same on Windows-style separators)
+  - `''` → still skipped by the `if ($rawServiceTag)` guard.
+- Pester (`tests/validation-gates.Tests.ps1`) mocks
+  `Invoke-CctkConfig`, so its assertions are unaffected. The CI
+  masterize check that requires `Invoke-CctkConfig` to sit before
+  the disk-selection step is a line-number ordering check — the
+  edit only re-shapes lines *inside* the function body, so ordering
+  is preserved.
+
+**Risks / follow-ups:**
+- Minimal. No destructive code path touched (diskpart, DISM apply,
+  BCDBoot, additional-wipe, data-disk). The change is one identifier
+  sanitizer that mirrors an existing one 4 lines below. No new
+  parameters, no CLI surface change.
+- Real Dell hardware sees zero behavior change (7-char alnum tags).
+  Whitebox/OEM hardware with previously-usable non-alnum
+  filenames (e.g. a config named `SN-1234.ini` matching a serial
+  `SN-1234`) would need to rename to `SN1234.ini` — same rule
+  `Model` has always followed. Called out in `docs/CCTK.md` §3.
+- Deferred backlog after this pass:
+  - `Show-ImageList` / `Show-ImageSelection` still share ~30 lines
+    of listing-render code — cleanup-only, deferred repeatedly
+    because the menu render is load-bearing TUI UX.
+  - A fixture test for the CCTK config-resolution precedence
+    (service tag > model > default) itself would guard against
+    regressions in the priority order. Higher mock burden (WMI
+    query + Test-Path) than the fixture tests already in the suite,
+    but tractable.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
