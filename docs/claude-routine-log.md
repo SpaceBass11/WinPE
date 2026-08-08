@@ -5,6 +5,75 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-08 — `RELEASE_VALIDATION.md` missing 4th CCTK skip path
+
+**Investigated:** ~200 open Claude routine PRs (#54–#263). Because
+the backlog is saturated, spent this pass looking for a surface no
+open PR touches. Scanned open PRs by title and search for
+`RELEASE_VALIDATION`, `AGENTS`, `CCTK edge cases`, and
+`no CCTK config matched`. The one hit that names
+`docs/RELEASE_VALIDATION.md` (#212) adds a Key Files row pointing at
+the doc but does not change its body.
+
+Then compared the doc's CCTK edge-case bullet list
+(lines 64-69 pre-edit) against the actual `Invoke-CctkConfig` body
+in `unified_winpe_deploy.ps1` (lines 1269-1373).
+
+**Found:** the doc enumerates **three** graceful skip paths (env
+unset / directory absent / non-zero cctk exit) plus scenario #5
+(cctk.exe absent from boot.wim). But `Invoke-CctkConfig` has a
+fourth graceful skip path the doc omits: `<IMAGES>\cctk\` **exists**,
+but no `<SERVICETAG>.ini`, `<MODEL>.ini`, or `default.ini` matches.
+The script logs `"No CCTK config matched (tag: '...', model: '...') -
+skipping BIOS config"` at info level and continues to deploy. This
+is a real operator misconfiguration: fleet admin sets up the
+directory but forgets a catch-all `default.ini`, and every host that
+doesn't match by service tag or model silently gets no BIOS config
+applied. The behavior is correct (better than aborting the entire
+deploy), but the release validation checklist should list it so
+operators know to check for it during pre-distribution testing.
+
+Also confirmed the doc's parenthetical count ("all three
+gracefully") was already off by one — should be four.
+
+**Changed:**
+- `docs/RELEASE_VALIDATION.md` — CCTK edge-case list under the
+  matrix table: added a fourth bullet describing the
+  no-matching-config case; updated the parenthetical from
+  "handles all three gracefully" → "handles all four gracefully".
+  No matrix rows added (the doc already treats these as edge cases
+  worth inspecting via the log, not standalone scenarios).
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  of Changed. No version bump (docs-only).
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- Doc-only change: no PowerShell parse surface touched. `pwsh`
+  isn't installed in this Linux session (Claude Code on the Web
+  container's egress typically 403s the PSGallery); the three
+  `.ps1` test suites parse PowerShell inputs and cannot be
+  affected by markdown edits.
+- Behavior claim confirmed by direct read of
+  `unified_winpe_deploy.ps1` lines 1319-1347: `$configPath` remains
+  `$null` after all three precedence lookups, then
+  `if (-not $configPath) { Write-Log ... -Level Info; return $true }`.
+  Matches the wording added to the doc.
+- Masterize CI Phase 1A check #1 (version consistency across
+  `CHANGELOG.md`, `CLAUDE.md`, `README.md`) still passes: `4.7.1`
+  literal unmoved.
+
+**Risks / follow-ups:**
+- Zero-risk. Pure additive documentation of already-shipped behavior.
+  No runtime code, no test, no CI config touched.
+- Outstanding backlog observation from prior routine entries still
+  holds: ~200 open Claude PRs make the finder surface for
+  high-confidence incremental improvements very tight. The most
+  useful thing future passes could do is help the maintainer land
+  the existing queue before opening more (the routine PRs would
+  compound in review value once merged).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

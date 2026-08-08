@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/RELEASE_VALIDATION.md` CCTK edge-case list now enumerates
+  all four skip paths.** The doc previously called out three
+  (`DEPLOY_IMAGE_DRIVE` unset, no `<IMAGES>\cctk\` directory, non-zero
+  cctk exit) but omitted the fourth: cctk directory present with no
+  matching `<SERVICETAG>.ini` / `<MODEL>.ini` / `default.ini`. The
+  script logs this info-level and continues to deploy, but an
+  operator setting up a fleet directory without a catch-all
+  `default.ini` would otherwise be surprised by a silent no-op on
+  machines that don't match by tag or model. Docs-only, no code
+  change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
