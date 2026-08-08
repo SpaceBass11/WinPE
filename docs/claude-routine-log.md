@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-08 — Backlog-triage pass, no code change
+
+**Investigated:** origin/main at `ef8fc2b` (test: build_boot_wim
+invariants, #52) is the tree state; local branch
+`claude/lucid-keller-1w0jbh` is clean and identical to main. Walked
+the open PR list — `mcp__github__list_pull_requests` returns ~200+
+open PRs (highest number seen: #266) — and cross-referenced against
+the categories in the mission's rule 4 priority order (broken
+scripts, missing validation, doc drift, test gaps, cleanup,
+usability). Sampled titles across the range #66-#266 to build a
+mental map of the in-flight themes.
+
+**Found:** Every high-confidence, small-scope improvement I could
+identify already has an open PR in flight, often multiple:
+
+- `-OutputWim` extension validation in `scripts/prepare_wim.ps1` →
+  PR #126.
+- `-OutputWim` colliding with `-SourceWim` path → PR #210.
+- `-Index` honored for ISOs containing `install.esd` → PR #160.
+- Reject file passed to `-ImagePath` → PRs #166, #186, #239.
+- `-UnattendFile` well-formedness at build time → PRs #80, #151,
+  #265, and runtime already merged.
+- `Copy-Item` failure trap on unattend staging → PRs #148, #192.
+- `-BitLockerPin` build-console redaction → PRs #66, #213, #236.
+- `-BitLockerPin` length validation at build time → PRs #64, #98,
+  #123, #173, #245.
+- `-WipeDisks` regex validation / silent-mode framing → PRs #154,
+  #165, #262.
+- CCTK service tag / model regex / config selection → PRs #158,
+  #203, #232, #260.
+- `test_disk_enumeration.ps1` propagation into doc test inventory
+  → PRs #57, #112, #138.
+- `docs/USB_SETUP.md` manual `startnet.cmd` template drift →
+  PRs #177, #217.
+- `Show-ImageList` / `Show-ImageSelection` render factor →
+  PRs #56, #227 (still deferred; load-bearing TUI UX).
+- Routine-log-only backlog-triage passes → PRs #207, #216, #222,
+  #230, #233, #237, #238, #241, #242, #244, #255, #263.
+
+The volume of routine-log-only PRs (twelve since #207) is itself
+notable — each pass finds the backlog exhausted, records the
+finding, opens a new PR, and the cycle repeats. That's the
+mission's rule 27 exit ("produce a concise review note and next-
+step recommendation, and stop"), just with a fresh PR each run
+because there's no other channel to persist the survey.
+
+**Changed:** Only this routine-log entry (docs). No production
+code, no test code, no CI workflow, no configs.
+
+**Verification:** N/A — no functional change. Version stays
+`4.7.1` in all five fenced places (masterize CI check #1
+unaffected). Markdown lints on push via lychee/link-check.
+
+**Risks / follow-ups:**
+- None from this change. Pure log entry.
+- The real follow-up for the maintainer, not this agent, is
+  backlog triage: closing merged-into-something-else PRs and
+  picking a few of the highest-leverage open ones (my read:
+  #159 wipe-PIN-on-failure and #191 preserve-deploy-log are
+  operationally the most useful currently-open items — the
+  first closes a plaintext-secret window, the second is the
+  single change that would most improve post-mortem
+  debuggability of failed first-boot BitLocker runs).
+- Outstanding backlog candidates that stay deferred across every
+  routine entry:
+  - `Show-ImageList` / `Show-ImageSelection` shared listing-render
+    code factor (load-bearing TUI UX; PRs #56 and #227 in flight
+    but not merged for the same reason).
+
+**Next recommended improvement:** Not another new code change.
+Merge one or two of the oldest still-open routine PRs (or close
+the ones superseded by newer duplicates) before the next
+routine pass runs. Without that, this agent will keep hitting
+the same "nothing left uncovered" wall and adding another log
+entry to the pile.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
