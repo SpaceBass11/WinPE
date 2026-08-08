@@ -5,6 +5,87 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-08 — `build_iso.ps1` `-UnattendFile` XML well-formedness at build time
+
+**Investigated:** open PRs #235-#264 (30 currently unmerged from prior
+routine runs) plus the routine log's "next recommended improvement"
+notes. Cross-referenced against the actual staging code in
+`scripts/build_iso.ps1` and the existing deploy-time pre-flight in
+`unified_winpe_deploy.ps1` `Start-Deployment` (lines 1732-1747, added
+in the 2026-05-17 routine entry). Also inspected PR #248
+(`ci(masterize): validate configs/unattend.example.xml
+well-formedness`) to confirm it's the wrong scope for this gap.
+
+**Found:** `scripts/build_iso.ps1` accepts `-UnattendFile` and stages
+the file into `configs\<name>` inside the ISO with only a `Test-Path`
+existence check (line 198-203 pre-edit). A malformed answer file
+(unclosed tag, bad attribute, encoding botch) is written to the ISO
+verbatim and only surfaces later — at deploy time on the end-user's
+machine — where the deploy script's XML pre-flight catches it and
+aborts before wiping. That's still an operator-visible failure on
+every deploy from a broken ISO, when it could have been caught once at
+build time. PR #248's masterize check covers the *example* XML
+shipped in the repo, not the user-supplied file passed to
+`build_iso.ps1`, so it's orthogonal — not a duplicate.
+
+The existing deploy-time pre-flight (2026-05-17 routine entry) fires
+after ISO distribution, which means every end-user gets the failure
+individually. Catching at build time in the packager is the correct
+altitude: one operator, one machine, one failure — instead of N
+end-users each hitting it.
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a `try { [xml](Get-Content ...) }`
+  block inside the existing `if ($UnattendFile)` validation, throwing
+  a multi-line message that quotes the parser error, explains the
+  fail-open behavior of Windows Setup (silent OOBE fall-through), and
+  points at `docs/UNATTEND.md` §6 for the same manual sanity-check
+  recipe the deploy script mentions. Same pattern, same message shape,
+  same doc reference as the pre-flight in `unified_winpe_deploy.ps1`.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed` at the
+  top, describing the build-time move.
+
+**Verification:**
+- `pwsh` v7.4.6 installed per the CLAUDE.md note (network policy
+  allows the GitHub-Releases download).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed
+  / 0 failed before edits.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed (no regression; the new block is inside the
+  existing `if ($UnattendFile)` body, no new script-level assertions
+  needed).
+- Sanity: `test_wim_parser.ps1` → 16/0, `test_disk_enumeration.ps1`
+  → 34/0. Both unchanged, no contamination.
+- Functional check of the added logic outside the script:
+  `[xml](Get-Content good.xml -Raw)` parses OK on a well-formed
+  unattend fixture; the same on a malformed fixture (unclosed `<foo>`
+  under `<unattend>`) raises the expected
+  `System.Xml.XmlDocument` parse exception with the specific
+  `The 'foo' start tag on line 2 position 12 does not match the end
+  tag of 'unattend'` message. Confirms the `throw` path fires with
+  actionable text.
+
+**Risks / follow-ups:**
+- Minimal. Additive validation inside an existing `if` branch. No
+  new destructive code paths, no changes to oscdimg invocation or
+  ISO layout. Worst case is an over-strict rejection of a valid
+  answer file — but the pre-flight uses the same `[xml]` cast that
+  Windows Setup itself uses, so any XML that fails here would also
+  fail on the target hardware.
+- Outstanding routine-backlog candidates from prior entries that I
+  did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines of
+    listing-render code that could be factored out — cleanup only,
+    deferred across many routine entries because the menu render is
+    load-bearing TUI UX.
+  - Nearly all 30 open routine PRs (#235-#264) are small, safe
+    improvements queued for merge; if the reviewer wants to reduce
+    the queue, they're mostly independent and can be merged in any
+    order. Bringing that queue down would let future routine runs
+    see a clean board and stop re-investigating the same areas.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

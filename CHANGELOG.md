@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` now validates `-UnattendFile` XML
+  well-formedness at build time.** Previously only `Test-Path` was
+  checked and a malformed answer file was staged into the ISO. The
+  build-time check mirrors the pre-flight already in
+  `unified_winpe_deploy.ps1` `Start-Deployment`, so a broken unattend
+  is caught before the ISO is distributed instead of during deploy on
+  every end-user machine. Windows Setup silently ignores a malformed
+  unattend.xml and falls through to manual OOBE, so this catches a
+  fail-open case at the earliest point in the pipeline.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
