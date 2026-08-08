@@ -5,6 +5,109 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-08 — `prepare_wim.ps1 -WhitelistFile` silent full-strip fix
+
+**Investigated:** open PRs #166-#265 (100 currently unmerged from prior
+routine runs) for any keyword touching `WhitelistFile`, `Whitelist`,
+`prepare_wim`, or the debloat loop. Cross-referenced against actual
+loader code in `scripts/prepare_wim.ps1` (lines 223-232 pre-edit) and
+the downstream `-contains` check that consumes `$Whitelist` (line
+358). Also verified against the routine log's "next recommended
+improvement" backlog.
+
+**Found:** The `-WhitelistFile` loader was two bugs stacked on one
+another. Both let an operator-supplied whitelist file silently degrade
+to a full-strip of every provisioned AppX package — the opposite of
+what a whitelist is for.
+
+1. **Trim-then-filter order.** The loader ran
+   `Where-Object { $_ -and $_ -notmatch '^\s*#' } | ForEach-Object { $_.Trim() }`.
+   A whitespace-only line (`"   "` or a tab) is a *truthy non-empty
+   string* in PowerShell, so `$_ -and` passes, the `#` regex doesn't
+   match, and `.Trim()` reduces it to `''`. The whitelist ends up
+   containing empty strings that match no real package. Verified with
+   a `pwsh` reproducer: `"   \n\t\t   \n"` produced `Whitelist.Count = 2`
+   (both entries `''`).
+2. **No count-zero guard.** A file with only `#` comments parsed
+   correctly to `Count = 0`, but the loader then continued into the
+   debloat loop, where `$whitelistLower -contains $pkg.DisplayName.ToLowerInvariant()`
+   was uniformly false for every package. Every provisioned AppX gets
+   `Remove-AppxProvisionedPackage`'d — Store, Terminal, Photos,
+   Camera, Notepad, security health, all nine codec extensions,
+   Web-Experience client. The operator sees "Debloat complete: 0 kept,
+   30 removed" and only discovers what happened when the first-boot
+   Start Menu is barren.
+
+The two together mean a well-intentioned operator who accidentally
+commits an empty whitelist template, or leaves only comments while
+drafting one, ships an unusable image to their fleet. No CI check
+guarded either invariant.
+
+**Changed:**
+- `scripts/prepare_wim.ps1` (lines 223-248 post-edit):
+  - Flip the pipeline to `ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notmatch '^#' }`.
+    Trim first so whitespace-only lines are dropped as `''` before
+    the truthy check. Regex simplifies to `^#` (no `\s*` needed).
+  - Wrap in `@(Get-Content ... | ... )` so a single-entry file
+    materializes as a `[Object[]]` array, not a bare string that
+    would collapse `.Count` / `-contains` downstream.
+  - After the pipeline, `if ($Whitelist.Count -eq 0) { throw ... }`
+    with a multi-line message that names the AppXes that would have
+    been removed and points the operator at the two fixes (add an
+    entry, or omit `-WhitelistFile` entirely).
+- `tests/test_whitelist_loader.ps1` (new, 149 lines) — five fixtures
+  (empty / comment-only / whitespace-only / mixed / single-entry)
+  through a loader block mirroring the fix. Confirms count-0 in the
+  three effectively-empty cases, correct trim + filter behavior in
+  the mixed case, and array-typing on the single-entry case. Drift
+  guard at the bottom greps `prepare_wim.ps1` for all three
+  invariants: trim-precedes-filter regex, `@(Get-Content` wrapper,
+  and the `Count -eq 0 ... has no usable entries` throw.
+- `.github/workflows/ci.yml` — wired the new test into the `syntax`
+  job as a follow-on step after the disk enumeration tests.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Fixed` at the
+  top of the section describing the bug and the fix.
+
+**Verification:**
+- `pwsh` v7.4.6 installed per the CLAUDE.md note (GitHub-Releases
+  download allowed by the network policy).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed before edits.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed (no regression; the edit is inside an existing
+  `if` branch so the script structure is unchanged).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0 unchanged.
+- `pwsh -NoProfile -File ./tests/test_whitelist_loader.ps1` → 14/0
+  green on the new suite (four fixture groups + the four drift-guard
+  assertions).
+- Sanity reproducer against the pre-fix loader confirmed the
+  whitespace-only case was Count=2 of `''`; post-fix loader returns
+  Count=0 and the script would throw the descriptive error.
+
+**Risks / follow-ups:**
+- Behavior change: a previously-silent full-strip now throws.
+  Intentional — the throw path is what a whitelist is for, and any
+  caller who was relying on the silent full-strip was almost
+  certainly not doing so on purpose. There's no `-Force` bypass
+  because there's no legitimate silent-full-strip use case.
+- Additive validation only inside an existing `if ($WhitelistFile)`
+  branch. Zero effect on the default-whitelist path (the built-in
+  `$Whitelist` param default), on the debloat loop itself, on any
+  destructive step (Mount/Dismount, Export-WindowsImage), or on the
+  offline registry tweaks.
+- Outstanding routine-backlog candidates from prior entries not
+  taken this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines of
+    listing-render code that could be factored out. Deferred across
+    many routine entries because the menu render is load-bearing
+    TUI UX; PR #227 has a factoring proposal in flight so this is
+    covered.
+  - The overall open-PR queue (100 unmerged from routine runs) is
+    small, safe, mostly independent. Bringing that queue down would
+    let future runs see a clean board.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

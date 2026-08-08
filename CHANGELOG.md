@@ -8,6 +8,26 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/prepare_wim.ps1 -WhitelistFile` no longer silently strips
+  every provisioned AppX package when the file has no usable entries.**
+  Before, a whitelist file with only `#` comment lines parsed to
+  `Whitelist.Count = 0`, and a file with only whitespace-blank lines
+  parsed to an array of empty strings — both slipped through the
+  `-contains` check on every real package and removed Store, Terminal,
+  Photos, Camera, Notepad, security health, and the codec extensions.
+  A silent "fail open to worst case" that produced a barely-usable
+  first-boot image instead of the intended debloat. The loader now
+  trims each line before filtering (so whitespace-only lines don't
+  leak in as empty strings), wraps the result in `@(...)` so a
+  single-entry file yields an array (not a bare string that breaks
+  `-contains` semantics downstream), and throws a clear error if the
+  final whitelist is empty. New `tests/test_whitelist_loader.ps1`
+  covers the empty / comment-only / whitespace-only / mixed /
+  single-entry cases with a drift guard against the three loader
+  invariants (trim-before-filter, `@(...)` wrapper, `Count -eq 0`
+  throw). Wired into the CI `syntax` job.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

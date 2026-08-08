@@ -33,6 +33,10 @@ jobs:
         shell: pwsh
         run: ./tests/test_disk_enumeration.ps1
 
+      - name: Run whitelist loader tests
+        shell: pwsh
+        run: ./tests/test_whitelist_loader.ps1
+
   pester:
     name: Pester validation-gate smoke tests
     runs-on: windows-latest
