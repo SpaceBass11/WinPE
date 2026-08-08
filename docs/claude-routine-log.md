@@ -5,6 +5,108 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-08 — backlog-triage pass (no code change)
+
+**Investigated:** current state of `main` (last merged: #52 `test:
+add build_boot_wim.ps1 behavioral invariant checks`, on top of #51
+DCC/CCTK migration and #50 `Get-SystemDisks` fixture test — the last
+of the recurring backlog items called out in the prior log entries),
+open PR queue, and the safety/validation surface of
+`unified_winpe_deploy.ps1`.
+
+**Found:** the open PR queue holds ~30 unmerged branches, heavily
+overlapping by topic. Small-scope, high-value safety fixes are already
+in flight for every plausible candidate a routine pass would pick up:
+
+- BitLocker PIN redaction in `build_iso.ps1` — four independent
+  branches (#66, #131, #213, #236) plus PIN-length / placeholder /
+  `!` delayed-expansion variants (#98, #123, #173, #223, #224, #245).
+- `-UnattendFile` well-formedness at build time (#80, #148, #151,
+  #192, #265) — extends the deploy-time check I added on 2026-05-17.
+- `-OutputWim` / `-OutputName` / `-Index` validation on
+  `prepare_wim.ps1` / `refresh_usb.ps1` (#126, #160, #210, #261).
+- CCTK selection / service-tag normalization / per-exit recovery
+  guidance (#158, #203, #232, #260).
+- `Test-SystemMemory` silent-mode hard-fail on WMI failure (#221).
+- `Select-AdditionalWipeDisks` system-disk exclusion (#259).
+- `Set-Content` failure trap in `New-DiskpartScript` (#198), fatal
+  catch stack trace (#199), DISM output on `Get-WimInfo` failure
+  (#204), `reg.exe` stderr surfacing on hive load failures in
+  `build_boot_wim.ps1` / `prepare_wim.ps1` / `first-login.ps1`
+  (#206, #205, #215), `Copy-Item` failure trap for unattend staging
+  (#192), `New-Item` / `Set-Content` failure trap for BitLocker
+  staging (#194).
+- Silent-mode / `-Interactive` param-warning coverage in
+  `build_iso.ps1` (#188, #200, #219, #229, #231).
+- Fixture / Pester coverage: `Invoke-CctkConfig` selection precedence
+  (#203), `Test-FinalWipeConfirmation` (#202, #235), `prepare_wim.ps1`
+  behavioral invariants (#180), `first-login.ps1` dual-hive +
+  GC-before-unload (#182), `refresh_usb.ps1` delegation invariants
+  (#190).
+- Doc drift: `-WipeDisks` silent-only (#262), `USB_SETUP.md` startnet
+  resync (#177, #217), BitLocker/data-disk `SCRIPT_REFERENCE.md`
+  section (#196), post-policy-removal placeholder-PIN docs (#197,
+  #220), `CLAUDE.md` version-fence count (#208, #234), unattend
+  Default-User comment (#195, #211, #226, #181), UNATTEND.md +
+  RELEASE_VALIDATION.md Key Files row (#212), CCTK graceful skip
+  paths (#264), delayed-expansion PIN warning (#223), `{DRIVE}`
+  placeholder substitution (#209).
+- Recurring-refactor items previously flagged: `Show-ImageList` /
+  `Show-ImageSelection` factoring (#56, #227 — repeatedly deferred as
+  load-bearing TUI UX), `first-login.ps1` rename (#185).
+- 13 routine-log-only PRs already in flight since #207: #207, #216,
+  #222, #230, #233, #237, #238, #241, #242, #244, #255, #263, #267,
+  #268. This entry makes 14.
+
+Also spot-checked the `-DataDiskNumber` + `-WipeDisks` interaction
+(`unified_winpe_deploy.ps1:1791-1833`). The comment at 1791-1793
+enumerates four exclusion rules including "not already in the
+extra-wipe list"; the block at 1794-1808 covers three (same as target
+/ real non-USB internal / not `IsSystemDisk`) and the fourth (overlap
+with extra-wipe) is enforced 30 lines later at 1826-1833 after
+`Select-AdditionalWipeDisks` runs. Behavior is correct; the split
+between comment and implementation is a cosmetic split, not a bug,
+and touching it would collide with #259 which is rewriting the
+neighboring `Select-AdditionalWipeDisks` filter. Not worth a PR.
+
+**Changed:** nothing. Per mission rule 27 ("if no worthwhile verified
+improvement is found, produce a concise review note and next-step
+recommendation, and stop"), this is a log-only pass.
+
+**Verification:** baseline test suites run clean against `main`
+(HEAD `ef8fc2b`) on `pwsh` 7.4.6:
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` — 48/0.
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` — 16/0.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` — 34/0.
+Pester (`tests/validation-gates.Tests.ps1`) is CI-only per CLAUDE.md
+(PSGallery blocked in the container).
+
+**Risks / follow-ups:** the highest-leverage maintainer action right
+now is not another routine pass — it is triaging the open queue.
+Concretely:
+1. Pick one of the four PIN-redaction PRs (#66, #131, #213, #236),
+   merge it, close the others as superseded — the fix is small and
+   security-relevant.
+2. Merge or close #189 (deploy.args.example line-1 comment fix) —
+   it has been open since 2026-07-04, is a real footgun for the
+   single-ISO workflow that ships `set /p` reading only line 1, and
+   the shipped file still trips the same bug on `main`.
+3. Consolidate the 14 log-only PRs (#207 through this one) into one
+   or drop them entirely; each successive pass generates another
+   because the previous ones haven't merged.
+
+Once the queue thins, novel surface for the next routine agent
+opens up again. Candidates the current queue does NOT cover, worth
+picking up on a future run:
+- BCDBoot exit-code branch expansion to parity with the DISM
+  switch (flagged in the 2026-05-16 DISM exit-code entry).
+- Diskpart-script generation could log the extra-wipe disk list
+  it embedded, so the operator can confirm the preamble matched
+  what they typed — currently the diskpart script is logged in
+  full but not the derived plan.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
