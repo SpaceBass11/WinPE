@@ -5,6 +5,74 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-08 — Open-PR backlog triage; no code change
+
+**Investigated:** repo state on `claude/lucid-keller-i2bozn` (fresh
+branch, no diff vs. `origin/main`), the latest `origin/main` head
+(`ef8fc2b` — PR #52), and the current open-PR inventory
+(`gh pr list` via GitHub MCP → 30 open PRs, oldest #238 dated
+2026-07-25, newest #267 dated 2026-08-08). Cross-referenced open PR
+titles against candidate improvements I might have picked this run.
+
+**Found:** the open queue already carries a PR for essentially every
+small, safe improvement a routine pass would surface, and several
+candidates have **multiple** stacked duplicate PRs from prior runs
+that never landed:
+
+- "redact `-BitLockerPin` from `build_iso.ps1` console echo" — PRs
+  **#66, #131, #213, #236** (four separate open PRs, all doing the
+  same regex-replace on `scripts/build_iso.ps1:306`, none merged).
+  Confirmed via `search_pull_requests repo:SpaceBass11/WinPE
+  BitLockerPin redact`.
+- `-UnattendFile` XML validation at build_iso time — PR **#265**.
+- `-WipeDisks` silent-only clarification — PR **#262**.
+- `refresh_usb.ps1 -OutputName` path-sep / extension validation — PR **#261**.
+- CCTK service-tag normalization — PR **#260**.
+- Additional-wipe list excludes system disks — PR **#259**.
+- `build_boot_wim` `startnet.cmd {DRIVE}` substitution test — PR **#258**.
+- DISM exit-code recovery fixture test — PR **#256**.
+- `build_iso` silent disk-number overlap validation — PR **#254**.
+- `build_iso` `-VolumeLabel != 'IMAGES'` warning — PR **#251**.
+- `build_boot_wim -UsbDrive` == `$env:SystemDrive` guard — PR **#240**.
+- `Find-ImageFiles` rejects file path for `-ImagePath` — PR **#239**.
+- Silent-mode `-DataDiskNumber` check ordering vs `-Force` — PR **#243**.
+- Backlog-triage-only log entries — PRs **#242, #244, #255, #263, #267**.
+
+**Changed:** nothing this pass. This log entry only. Any code change I
+picked from the "obvious next improvement" set would either:
+
+  1. Reopen a duplicate of an already-open PR (waste of review
+     bandwidth, adds noise to the queue), or
+  2. Sit as PR #268+ in the same unmerged pile, with the same
+     verification blockers as the ones already there.
+
+Per operating rule 27 ("If not, produce a concise review note and
+next-step recommendation, and stop.") + rule 19 ("If no worthwhile
+verified improvement is found, make no code changes.") the correct
+action is a triage note and no PR.
+
+**Verification performed:** none required (no code change).
+Structural sanity check on this log addition only — this file is
+plain Markdown with no CI-enforced schema; the entry follows the
+existing top-of-file "Newest entries on top" convention and mirrors
+the shape of the 2026-05-* entries below.
+
+**Next recommended improvement:**
+
+- **The bottleneck is merges, not new fixes.** The single highest-
+  value action the human maintainer can take is to triage the four
+  duplicate PIN-redaction PRs (#66, #131, #213, #236), merge one,
+  close the other three, and clear the queue. Once the queue is
+  reasonable again, routine passes can find real gaps instead of
+  producing more shelf-ware.
+- If a future routine pass **does** find code to change, first run
+  `search_pull_requests repo:SpaceBass11/WinPE state:open <keyword>`
+  with 2-3 keywords from the intended change. If any hit is
+  substantively the same fix, log-entry-only is the right call —
+  the same as this pass.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
