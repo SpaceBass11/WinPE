@@ -5,6 +5,128 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — `build_iso.ps1 -BitLockerPin` edge-whitespace rejection
+
+**Investigated:** the current open-PR queue (280+ open, all from prior
+routine passes) and the most recent routine entries. PR #273 landed
+the equivalent whitespace gate in `unified_winpe_deploy.ps1`'s
+`Start-Deployment` and its own "Risks / follow-ups" section
+explicitly called out the outstanding parity gap:
+> Doesn't cover the equivalent gate in `build_iso.ps1`. That
+> script has its own PIN handling at `scripts/build_iso.ps1:205-209`
+> (currently no length check either — PR #245 addresses length; a
+> future pass could add whitespace there for parity).
+
+Cross-checked with a targeted PR search
+(`is:open build_iso whitespace`, `is:open BitLockerPin`) — the only
+build_iso PIN-quality PRs open are #245 (length pre-validation),
+#224 / #141 / #70 (rejects `!` / `"` transport-breaking chars),
+#236 / #213 / #131 / #66 (redact from console echo). None cover
+edge whitespace at build time.
+
+**Found:** the `if ($BitLockerPin)` block in
+`scripts/build_iso.ps1` (lines 205-209 pre-edit) had only a "warn if
+PIN set without UnattendFile" branch. A `-BitLockerPin ' goodpin42'`
+(10 chars, in the 6-20 window) sailed through: the space is embedded
+verbatim into `deploy.args`
+(`-EnableBitLocker -BitLockerPin " goodpin42"`), baked into
+`bitlocker-setup.ps1` by `Initialize-BitLockerSetup` at deploy time,
+and TPM+PIN unlocks against the space-prefixed PIN. The pre-Windows
+PIN prompt is a hidden BIOS-drawn field — the operator sees no
+cursor position giveaway and has no way to type an invisible edge
+space. The disk comes up unrecoverable-with-typed-PIN and only the
+recovery key works. The failure surfaces on the target laptop after
+ISO build, distribution, and first successful boot — the most
+expensive failure point in the pipeline.
+
+Realistic mis-config sources are the same as PR #273's runtime gate:
+editor whitespace around the quoted value on the build command
+line, a paste from Word/Slack that added a non-breaking space
+(U+00A0 — `.Trim()` catches it because U+00A0 is in the default
+whitespace set), or a stray leading tab.
+
+**Changed:**
+- `scripts/build_iso.ps1` — inside the existing `if ($BitLockerPin)`
+  block, added a `throw` when `$BitLockerPin.Length -ne
+  $BitLockerPin.Trim().Length`. Runs before the pre-existing
+  "PIN set but no UnattendFile" warning, so a bad PIN fails
+  ahead of any file copy, `robocopy`, or `oscdimg` invocation.
+  Message names the failure mode (invisible first-boot prompt)
+  and does NOT echo the PIN or its length (its length would
+  disclose the whitespace count).
+- `tests/test_parse.ps1` — Test 12 grew from syntax-only to
+  syntax + one behavioral invariant (same shape as Test 9 for
+  `build_boot_wim.ps1`). Regex guards that the exact
+  `$BitLockerPin.Length -ne $BitLockerPin.Trim().Length`
+  expression remains — a future refactor that renames the
+  variable or splits the check into a helper trips the drift
+  guard.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the gate, the failure mode it prevents, and the redaction
+  choice. Explicitly notes middle whitespace still passes.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per the CLAUDE.md tarball recipe
+  (GitHub Releases into `/opt/pwsh/`).
+- **Baseline (before edits):** `test_parse.ps1` 48/0,
+  `test_wim_parser.ps1` 16/0, `test_disk_enumeration.ps1` 34/0 —
+  all green.
+- **Post-edit:** `test_parse.ps1` 49/0 (+1 for the new ISO builder
+  invariant), `test_wim_parser.ps1` 16/0 unchanged,
+  `test_disk_enumeration.ps1` 34/0 unchanged.
+- `PSParser::Tokenize` on `scripts/build_iso.ps1` reports zero
+  errors. Brace balance verified via character count: `+2/+2`
+  net from the new `if`, consistent with the added block.
+- Behavioral spot-check via a scratch harness that extracts the
+  new `if` block and drives it through the same input matrix as
+  PR #273's deploy-time gate:
+
+  | Input | throws | why |
+  |-------|--------|-----|
+  | leading space `' goodpin42'`   | yes | length ≠ trim length |
+  | trailing space `'goodpin42 '`  | yes | length ≠ trim length |
+  | trailing tab `"goodpin42\t"`   | yes | length ≠ trim length |
+  | leading NBSP U+00A0            | yes | length ≠ trim length |
+  | clean `'goodpin42'`            | no  | length == trim length |
+  | middle space `'good pin42'`    | no  | length == trim length |
+
+  Behavior matches PR #273's runtime gate for identical inputs, as
+  intended by the parity goal.
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md; it doesn't exercise `build_iso.ps1` and was not
+  touched.
+
+**Risks / follow-ups:**
+- **Minimal.** Fail-fast `throw` before any file copy, `robocopy`,
+  or `oscdimg` call. Cannot turn a working build into a broken
+  one — the pathological case (edge-whitespace PIN) was already
+  broken end-to-end, just at a much later and more expensive
+  failure point (target laptop after ISO distribution). Happy
+  path (`-BitLockerPin 'goodpin42'`) is unchanged. No destructive
+  runtime code touched.
+- **Does not add a build-time equivalent of PR #273's
+  Read-Host-typed leading-space guard.** `build_iso.ps1` doesn't
+  read a PIN interactively — it only takes it as a parameter —
+  so there's no equivalent surface to cover.
+- **Small overlap with the "no length check" observation in
+  PR #245's body** — PR #245 fixes length, this fixes edge
+  whitespace. Both are independent, non-overlapping additions
+  inside the same `if ($BitLockerPin) {}` block; whichever merges
+  second needs a trivial rebase (both add a new nested `if` /
+  `throw`, no shared lines).
+- Outstanding routine-backlog candidates from prior entries still
+  not covered by any open PR:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out (open PR #227
+    attempts it — deferred here because the menu is load-bearing
+    TUI UX).
+  - `first-login.ps1` has no test coverage beyond syntax parse
+    (open PR #182 attempts fixture coverage for the `{root}`
+    substitution).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

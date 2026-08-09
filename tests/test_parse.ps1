@@ -146,9 +146,21 @@ Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 
-# Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
+# Test 12: build_iso.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
+$isoBuilderOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($isoBuilderOk) {
+    $ibc = Get-Content $buildIsoPath -Raw
+
+    # BitLockerPin edge-whitespace must be rejected at build time so a bad
+    # PIN fails before ISO staging and distribution instead of at WinPE
+    # pre-flight on the target. Matches the parity gate in
+    # unified_winpe_deploy.ps1 Start-Deployment (BitLockerPin.Length -ne
+    # BitLockerPin.Trim().Length). Without this, TPM+PIN would unlock with
+    # a PIN the operator cannot type at the invisible first-boot prompt.
+    $pinWhitespaceGate = $ibc -match '\$BitLockerPin\.Length\s+-ne\s+\$BitLockerPin\.Trim\(\)\.Length'
+    Write-Result -Test "ISO builder: -BitLockerPin edge-whitespace rejected" -Pass $pinWhitespaceGate
+}
 
 # Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan

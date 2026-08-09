@@ -203,6 +203,21 @@ if ($UnattendFile) {
 }
 
 if ($BitLockerPin) {
+    # Reject leading/trailing whitespace before it lands in deploy.args and
+    # gets baked into bitlocker-setup.ps1 verbatim at deploy time. TPM+PIN
+    # unlocks against the space-prefixed PIN, but the pre-Windows PIN prompt
+    # is a hidden field: the operator sees no cursor giveaway and cannot
+    # type an invisible edge space, so the disk comes up
+    # unrecoverable-with-typed-PIN and only the recovery key works.
+    # Rejecting at build time is a strictly earlier failure point than
+    # waiting for WinPE pre-flight on the target — the ISO staging and
+    # distribution have already happened by then. Length is not echoed
+    # (the PIN itself has whitespace by definition — reporting its length
+    # would leak content). Middle whitespace is still allowed — that's a
+    # passphrase choice, not a footgun.
+    if ($BitLockerPin.Length -ne $BitLockerPin.Trim().Length) {
+        throw "BitLockerPin has leading or trailing whitespace (tabs and NBSP count). TPM+PIN would unlock with a PIN the operator cannot type at the invisible first-boot prompt. Retype without edge whitespace."
+    }
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
     }

@@ -9,6 +9,22 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/build_iso.ps1` now rejects `-BitLockerPin` with leading
+  or trailing whitespace at build time.** Parity with the deploy-time
+  gate in `unified_winpe_deploy.ps1 Start-Deployment`: a PIN like
+  `' goodpin42'` would otherwise be embedded verbatim into
+  `deploy.args` on the ISO, distributed, baked into
+  `bitlocker-setup.ps1` at deploy time, and only surface as an
+  un-typable PIN at the first-boot TPM prompt (the pre-Windows PIN
+  field is hidden — the operator sees no cursor giveaway and cannot
+  type an invisible edge space). Common culprits: editor whitespace
+  around the quoted value on the command line, a paste from
+  Word/Slack that added a non-breaking space (U+00A0). Middle
+  whitespace still passes — that's a passphrase choice, not a
+  footgun. Rejection throws before ISO staging, so a bad PIN fails
+  before `robocopy`/`oscdimg`. PIN content is not echoed (its length
+  alone would leak whitespace count). `tests/test_parse.ps1` Test 12
+  gained a matching invariant.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
