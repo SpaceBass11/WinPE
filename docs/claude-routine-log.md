@@ -5,6 +5,79 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — Pester cover the `-DataDiskNumber` ∩ extra-wipe overlap gate
+
+**Investigated:** Open PRs (#241-#270 all still open — a large backlog of
+safety-tightening PRs and routine-log dailies). Cross-referenced the
+gates in `Start-Deployment` (`unified_winpe_deploy.ps1`) against the
+Pester suite in `tests/validation-gates.Tests.ps1` to find safety
+invariants without direct assertions.
+
+**Found:** The overlap-rejection gate at `unified_winpe_deploy.ps1`
+~line 1826-1833 has no Pester coverage. It refuses to run when
+`-DataDiskNumber` matches a disk that `Select-AdditionalWipeDisks`
+returned in the extra-wipe set — the realistic mis-config is a silent
+USB config with `-DataDiskNumber 1 -WipeDisks '1'`, which without the
+gate would clean the same disk twice through the same diskpart script
+and leave a bare `clean` where the data-disk format was expected. Every
+other Start-Deployment gate in the same block (data == target, data
+nonexistent, data == system disk, USB-only data, PIN missing, PIN too
+short, silent-data without -Force) has an assertion; this one didn't.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — added one `It` inside the
+  existing `Start-Deployment validation gates` `Describe`, following
+  the same shape as the sibling gate tests. Overrides just
+  `Select-AdditionalWipeDisks` in-test to return a disk object matching
+  `-DataDiskNumber`; the base `BeforeEach` already resets everything
+  else. Header "Covered invariants" list got one bullet.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at top.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md recipe.
+- Baseline: `tests/test_parse.ps1` 48 / 0, `tests/test_wim_parser.ps1`
+  16 / 0, `tests/test_disk_enumeration.ps1` 34 / 0 — all green.
+- Post-edit: same three suites still 48 / 16 / 34, all green (no
+  regressions in the local-runnable set).
+- **Behavioral verification** of the new Pester assertion via a scratch
+  harness (`scratchpad/harness.ps1`) that loads `unified_winpe_deploy.ps1`
+  as a dynamic module the same way `validation-gates.Tests.ps1` does,
+  stubs the same set of module-scope commands (`Test-Administrator`,
+  `Get-SystemDisks`, `Select-TargetDisk`, `Select-AdditionalWipeDisks`,
+  `New-DiskpartScript`, `Invoke-Diskpart`, …), and drives
+  `Start-Deployment` with the same param values the test uses
+  (`-WimFile 'I:\images\Win.wim' -TargetDisk 0 -DataDiskNumber 1
+  -WipeDisks '1' -Force -Silent`). Observed exactly what the test
+  asserts:
+  - `Start-Deployment` returned `$false`
+  - Emitted `Disk 1 is both -DataDiskNumber and in the additional-wipe
+    list - drop one` at Level=Error
+  - Never invoked `Invoke-Diskpart` / `Apply-WindowsImage` (short-
+    circuit fired before them)
+- **Pester (CI-only)** per CLAUDE.md: the container's network policy
+  blocks PSGallery reliably, so `Install-Module Pester` cannot run
+  here. CI's `pester` job on `windows-latest` will run the real
+  end-to-end suite (including the new `It`) on push.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change; no production code touched. Pattern
+  matches the existing sibling `It`s (same `Mock -ModuleName`
+  override shape, same `Should -Invoke ... -Times 0` assertions on
+  the destructive functions).
+- Outstanding backlog candidates from prior entries + open PRs:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code — cleanup only, deferred repeatedly because
+    the menu is load-bearing TUI UX.
+  - Fixture test for `Select-AdditionalWipeDisks` silent-mode
+    target-in-WipeDisks rejection (analog to the overlap gate this
+    entry covers, but at a different function boundary).
+  - `first-login.ps1` has no test coverage beyond syntax parse; a
+    fixture test for the `{root}` substitution pattern would guard
+    against a regression that mis-targets HKCU vs the Default User
+    hive.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

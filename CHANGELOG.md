@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Start-Deployment` `-DataDiskNumber` ∩ extra-wipe overlap gate now has
+  Pester coverage.** Adds one test to
+  `tests/validation-gates.Tests.ps1` for the v4.7.0 safety check at
+  `unified_winpe_deploy.ps1` ~line 1826-1833 that refuses to run when
+  `-DataDiskNumber` matches a disk in the additional-wipe list
+  (`-WipeDisks`). Without the gate the diskpart script would clean the
+  same disk twice and leave a bare `clean` where the data-disk format
+  was expected. Test asserts `Start-Deployment` returns `$false`, logs
+  the overlap message, and short-circuits before `Invoke-Diskpart` /
+  `Apply-WindowsImage`. Test-only change; no production code touched.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

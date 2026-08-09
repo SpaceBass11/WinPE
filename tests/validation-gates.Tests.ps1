@@ -24,6 +24,7 @@
           - -EnableBitLocker without -BitLockerPin
           - -EnableBitLocker -BitLockerPin '<5 chars>'
           - -Silent -DataDiskNumber without -Force
+          - -DataDiskNumber overlapping the extra-wipe list
       - Start-Deployment validation passes with -Silent -Force
         -DataDiskNumber explicit (mocks short-circuit before any
         destructive op runs).
@@ -352,6 +353,31 @@ Describe "Start-Deployment validation gates" {
         $result | Should -BeFalse
         $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It "Rejects overlap between -DataDiskNumber and the extra-wipe list (disk would be cleaned twice)" {
+        # Overlap gate at unified_winpe_deploy.ps1 ~line 1826-1833: if
+        # -DataDiskNumber matches a disk that Select-AdditionalWipeDisks
+        # returns, the diskpart script would clean the same disk twice and
+        # end with a bare 'clean' where the data-disk format was expected.
+        # Realistic mis-config: silent USB with -DataDiskNumber 1 -WipeDisks '1'.
+        Mock -ModuleName DeployUnderTest -CommandName Select-AdditionalWipeDisks -MockWith {
+            ,@([PSCustomObject]@{ Number=1; Size=500; Model='Data NVMe'; InterfaceType='SCSI'; HasPartitions=$true; PartitionInfo='Part1:500GB'; IsSystemDisk=$false })
+        }
+        $result = & $script:DeployModule {
+            $WimFile        = 'I:\images\Win.wim'
+            $TargetDisk     =  0
+            $DataDiskNumber =  1
+            $WipeDisks      = '1'
+            $Force          = $true
+            $Silent         = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'both -DataDiskNumber and in the additional-wipe list' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
     }
 
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
