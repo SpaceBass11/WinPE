@@ -193,6 +193,14 @@ if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
         throw "SourceIso not found: $SourceIso"
     }
     $SourceIso = (Resolve-Path $SourceIso).Path
+    # Mount-DiskImage accepts .iso / .img / .vhd(x); Windows install media
+    # ships as .iso. Reject anything else up front so a mistyped -SourceIso
+    # (e.g. a .wim passed to the wrong parameter) fails with a clear error
+    # instead of a confusing "The disk image file is corrupted" from
+    # Mount-DiskImage. Mirrors the -SourceWim extension check below.
+    if ([IO.Path]::GetExtension($SourceIso) -notin '.iso') {
+        throw "SourceIso must have a .iso extension (got: $SourceIso). Did you mean -SourceWim?"
+    }
 } else {
     if (-not (Test-Path $SourceWim -PathType Leaf)) {
         throw "SourceWim not found: $SourceWim"

@@ -5,6 +5,65 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — `prepare_wim.ps1 -SourceIso` extension check (symmetry with `-SourceWim`)
+
+**Investigated:** open Claude PRs (#245-#274 all open, sitting on
+their own branches; nothing merged since #52) and the routine log's
+"Next recommended improvement" backlog. Cross-checked prep-script
+parameter validation in `scripts/prepare_wim.ps1` against the
+`-SourceWim` companion path added in PR #22.
+
+**Found:** asymmetric input validation. The `FromWim` branch throws
+descriptively when the path exists but isn't a `.wim`/`.esd`
+(line 201 — added when parameter set was introduced). The `FromIso`
+branch only calls `Test-Path -PathType Leaf`. A caller who typo'd
+`-SourceIso golden.wim` (very plausible when both parameters exist
+side-by-side) passed pre-flight and got as far as `Mount-DiskImage`,
+which fails with the opaque "The disk image file is corrupted or
+not a valid virtual disk file" — no hint that the fix is
+`-SourceWim` on the same path. No open PR covers this. Nothing in
+the routine log covers this. PR #266 is an adjacent prep-script
+input-validation fix (`-WhitelistFile` empty-file rejection) so the
+pattern was fresh.
+
+**Changed:**
+- `scripts/prepare_wim.ps1` — inside the existing `FromIso`
+  validation branch (lines 191-195), added a
+  `[IO.Path]::GetExtension($SourceIso) -notin '.iso'` check that
+  fires after `Resolve-Path` and throws with the got-value and a
+  "Did you mean -SourceWim?" hint. Case-insensitive by default
+  (`-notin` is case-insensitive in PS5.1/7 alike). Comment
+  documents why `.img`/`.vhd(x)` are also excluded even though
+  `Mount-DiskImage` would technically accept them — Windows install
+  media ships as `.iso`.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- Installed pwsh v7.4.6 per CLAUDE.md's Linux-session recipe.
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0.
+- Post-edit: same command → 48/0 (the edit is inside an existing
+  `if` branch, script shape unchanged).
+- Isolated logic verified: fed five sample paths
+  (`Win11.iso`, `WIN11.ISO`, `Win11.wim`, `Win11.img`, and one
+  extensionless) through the same `-notin '.iso'` predicate;
+  `.iso`/`.ISO` pass, everything else rejects. Confirms
+  case-insensitivity and the intended reject set.
+
+**Risks / follow-ups:**
+- Minimal. Pre-mount / pre-DISM parameter validation only. No
+  destructive path touched. No new dependencies. Runs on the admin
+  Windows host, not in WinPE, so no PS5.1-in-WinPE compat concerns
+  either (though the code path is PS5.1-safe regardless — only
+  `-notin` and `[IO.Path]`, both PS5.1-available).
+- Outstanding routine-backlog candidates unchanged from prior
+  entries: `Show-ImageList` / `Show-ImageSelection` ~30-line
+  factor-out (repeatedly deferred because the menu render is
+  load-bearing TUI UX). The `Get-SystemDisks` fixture test that
+  used to head this list is now merged as PR #50.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

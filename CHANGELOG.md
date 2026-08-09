@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`scripts/prepare_wim.ps1 -SourceIso` now rejects non-`.iso`
+  paths up front.** Symmetry fix: `-SourceWim` has always required
+  `.wim`/`.esd`, but `-SourceIso` only checked existence — a mistyped
+  path (e.g. a captured `.wim` passed to the wrong parameter) got as
+  far as `Mount-DiskImage`, which failed with the opaque "The disk
+  image file is corrupted". The new check throws a descriptive error
+  before any mount attempt and suggests `-SourceWim`. No behavior
+  change for correct callers.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
