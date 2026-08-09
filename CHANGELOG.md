@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Get-SystemDisks` now logs zero-size disk skips for transparency.**
+  Previously USB drives and non-targetable media (removable / CD-ROM)
+  each got a `Skipping ... : $Model` line explaining why they weren't
+  in the disk-selection menu, but a disk that made it past those
+  filters and was then dropped for `Size <= 0` (an empty card-reader
+  slot, an offline HBA lun, an unreadable drive) disappeared with
+  no log line at all. An operator wondering "why isn't my SD card
+  showing up" had no signal to distinguish "detected but empty" from
+  "not detected." Added a matching `Skipping zero-size disk N: <Model>
+  (empty slot, offline, or unreadable)` line. Purely additive logging;
+  the eligibility Where-Object below is unchanged, so no disk
+  becomes eligible or ineligible as a result.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

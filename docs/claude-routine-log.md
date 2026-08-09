@@ -5,6 +5,69 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — `Get-SystemDisks` zero-size skip is now logged
+
+**Investigated:** the 200+ open Claude routine PRs (through #280) to
+avoid duplicating in-flight work, then the eligibility path in
+`Get-SystemDisks` (`unified_winpe_deploy.ps1` lines 577–669) against
+its fixture test at `tests/test_disk_enumeration.ps1`.
+
+**Found:** three predicates decide what appears in the disk-selection
+menu — USB is excluded (logged), removable/CD is excluded (logged),
+and `Size <= 0` is excluded (**silently**, no log line). The fixture
+test at line 114 has an "Empty card slot" case that confirms the
+zero-size disk is filtered out, but the runtime dropped it with no
+operator-visible signal. An operator wondering "why isn't my SD card
+in the menu" had no way to tell "detected but empty" from "not
+detected at all" without opening the deploy log side-by-side with
+`diskpart > list disk`. Neither this observation nor a matching skip
+log appears in the open PR queue (searched: "zero-size disk log",
+"Get-SystemDisks skipped").
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — new `$zeroSizeDisks` filter mirroring
+  the eligibility Where-Object (same clauses, `Size -le 0` instead of
+  `-gt 0`), followed by a `Write-Log "Skipping zero-size disk N: <Model>
+  (empty slot, offline, or unreadable)"` loop. Placed between the
+  existing non-targetable-media log block and the eligibility filter
+  so the three skip categories log in enumeration order.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`
+  explaining the transparency-only nature (no behavior change).
+
+**Verification:**
+- Installed pwsh 7.4.6 per CLAUDE.md's session-install note.
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48
+  passed / 0 failed; `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1`
+  → 34 passed / 0 failed.
+- Post-edit: same numbers unchanged (48/0 and 34/0). The
+  test_disk_enumeration drift guard still passes because the eight
+  safety-critical literals it pins (USB/removable/CD filter clauses,
+  `[int]$wmiDisk.Partitions`, `No partitions`, `non-Windows - e.g.
+  Linux/LVM`, `(+N non-Windows)` template) are untouched — the new
+  `$zeroSizeDisks` block sits above the eligibility Where-Object it
+  guards.
+- No new brace or region blocks (single `Where-Object` + `foreach`).
+  Balanced braces + regions preserved (the test would fail if not).
+- Purely additive logging: no destructive code paths (diskpart, DISM
+  apply, BCDBoot, BitLocker staging) touched; no new parameters; no
+  change to what the eligibility filter returns.
+
+**Risks / follow-ups:**
+- Minimal. Additive logging inside an existing function, matching
+  the existing pattern for the two other skip categories exactly.
+- Could add a fixture-test row asserting the new log line renders,
+  but the existing "Empty card slot" filter row already pins the
+  eligibility side and the drift guard would catch a filter-clause
+  change. Wiring the log into a mock would demand redesigning the
+  fixture — not worth it for pure logging.
+- Outstanding routine-backlog candidates carried forward from prior
+  entries:
+  - `Show-ImageList` / `Show-ImageSelection` factoring — deferred
+    across many routine passes because the menu render is
+    load-bearing UX.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
