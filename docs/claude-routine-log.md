@@ -5,6 +5,87 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — `docs/SIGNING.md` expired-cert filter for cert lookup
+
+**Investigated:** Open PRs against `main` via
+`mcp__github__list_pull_requests` (state=open, first page). The newest
+routine-log entry — PR #278 (backlog-triage pass) — and PR #279's body
+both explicitly flagged the same still-untouched candidate:
+`docs/SIGNING.md` `Get-ChildItem Cert:\... -CodeSigningCert` returns
+expired certs; a `Where-Object { $_.NotAfter -gt (Get-Date) }` filter
+would prevent operators from signing with a stale cert. Grepped the
+repo (`CodeSigningCert`) to confirm the pattern only appears in
+`docs/SIGNING.md` — two occurrences (lines 37 and 63 pre-edit) — and
+nowhere else, so no in-script code paths are affected. Confirmed no
+open PR title mentions signing or certs.
+
+**Found:** Both snippets in `docs/SIGNING.md` had the shape
+
+```
+$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+    Select-Object -First 1
+```
+
+`-CodeSigningCert` filters for EKU 1.3.6.1.5.5.7.3.3 but does NOT check
+`NotAfter`. On a machine with any expired code-signing cert in
+`CurrentUser\My`, `Select-Object -First 1` can pick it (order is
+provider-defined, but is *not* by NotAfter). The subsequent
+`Set-AuthenticodeSignature` succeeds — the signing operation doesn't
+care about the cert's validity — and produces a signature that fails
+`Get-AuthenticodeSignature` with `Status: NotTrusted` at verification
+time on the target host. The failure surfaces late, when a WinPE session
+tries to run the "signed" deploy script under an `AllSigned` execution
+policy, and the operator has to walk back through cert selection to
+diagnose. A `Where-Object { $_.NotAfter -gt (Get-Date) }` clause in the
+pipeline is the standard PowerShell idiom and drops zero legitimate
+candidates.
+
+**Changed:**
+- `docs/SIGNING.md` — both `Get-ChildItem ... -CodeSigningCert |
+  Select-Object -First 1` snippets replaced with a three-line pipeline
+  that inserts `Where-Object { $_.NotAfter -gt (Get-Date) }` between
+  the two. The first (line-37) block gets a four-line explanatory
+  comment describing why the filter matters; the second (line-63,
+  inside "Signing the Built boot.wim") gets a one-line back-reference
+  to keep the "sign both scripts" example visually compact.
+- `CHANGELOG.md` — `### Fixed` bullet at the top of `## Unreleased`.
+
+**Verification:**
+- Installed `pwsh` v7.4.6 per the CLAUDE.md note (GitHub Releases
+  tarball into `/opt/pwsh/`).
+- Baseline `pwsh -NoProfile -File ./tests/test_parse.ps1`: 48 passed
+  / 0 failed.
+- Post-edit `pwsh -NoProfile -File ./tests/test_parse.ps1`: 48 passed
+  / 0 failed — unchanged, as expected (no `.ps1` file touched).
+- Piped the new snippet through `[System.Management.Automation.PSParser]
+  ::Tokenize` under `pwsh` (including the surrounding
+  `Set-AuthenticodeSignature` call to catch pipeline-continuation
+  ambiguity): zero parse errors. Confirms the `|` at end-of-line and
+  the `Where-Object { ... }` script block are well-formed.
+- No new links added, so lychee behavior is unchanged.
+
+**Risks / follow-ups:**
+- Minimal. Docs-only edit; no `.ps1`, no destructive path, no schema,
+  no CI job configuration touched. The only downstream effect is that
+  operators who copy-paste the snippet get a strictly-safer cert
+  selection.
+- Backlog candidates not taken this pass (each is small and
+  independently mergeable — good future routine targets):
+  - `scripts/first-login.ps1` — after the OneDrive-timeout fix in
+    PR #279, the AppX removal loop (`Remove-AppxPackage -AllUsers`)
+    silently swallows per-package failures under a single outer
+    try/catch. Failed removals are indistinguishable from
+    not-installed in the log. Per-package `try/catch` with a WARN
+    line naming the package would make debug much easier.
+  - `docs/SCRIPT_REFERENCE.md` — verify all documented `-Silent`
+    combinations exercise a real code path after v4.7.0's
+    parameter-set expansion. Not investigated this pass.
+  - `Show-ImageList` / `Show-ImageSelection` factoring — repeatedly
+    deferred across routine entries as load-bearing TUI UX; still
+    open, still deferred.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -8,6 +8,16 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`docs/SIGNING.md` cert-lookup snippets now filter out expired
+  certs.** Both `Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert`
+  examples piped straight to `Select-Object -First 1`, which returns
+  an expired cert if one is present in the store. Signing with an
+  expired cert produces `Status: NotTrusted` at verification time on
+  the target host — a late, silent failure. Both snippets now include
+  a `Where-Object { $_.NotAfter -gt (Get-Date) }` filter before the
+  `Select-Object`.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

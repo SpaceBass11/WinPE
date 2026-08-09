@@ -33,8 +33,13 @@ You need a **code-signing certificate** from one of:
 ## Signing a Single Script
 
 ```powershell
-# Locate your code-signing cert
-$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+# Locate your code-signing cert. Filter out expired certs so we don't
+# accidentally sign with a stale one - a signature made with an expired
+# cert produces Status: NotTrusted at verification time, which surfaces
+# only when the target host tries to run the script.
+$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+    Where-Object { $_.NotAfter -gt (Get-Date) } |
+    Select-Object -First 1
 
 # Sign the deploy script (add a timestamp server for long-term validity)
 Set-AuthenticodeSignature `
@@ -59,8 +64,10 @@ deploy script *before* the builder copies the deploy script into the
 image:
 
 ```powershell
-# 1. Sign both scripts
-$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+# 1. Sign both scripts (filter expired certs - see the note above)
+$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+    Where-Object { $_.NotAfter -gt (Get-Date) } |
+    Select-Object -First 1
 Set-AuthenticodeSignature .\unified_winpe_deploy.ps1   -Certificate $cert `
     -TimestampServer 'http://timestamp.digicert.com' -HashAlgorithm SHA256
 Set-AuthenticodeSignature .\scripts\build_boot_wim.ps1 -Certificate $cert `
