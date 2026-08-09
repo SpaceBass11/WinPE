@@ -32,7 +32,7 @@ time.
 |-----------|--------|
 | `-DataDiskNumber <int>` | Disk number to wipe + format as `D:`. `-1` (default) means no second disk. Validated: must exist, must not be the target disk, must not be USB, must not be the system disk. |
 | `-EnableBitLocker` | Stage `bitlocker-setup.ps1` + `SetupComplete.cmd` into `C:\Windows\Setup\Scripts\` so Windows runs them after OOBE. |
-| `-BitLockerPin <string>` | Startup PIN for TPM+PIN on `C:`. Required when `-EnableBitLocker`. 6-20 characters (Windows Enhanced PIN window — the only thing the script enforces; PIN content is the admin's call). In non-silent mode, the script prompts at the WinPE console if this is omitted. |
+| `-BitLockerPin <string>` | Startup PIN for TPM+PIN on `C:`. Required when `-EnableBitLocker`. 6-20 characters (Windows Enhanced PIN window — the only content policy the script enforces). PINs with leading or trailing whitespace (including tabs and NBSP) are rejected pre-flight, since the TPM PIN prompt at first boot draws a hidden field where the operator cannot see or type an invisible edge space. In non-silent mode, the script prompts at the WinPE console if this is omitted. |
 | `-BitLockerKeyPath <path>` | Override the recovery-key escrow location. Accepts a UNC share (e.g. `\\fileserver\BitLockerKeys`) or a fixed-disk path on the deployed machine. Default: look up the IMAGES partition by volume label at first-boot time and write to `<letter>:\BitLockerKeys` — requires the USB to remain plugged in through the first reboot. |
 
 `-DataDiskNumber` and `-EnableBitLocker` are independent — you can use

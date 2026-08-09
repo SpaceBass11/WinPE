@@ -5,6 +5,120 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — reject leading/trailing whitespace in `-BitLockerPin`
+
+**Investigated:** open PR queue (270+ open, all from prior routine
+passes). PR #272's backlog-triage entry explicitly named two
+"candidates still uncovered by any open PR" — TUI PIN prompt
+whitespace, and a stylistic `docs/UNATTEND.md §6` `-Raw` mismatch.
+Cross-checked open PRs touching the BitLocker-PIN validation block
+(`Start-Deployment` ~line 1687-1698): #245 pre-validates PIN length
+in `build_iso.ps1`, #224 rejects `!` in `build_iso.ps1` for silent
+builds, #223 documents delayed-expansion PIN mangling, plus a cluster
+of stale-docs cleanups (#250/#197/#220/#167/#134/#136/#104/#72/#97).
+None of them touch the runtime whitespace surface in
+`unified_winpe_deploy.ps1`.
+
+**Found:** The length gate at `unified_winpe_deploy.ps1:1691-1694`
+accepts `' goodpin42'` (10 chars) — `Length` counts the leading space
+— and the PIN is then baked into `bitlocker-setup.ps1` verbatim via
+the single-quote escape at line 1530. On first boot TPM+PIN unlocks
+against `" goodpin42"`, but the pre-Windows PIN prompt is a hidden
+field: the operator sees no cursor giveaway and cannot type an
+invisible edge space, so the disk comes up unrecoverable-with-typed-
+PIN and the operator has to fall back to the recovery key. Common
+mis-configs:
+- Editor whitespace around the quoted value in `deploy.args`.
+- A stray leading space typed at the WinPE `Read-Host` prompt
+  (`unified_winpe_deploy.ps1:1684`, plain-text visible mode but
+  trailing whitespace is invisible).
+- A paste from Word/Slack that introduced a non-breaking space
+  (U+00A0) — `String.Trim()` catches it because U+00A0 is in the
+  default whitespace set.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — added a 6-line whitespace-rejection
+  gate between the existing length check and the existing "provided
+  without `-EnableBitLocker`" warning. Uses
+  `$Pin.Length -ne $Pin.Trim().Length` so leading OR trailing OR
+  both fire the same message. Reject rather than trim so the
+  operator learns their input has a bug (same rationale as the other
+  content policies — reject a wrong PIN before it's staged, don't
+  silently mutate it). Middle whitespace (`'good pin42'`) still
+  passes: that's a passphrase choice, not a footgun.
+- `tests/validation-gates.Tests.ps1` — two new `It`s inside the
+  existing `Start-Deployment validation gates` `Describe`: one for
+  leading space, one for trailing space. Same shape as the sibling
+  length-gate `It`. Header "Covered invariants" list updated.
+- `docs/BITLOCKER.md` — `-BitLockerPin` parameter row now names
+  the whitespace rejection.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the gate, the failure mode it prevents, and the new test coverage.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md recipe
+  (GitHub Releases tarball into `/opt/pwsh/`).
+- Baseline before edits: `test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0 — all green.
+- Post-edit: same three suites still 48/0, 16/0, 34/0 (test-only
+  additions in `validation-gates.Tests.ps1` don't affect the parse
+  suite's structural counts).
+- `PSParser::Tokenize` on `unified_winpe_deploy.ps1` reports zero
+  errors. Brace balance 398/398 (up from 396/396: `+2/+2` from the
+  new `if`). Region balance 10/10 (unchanged).
+- **Isolated behavioral verification** via
+  `scratchpad/gate_only.ps1` — extracted the three PIN validation
+  `if` blocks verbatim, ran them against 8 inputs. Results (all
+  match expectations):
+
+  | Input | return | ws-hit | length-hit |
+  |-------|--------|--------|------------|
+  | leading space `' goodpin42'`   | False | ✓ | - |
+  | trailing space `'goodpin42 '`  | False | ✓ | - |
+  | trailing tab `"goodpin42\t"`   | False | ✓ | - |
+  | leading NBSP U+00A0            | False | ✓ | - |
+  | clean `'goodpin42'`            | True  | - | - |
+  | middle space `'good pin42'`    | True  | - | - |
+  | too short `'abcde'` (5)        | False | - | ✓ |
+  | too long (21 chars)            | False | - | ✓ |
+
+  The short-circuit order is right: length gate fires before
+  whitespace gate, so a too-short/too-long PIN doesn't ALSO trip
+  the whitespace message. Tab and NBSP catches confirm `.Trim()`
+  uses the .NET default whitespace set, which is what we want.
+- Pester (CI-only) per CLAUDE.md: the container's network policy
+  blocks PSGallery reliably, so `Install-Module Pester` cannot run
+  here. CI's `pester` job on `windows-latest` will run the two new
+  `It`s end-to-end on push.
+
+**Risks / follow-ups:**
+- **Minimal.** Test-only + one small validation block; no
+  destructive code paths (diskpart, DISM, BitLocker staging)
+  touched. The new gate is between the existing length gate and
+  the existing "PIN provided without -EnableBitLocker" warning —
+  linear flow, no branch reordering. Both new `It`s follow the
+  exact shape of the sibling length-gate `It` (same
+  `Should -BeFalse`, same `-match` message assertion, same
+  `Should -Invoke ... -Times 0` gate on `Invoke-Diskpart` /
+  `Apply-WindowsImage`).
+- **Doesn't cover the equivalent gate in `build_iso.ps1`.** That
+  script has its own PIN handling at `scripts/build_iso.ps1:205-209`
+  (currently no length check either — PR #245 addresses length; a
+  future pass could add whitespace there for parity). This pass
+  keeps the blast radius small by touching only the deploy-time
+  surface.
+- Outstanding backlog candidates from prior entries still open:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code — cleanup only, deferred because the menu
+    is load-bearing TUI UX (open PR #227 attempts the refactor).
+  - `first-login.ps1` has no test coverage beyond syntax parse
+    (open PR #182 attempts fixture coverage for the `{root}`
+    substitution).
+  - `docs/UNATTEND.md` §6 vs `unified_winpe_deploy.ps1:1738`
+    `-Raw` stylistic mismatch (flagged in PR #272, still open).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

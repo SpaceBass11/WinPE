@@ -9,6 +9,24 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`-BitLockerPin` now rejects leading or trailing whitespace.** The
+  existing length gate (`6-20 characters`) accepted a PIN like
+  `' goodpin42'` (10 chars) at pre-flight, then baked the leading
+  space into `bitlocker-setup.ps1` verbatim. TPM+PIN unlocks against
+  the space-prefixed PIN at first boot, but the pre-Windows PIN
+  prompt is a hidden field — the operator sees no cursor position
+  giveaway and has no way to type an invisible edge space, so the
+  disk brings up unrecoverable-with-typed-PIN and the operator has to
+  fall back to the recovery key. Common culprits: editor whitespace
+  around the quoted value in `deploy.args`, a stray space typed at
+  the WinPE Read-Host prompt, or a paste from Word/Slack that
+  introduced U+00A0 (NBSP). Rejection happens right after the length
+  check in `Start-Deployment`, so bail-out fires before diskpart /
+  DISM / BitLocker staging. Whitespace inside the PIN (`good pin42`)
+  is still allowed — that's a passphrase choice, not a footgun. New
+  Pester coverage in `tests/validation-gates.Tests.ps1` for both the
+  leading-space and trailing-space cases. `docs/BITLOCKER.md`
+  `-BitLockerPin` parameter row updated.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

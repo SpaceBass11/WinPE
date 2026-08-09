@@ -23,6 +23,7 @@
           - nonexistent / system / USB-only -DataDiskNumber
           - -EnableBitLocker without -BitLockerPin
           - -EnableBitLocker -BitLockerPin '<5 chars>'
+          - -EnableBitLocker -BitLockerPin with leading/trailing whitespace
           - -Silent -DataDiskNumber without -Force
       - Start-Deployment validation passes with -Silent -Force
         -DataDiskNumber explicit (mocks short-circuit before any
@@ -352,6 +353,46 @@ Describe "Start-Deployment validation gates" {
         $result | Should -BeFalse
         $logs = $Global:CapturedLogs
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It "Rejects -EnableBitLocker -BitLockerPin with leading or trailing whitespace" {
+        # Whitespace gate at unified_winpe_deploy.ps1 (just after the length
+        # window check): a stray leading/trailing space bakes into the staged
+        # bitlocker-setup.ps1 verbatim, so TPM+PIN unlocks with a PIN the
+        # operator cannot type at the invisible BIOS PIN prompt.
+        # Realistic mis-config: deploy.args edited in Notepad with trailing
+        # whitespace after the quoted PIN, or a space typed at Read-Host.
+        # Length passes (' goodpin42' is 10 chars, in 6-20 window) - only the
+        # trim comparison catches it.
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $true
+            $BitLockerPin    = ' goodpin42'   # leading space
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'leading or trailing whitespace' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects -EnableBitLocker -BitLockerPin with trailing whitespace (invisible-space case)" {
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $true
+            $BitLockerPin    = 'goodpin42 '   # trailing space
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'leading or trailing whitespace' }) | Should -Not -BeNullOrEmpty
     }
 
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {

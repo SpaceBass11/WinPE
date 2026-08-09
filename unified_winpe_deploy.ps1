@@ -1693,6 +1693,20 @@ function Start-Deployment {
         Write-Log "BitLockerPin must be 6-20 characters (Enhanced PIN policy)" -Level Error
         return $false
     }
+    # Reject leading/trailing whitespace before we bake the PIN into
+    # bitlocker-setup.ps1. TPM+PIN treats the space as part of the PIN, so
+    # a stray leading/trailing space brings the disk up encrypted with a
+    # PIN the operator cannot type at first-boot prompt (spaces are invisible
+    # in that BIOS-drawn text field). Common culprits: editor whitespace in
+    # deploy.args, a leading space typed at the WinPE Read-Host prompt, or
+    # copy-paste from Word/Slack that added a NBSP. We reject rather than
+    # trim so the operator sees the input needs fixing.
+    if ($Script:Config.EnableBitLocker -and
+        $Script:Config.BitLockerPin.Length -ne $Script:Config.BitLockerPin.Trim().Length) {
+        Write-Log "BitLockerPin has leading or trailing whitespace - reject to avoid unlocking with a PIN the operator cannot type at TPM prompt" -Level Error
+        Write-Log "  Check deploy.args for editor whitespace around the -BitLockerPin value, or retype at the WinPE prompt." -Level Info
+        return $false
+    }
     if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
         Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
     }
