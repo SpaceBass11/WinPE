@@ -5,6 +5,82 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — Backlog-triage pass (no code change)
+
+**Investigated:** `mcp__github__list_pull_requests` inventory of open PRs
+against `main` (200+ open, all authored by prior routine-agent passes,
+head branch pattern `claude/lucid-keller-*` or
+`claude/routine-*-<date>`); the maintenance log's outstanding
+follow-ups; recent read pass over `unified_winpe_deploy.ps1`
+(`Find-ImageFiles`, `Get-SystemDisks`, `Show-DiskMenu`,
+`Show-ImageList` / `Show-ImageSelection`, `Test-FinalWipeConfirmation`,
+`Select-TargetDisk`, `Apply-WindowsImage`, `Set-BootConfiguration`,
+`Invoke-CctkConfig`, `Select-AdditionalWipeDisks`,
+`Resolve-BitLockerKeyPath`, `Initialize-BitLockerSetup`,
+`Start-Deployment`), `scripts/build_iso.ps1`, `scripts/prepare_wim.ps1`,
+`scripts/refresh_usb.ps1`, `scripts/build_boot_wim.ps1`,
+`scripts/first-login.ps1`, all four test files, and every doc under
+`docs/`.
+
+**Found:** The high-confidence, small-scope improvements that a routine
+pass would normally take are already in flight as open PRs. Every
+concrete candidate I generated has a corresponding open PR authored by
+an earlier routine pass, e.g.:
+
+- `-Silent` bare-precondition Pester coverage → PR #137
+- `-DataDiskNumber` / extra-wipe overlap Pester → PRs #271, #125, #81
+- `-WipeDisks` regex gate Pester → PR #165
+- `-UnattendFile` XML well-formedness Pester → PRs #152, #107
+- Stale "placeholder PIN rejected" doc claims after PR #49 → PRs #167,
+  #97, #134, #136, #104, #72
+- `-BitLockerKeyPath` absolute-path validation → PRs #105, #139
+- `refresh_usb.ps1` `-OutputName` / `-BootUsbDrive` / `-PathType`
+  hardening → PRs #261, #135, #118, #77
+- `build_iso.ps1` silent-mode disk-number overlap / gate coverage →
+  PRs #254, #147, #114, #116
+- `Show-ImageList` / `Show-ImageSelection` factoring → deferred across
+  every prior routine entry that mentioned it (load-bearing TUI UX,
+  not covered by any test).
+
+The prior three routine passes (PRs #269, #268, #267 — three
+consecutive `docs(routine-log): record 2026-08-08 backlog-triage pass
+(no code change)` entries) reached the same conclusion. Adding a
+fourth identical body would be pure noise.
+
+**Changed:** just this log entry.
+
+**Verification:** N/A — no code touched.
+
+**Risks / follow-ups:** None from this run. Repo-level observation
+for the human maintainer:
+
+- The open-PR queue is the constraint now, not the "next-improvement
+  backlog". Until some of these PRs land or are closed, new routine
+  passes have no room to add value without duplicating in-flight
+  work. Merging (or closing as superseded) a batch of the older
+  routine PRs — anything with a `claude/routine-*` head from
+  2026-06-* or earlier — would unblock the routine loop to look at
+  genuinely new ground.
+- Two candidates still uncovered by any open PR I could find, in case
+  a future pass wants a fresh target:
+  - **Trailing/leading whitespace in the TUI BitLocker PIN prompt**
+    (`unified_winpe_deploy.ps1:1684`). `Read-Host` returns the string
+    verbatim; a stray space at either end becomes part of the
+    plaintext PIN baked into `bitlocker-setup.ps1`. Length check
+    passes; the operator only discovers the invisible space at first
+    boot when TPM+PIN rejects it. Trimming would change accepted
+    inputs, so this is a design call, not a mechanical fix — worth
+    a short note in `docs/BITLOCKER.md` more than a code change.
+  - **`docs/UNATTEND.md` §6 vs deploy-script sanity-check parity.**
+    The doc snippet is `[xml](Get-Content I:\configs\unattend.xml)`
+    (no `-Raw`); `unified_winpe_deploy.ps1:1738` uses
+    `[xml](Get-Content -Path $UnattendFile -Raw)`. Both parse
+    correctly in practice — this is a stylistic consistency item,
+    not a bug. Small enough to bundle into any future UNATTEND.md
+    edit rather than a standalone PR.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
