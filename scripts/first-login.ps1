@@ -156,10 +156,19 @@ if (-not (Test-Path $oneDriveUninstaller)) {
     $oneDriveUninstaller = "$env:SystemRoot\System32\OneDriveSetup.exe"
 }
 if (Test-Path $oneDriveUninstaller) {
+    # Bounded wait: OneDriveSetup /uninstall has been observed to hang on
+    # some SKUs. Without a timeout, that would block Windows' first-logon
+    # SynchronousCommand chain indefinitely — the user sees a stuck OOBE.
+    $oneDriveTimeoutSeconds = 120
     try {
         Stop-Process -Name 'OneDrive' -Force -ErrorAction SilentlyContinue
-        Start-Process -FilePath $oneDriveUninstaller -ArgumentList '/uninstall' -Wait -NoNewWindow
-        Log "  OK  OneDrive uninstalled (per-user)"
+        $proc = Start-Process -FilePath $oneDriveUninstaller -ArgumentList '/uninstall' -PassThru -NoNewWindow
+        if ($proc.WaitForExit($oneDriveTimeoutSeconds * 1000)) {
+            Log "  OK  OneDrive uninstalled (per-user)"
+        } else {
+            try { $proc.Kill() } catch { }
+            Log "  WARN OneDrive uninstall did not exit within ${oneDriveTimeoutSeconds}s - killed. Uninstall may be incomplete; re-run '$oneDriveUninstaller /uninstall' manually if OneDrive is still present."
+        }
     } catch {
         Log "  ERR OneDrive uninstall - $($_.Exception.Message)"
     }

@@ -5,6 +5,74 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — `first-login.ps1` OneDrive uninstall timeout
+
+**Investigated:** Open PRs against `main` via
+`mcp__github__list_pull_requests` (state=open, ~30 PRs on page 1) and
+`search_pull_requests` for `OneDrive`, `OneDriveSetup`, `Wait-Process`,
+`timeout`, `first-login`. Also read the newest routine-log entry —
+PR #278 (branch `claude/lucid-keller-p4xv6y`, 2026-08-09 backlog-triage
+pass) which explicitly flagged two genuinely-untouched candidates: the
+OneDrive uninstall hang and `docs/SIGNING.md` cert-filter for expired
+certs. Confirmed neither has an open PR.
+
+**Found:** `scripts/first-login.ps1` line 161 (pre-edit) invoked
+`Start-Process -FilePath $oneDriveUninstaller -ArgumentList '/uninstall'
+-Wait -NoNewWindow`. `Start-Process -Wait` has no timeout. OneDrive
+`/uninstall` has been observed to stall on some Windows SKUs (mostly
+after major upgrades where the per-user `OneDriveSetup.exe` stub can't
+find its child MSI). Because the whole `first-login.ps1` is invoked by
+Windows' `FirstLogonCommands` `SynchronousCommand` chain, a stuck
+uninstaller means the user sees a hung OOBE indefinitely — the
+downstream `explorer.exe` restart and any subsequent unattend commands
+never run either.
+
+**Changed:**
+- `scripts/first-login.ps1` — swapped `-Wait` for `-PassThru` and used
+  `Process.WaitForExit($ms)` with a 120-second cap. On timeout, calls
+  `.Kill()` and logs a `WARN` line that names the exact command the
+  operator should run manually. Preserves the outer `try/catch` and
+  the existing `Stop-Process -Name 'OneDrive'` pre-step. Other tweaks
+  and the `explorer.exe` restart proceed regardless.
+- `CHANGELOG.md` — `### Fixed` bullet at the top of `## Unreleased`.
+
+**Verification:**
+- Installed `pwsh` v7.4.6 per the CLAUDE.md note (GitHub Releases
+  tarball into `/opt/pwsh/`).
+- Baseline `pwsh -NoProfile -File ./tests/test_parse.ps1`: 48 passed
+  / 0 failed.
+- Post-edit `pwsh -NoProfile -File ./tests/test_parse.ps1`: 48 passed
+  / 0 failed (test 13's `First-login tweaks syntax valid` still
+  green — the edit stays inside an existing `if (Test-Path)` body,
+  no new function or region, no brace imbalance).
+- Smoke-tested the `WaitForExit(int)` + `.Kill()` pattern under
+  pwsh on Linux against `/usr/bin/sleep`:
+  - fast case (`sleep 0.1`, budget 2000 ms) → `WaitForExit` returned
+    `True`, no kill needed.
+  - slow case (`sleep 5`, budget 300 ms) → `WaitForExit` returned
+    `False`, `.Kill()` succeeded, `HasExited` became `True`.
+  Same overload is available on Windows PowerShell 5.1 (it's a
+  `System.Diagnostics.Process` API present since .NET Framework 1.1),
+  so no WinPE / PSv5.1 compatibility risk.
+
+**Risks / follow-ups:**
+- Small blast radius. Only the OneDrive uninstall block was touched
+  in `first-login.ps1`; no change to the tweak loop, the Default
+  User hive load/unload, or the explorer restart. `first-login.ps1`
+  runs on the deployed target OS at OOBE — not in WinPE and not
+  during disk/DISM operations — so a bug here couldn't corrupt an
+  in-progress deploy. Worst regression case: the uninstaller runs
+  slower than 120 s on some SKU and gets killed mid-way, which is
+  strictly better than the prior "hangs OOBE forever" behavior.
+- Remaining candidate from PR #278 not taken this pass:
+  `docs/SIGNING.md` `Get-ChildItem Cert:\... -CodeSigningCert |
+  Select-Object -First 1` returns expired certs; a
+  `Where-Object { $_.NotAfter -gt (Get-Date) }` filter would prevent
+  signing with a stale cert. Purely docs; low urgency (signing
+  failure is loud).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

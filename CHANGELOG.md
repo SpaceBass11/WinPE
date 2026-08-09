@@ -8,6 +8,17 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`scripts/first-login.ps1` OneDrive uninstall no longer blocks
+  first-logon indefinitely.** The `OneDriveSetup.exe /uninstall` call
+  used `Start-Process -Wait` with no timeout; a stalled uninstaller
+  (observed on some SKUs) would hang Windows' `FirstLogonCommands`
+  chain and leave the operator staring at a stuck OOBE screen. The
+  call is now `-PassThru` + `Process.WaitForExit(120000)`; on timeout
+  the process is killed and a `WARN` line is logged pointing the
+  operator at the manual re-run. Other tweaks and the `explorer.exe`
+  restart still run.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
