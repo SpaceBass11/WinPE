@@ -127,7 +127,7 @@ Common values: `Eastern Standard Time`, `Mountain Standard Time`,
 Quick sanity-check before deploying:
 
 ```powershell
-[xml](Get-Content I:\configs\unattend.xml)
+[xml](Get-Content -Path I:\configs\unattend.xml -Raw)
 ```
 
 If that throws, you have a syntax error (usually an unclosed tag or a

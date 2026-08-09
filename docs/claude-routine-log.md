@@ -5,7 +5,88 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
-## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
+## 2026-08-09 — align `[xml](Get-Content ...)` recipe with the script's `-Raw` form
+
+**Investigated:** the two candidates PR #272's body left as fresh
+ground for a future routine pass:
+1. TUI PIN whitespace validation — already taken by PR #273 (opened
+   earlier today), skip.
+2. `docs/UNATTEND.md` §6's sanity-check recipe uses
+   `[xml](Get-Content …)` without `-Raw` while
+   `unified_winpe_deploy.ps1:1738` uses `-Raw` in its pre-flight
+   validation. PR #272 called it a "stylistic consistency item, not
+   a bug" — verified that framing and picked it up.
+
+**Found:** the mismatch is small but has two real user-visible
+consequences beyond style:
+
+- `unified_winpe_deploy.ps1:1743` — when the pre-flight validation
+  fails, the error message tells the operator to
+  `Sanity-check manually: [xml](Get-Content '$UnattendFile')`.
+  That recipe is subtly different from what the script actually ran
+  (`-Path … -Raw`): without `-Raw`, PS reads the file as `[string[]]`
+  (one element per line) and casts to `[xml]` via `$OFS`-joined
+  string, so certain whitespace-sensitive XML shapes could parse via
+  one path and fail via the other. On a mismatch the operator gets
+  a confusing "the doc's recipe passes but the script rejects it"
+  loop.
+- `docs/UNATTEND.md:130` — same recipe with the same drift, plus
+  omits `-Path` which the deploy script uses.
+
+**Changed:**
+- `unified_winpe_deploy.ps1:1743` — the operator-facing sanity-check
+  hint now reads
+  `[xml](Get-Content -Path '$UnattendFile' -Raw)`, matching the
+  actual pre-flight call at `:1738`. Same recipe, same result — copy-
+  paste from the log now reproduces the script's decision.
+- `docs/UNATTEND.md:130` — same rewrite; `-Raw` + `-Path` for the
+  same reason. The surrounding prose ("If that throws, you have a
+  syntax error…") stays put.
+
+Nothing else touched: no version bump (behavior identical for the
+majority of unattend.xml files that are well-formed either way; the
+change only alters the operator-facing hint text and the doc recipe),
+no `CHANGELOG.md` bump (not a user-visible behavior change), no PSSA-
+observable code path change.
+
+**Verification:**
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → **48/0** (unchanged
+  from baseline).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → **16/0**.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → **34/0**.
+- `System.Management.Automation.Language.Parser::ParseInput` on the
+  modified `unified_winpe_deploy.ps1` → 0 errors.
+- Ran the exact new hint recipe against a well-formed XML fixture:
+  `[xml](Get-Content -Path … -Raw)` succeeded (`root.child = ok`), so
+  the recipe the operator would copy-paste actually works.
+- Pester (CI-only per CLAUDE.md) — no gate touched, so no new `It`s
+  added; the existing suite's coverage is unchanged.
+
+**Risks / follow-ups:**
+- **Minimal.** One line changed in the deploy script (a `Write-Log`
+  string constant, no control flow) and one code-fence in a doc. No
+  destructive path touched, no diskpart/DISM/BCDBoot/typed-confirmation
+  behavior altered.
+- The historical `CHANGELOG.md:190` bullet ("Matches the manual
+  `[xml](Get-Content ...)` sanity check documented in
+  `docs/UNATTEND.md` section 6.") is a past-release entry and stays
+  as-is — rewriting historical changelog copy is out of scope.
+- `docs/RELEASE_VALIDATION.md:75`'s reference to
+  `[xml](Get-Content ...)` is descriptive of the validation's shape
+  in the release-test table, not a copy-paste recipe, so left alone.
+
+**Next recommended improvement:**
+- **`scripts/build_iso.ps1` PIN whitespace parity** (`:205-209`) —
+  PR #273's body flagged this as a follow-up not covered by that
+  branch. `build_iso.ps1`'s silent-build `-BitLockerPin` gate only
+  checks length; a leading/trailing/NBSP whitespace check would give
+  the ISO builder the same protection the runtime script now has.
+- **`Show-ImageList` / `Show-ImageSelection` factor-out** (PR #227
+  covers this) still open across multiple routine passes; not
+  urgent — the TUI menu render is load-bearing UX and PR #227
+  already carries the change.
+
+
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
 the routine log's "next recommended improvement" backlog, and the
