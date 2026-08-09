@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/DEPLOY_ARGS.md` documents the file-encoding constraint.**
+  Appended a `Constraints` bullet: `deploy.args` must be saved as
+  ASCII (or UTF-8 without BOM) so `set /p` doesn't glue a BOM to
+  the first parameter — otherwise PowerShell rejects it with an
+  opaque `parameter cannot be found` error. Lists the three common
+  hand-author paths that produce a BOM (Windows PowerShell 5.1's
+  `Set-Content -Encoding UTF8`, older Notepad "Save As → UTF-8", VS
+  Code's "UTF-8 with BOM") and gives copy-paste safe recipes for
+  each. `scripts/build_iso.ps1` was already writing ASCII by
+  construction; this only affects hand-authored files in the
+  two-partition USB flow.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

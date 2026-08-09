@@ -57,6 +57,20 @@ read the file from the IMAGES partition directly.
   startnet.cmd already set (notably `%DEPLOY_IMAGE_DRIVE%` is
   available, but the example uses absolute drive letters because
   those are stable on the IMAGES USB).
+- **Save as ASCII (or UTF-8 without BOM).** `set /p` reads the file
+  byte-for-byte and passes the result straight to PowerShell. A
+  UTF-8 BOM at the top of the file (Windows PowerShell 5.1's
+  `Set-Content -Encoding UTF8` default, older Notepad, VS Code's
+  "UTF-8 with BOM") ends up glued to the first `-` character, and
+  PowerShell aborts with an opaque `A parameter cannot be found that
+  matches parameter name` error against something that reads
+  correctly on screen. `scripts/build_iso.ps1` writes its generated
+  `deploy.args` as ASCII already; hand-authored files should match.
+  Safe recipes:
+  - PowerShell 5.1: `Set-Content -Path deploy.args -Encoding ASCII -Value '...'`
+  - PowerShell 7+:  `Set-Content -Path deploy.args -Encoding utf8NoBOM -Value '...'`
+  - Notepad (Win 10 1903+): the default "UTF-8" saves without BOM.
+    "UTF-8 with BOM" is the wrong menu entry.
 
 ## Security caveat — same as CCTK
 

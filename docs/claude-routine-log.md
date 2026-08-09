@@ -5,6 +5,83 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — `docs/DEPLOY_ARGS.md` file-encoding constraint
+
+**Investigated:** the current open-PR queue (275 open, ~200+ from
+prior routine runs) and today's four fresh PRs (#273 BitLocker PIN
+trim, #274 UNATTEND.md `-Raw`, #275 `-SourceIso` extension, #270
+diskpart plan echo). Every candidate the previous triage passes
+called out is either merged upstream, in-flight, or explicitly
+picked up by today's PRs. Searched open + closed PRs for `BOM`,
+`UTF-8`, `deploy.args encoding`, `set /p`, `deploy.args Notepad` —
+zero hits on the file-encoding gap.
+
+**Found:** `docs/DEPLOY_ARGS.md` §Constraints lists three
+constraints on hand-authored `deploy.args` (single line, cmd.exe
+quoting rules, no env expansion), but says nothing about file
+encoding. `set /p DEPLOYARGS=<"…\deploy.args"` in cmd.exe reads
+the file byte-for-byte under the current WinPE codepage, so a
+UTF-8 BOM (bytes `EF BB BF`) at the head of the file ends up glued
+to the first `-` character of the first parameter. PowerShell then
+aborts with `A parameter cannot be found that matches parameter
+name 'ﻹWimFile'` (or the codepage-437 rendering of the BOM bytes),
+which reads on screen as a correctly-typed parameter name — the
+failure is opaque and never mentions encoding.
+
+Failure surfaces cluster around a small set of hand-author paths:
+- Windows PowerShell 5.1's `Set-Content -Encoding UTF8` writes BOM
+  by default.
+- Older (pre-Win10 1903) Notepad "Save As → UTF-8" adds BOM.
+- VS Code's "UTF-8 with BOM" menu entry is trivially misclicked.
+
+`scripts/build_iso.ps1` writes its generated `deploy.args` as
+ASCII (line 304: `Set-Content -Encoding ASCII -Force`) so its
+output is safe by construction. Only the two-partition USB flow
+(operator hand-authors the file per §Quick start) is exposed —
+which is exactly the flow §Constraints is written for.
+
+**Changed:**
+- `docs/DEPLOY_ARGS.md` — appended a fourth bullet to the
+  Constraints section: "Save as ASCII (or UTF-8 without BOM)".
+  Explains the byte-for-byte read, lists the three common
+  hand-author paths that produce a BOM, contrasts with
+  `build_iso.ps1`'s ASCII writer, and gives three copy-paste
+  save recipes (PS 5.1, PS 7+, Notepad Win 10 1903+).
+- `CHANGELOG.md` — one bullet under `## Unreleased / ### Changed`.
+  Docs-only change, no version bump (no `$Script:Config.ScriptVersion`
+  touch).
+
+**Verification:**
+- `pwsh 7.4.6` installed once per session per the CLAUDE.md tarball
+  recipe (`/opt/pwsh/pwsh --version` → PowerShell 7.4.6).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` before edit:
+  48 passed / 0 failed.
+- Post-edit expected to stay 48/0 — no `.ps1` files touched, no
+  parse changes possible from a Markdown-only edit. CI's `syntax`
+  job re-runs `PSParser::Tokenize` on push.
+- Lychee link-check + actionlint + masterize on the docs edit via
+  CI; no external URLs added, so no new lychee surface.
+
+**Risks / follow-ups:**
+- Minimal. Pure documentation addition; no `.ps1`, no CI, no
+  configs, no destructive path touched. Callers already using
+  the safe encodings see no change. Callers currently hitting the
+  BOM-prefix error now have a documented explanation.
+- Doesn't cover the SecondBOM-in-CRLF or FEFF-in-UTF-16 cases —
+  those are less common (UTF-16 with BOM is rejected by `set /p`
+  as garbage on the first byte pair). If a future user reports
+  those symptoms, the bullet can grow another sentence.
+- Outstanding routine-backlog items still not covered by any open
+  PR that a future pass could pick up (per the 2026-08-08 triage
+  in PR #269): BCDBoot exit-code-specific branch expansion in
+  `Set-BootConfiguration` — DISM has a rich switch table
+  (`unified_winpe_deploy.ps1` ~L1149-1201), BCDBoot just has
+  general "common causes" text. Lower priority than the DISM
+  arms since bcdboot's own stderr is now surfaced via
+  `-NoNewWindow` (post-PR 2026-05-17 BCDBoot diagnostics pass).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
