@@ -5,6 +5,75 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — Fix stale `configs/unattend.example.xml` comment on Default User hive
+
+**Investigated:** Open PRs #247-#276 for in-flight overlap, the recent
+`configs/unattend.example.xml` history (single commit `ada844f` — the
+same PR that introduced both `first-login.ps1` and this example), and
+the actual behavior of `scripts/first-login.ps1` lines 116-148.
+
+**Found:** The `<FirstLogonCommands>` block's XML comment (lines
+191-200 pre-edit) told operators that `first-login.ps1` only touches
+the current user's HKCU and that "to make non-admin accounts
+(TechL0/1/2) inherit the same tweaks, the script would need to also
+edit the Default User hive (C:\\Users\\Default\\NTUSER.DAT); ask if you
+want that added." The script *already does* exactly that — the same
+commit that added the example added the Default User pass to the
+script (`git show ada844f -- scripts/first-login.ps1` shows the pass
+was present from day one). The comment was inaccurate at file birth.
+`CHANGELOG.md` at line 151-152 correctly describes the two-pass
+behavior, so this was a literal doc-vs-code drift in the example
+alone. An operator following the comment could waste time
+re-implementing an existing feature or comment out the
+`SynchronousCommand` on the false assumption that it's incomplete. The
+`<Description>` tag "Apply per-user (HKCU) debloat tweaks" was also
+narrower than what actually runs.
+
+Confirmed no open PR touches this file's content (only #248 proposes
+adding a well-formedness CI check, which is orthogonal, and #274
+touches `docs/UNATTEND.md`, not the config example).
+
+**Changed:**
+- `configs/unattend.example.xml` — replaced the stale HKCU-only
+  comment with an accurate two-pass description (live HKCU +
+  `C:\Users\Default\NTUSER.DAT`). Updated the `<Description>` from
+  "Apply per-user (HKCU) debloat tweaks" to "Apply HKCU + Default
+  User debloat tweaks". Comment-only change; the executed
+  `<CommandLine>` is unchanged.
+- `CHANGELOG.md` — added a `### Fixed` bullet under `## Unreleased`
+  above the existing `### Changed` block.
+
+**Verification:**
+- `python3 -c "xml.etree.ElementTree.parse(...)"` on
+  `configs/unattend.example.xml`: parses cleanly, root
+  `{urn:schemas-microsoft-com:unattend}unattend` with 2 child
+  `<settings>` elements (unchanged from pre-edit).
+- `pwsh -c "[xml](Get-Content -Raw configs/unattend.example.xml)"`
+  (the exact validator `unified_winpe_deploy.ps1`'s `-UnattendFile`
+  pre-flight uses at runtime): parse OK. Installed pwsh 7.4.6 per
+  CLAUDE.md's Pester note.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1`: 48 passed / 0
+  failed (unchanged from baseline; the .xml file isn't in the parse
+  script's inventory but the script's own scan still runs green).
+- Diff scope: 2 files, +20 / -6, no `.ps1` touched, no destructive
+  code paths involved, no version bump (docs/example only).
+
+**Risks / follow-ups:**
+- Minimal. Comment-only edit to an example config file. The
+  `<Description>` string is user-visible only in Windows Setup logs on
+  first boot — cosmetic.
+- Follow-ups from prior entries / open PRs still on the backlog that
+  I did not take this pass:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code that could be factored out — cleanup only.
+    Deferred across multiple entries because the TUI is load-bearing.
+  - PR #248's CI well-formedness check for
+    `configs/unattend.example.xml` is a natural companion to this
+    edit — if that PR merges, this file's XML validity becomes a
+    guarded invariant.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

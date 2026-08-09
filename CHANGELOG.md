@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`configs/unattend.example.xml` comment on `FirstLogonCommands`.**
+  The block claimed `first-login.ps1` was HKCU-only and told operators
+  the script "would need to also edit the Default User hive" for
+  non-admin accounts to inherit the tweaks — but that Default User
+  pass has shipped in `first-login.ps1` since PR #21 (both features
+  landed in the same commit). Updated the comment to describe the
+  actual two-pass behavior (live HKCU + `C:\Users\Default\NTUSER.DAT`)
+  and renamed the `<Description>` from "Apply per-user (HKCU) debloat
+  tweaks" to "Apply HKCU + Default User debloat tweaks" so operators
+  don't spend time re-implementing something that already exists.
+  Comment-only change; XML structure and executed commands unchanged.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
