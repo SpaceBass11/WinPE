@@ -9,6 +9,18 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`New-DiskpartScript` now echoes the derived diskpart plan before
+  dumping the raw script.** Previously the function logged every
+  diskpart command line one-by-one; the derived plan (which extra-wipe
+  disks matched the operator's typed numbers, whether a data-disk is
+  in the same run) was implicit in that dump but not easy to scan.
+  Now a `Diskpart plan:` block prints just above the script dump with
+  one line each for the target disk, each extra-wipe disk (number +
+  model), and the data disk (when `-DataDiskNumber` is set), so a
+  mismatch between what the operator typed at the additional-wipe
+  prompt and what the script actually embedded jumps out before
+  `Invoke-Diskpart` runs any destructive commands. Additive logging
+  only; no behavior change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

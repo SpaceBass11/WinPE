@@ -1015,6 +1015,26 @@ $dataDiskCommands
 exit
 "@
 
+    # Concise plan summary before the raw script dump. The raw diskpart
+    # commands log below is verbose (10+ lines mixing selects, cleans,
+    # creates, formats), which makes it hard for the operator to visually
+    # confirm the derived plan matches what they typed at the confirmation
+    # prompts. This block echoes the derived plan as a single scannable
+    # block so a mismatch (e.g. wrong extra-wipe disk number embedded)
+    # jumps out before Invoke-Diskpart runs the destructive commands.
+    Write-Log "Diskpart plan:" -Level Info
+    Write-Log "  Target disk $DiskNumber : clean + GPT + EFI(300MB,S:) + MSR(16MB) + NTFS(C:)" -Level Info
+    if ($ExtraWipeDisks -and $ExtraWipeDisks.Count -gt 0) {
+        foreach ($extra in $ExtraWipeDisks) {
+            Write-Log "  Extra-wipe disk $($extra.Number) ($($extra.Model)) : clean only (no repartition)" -Level Info
+        }
+    } else {
+        Write-Log "  Extra-wipe disks: none" -Level Info
+    }
+    if ($Script:Config.DataDiskNumber -ge 0) {
+        Write-Log "  Data disk $($Script:Config.DataDiskNumber) : clean + GPT + NTFS(D:, label=Data)" -Level Info
+    }
+
     try {
         Set-Content -Path $Script:SystemPaths.DiskpartScript -Value $commands -Force
         Write-Log "Diskpart script created at $($Script:SystemPaths.DiskpartScript):" -Level Success

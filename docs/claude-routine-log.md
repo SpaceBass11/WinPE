@@ -5,6 +5,117 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — `New-DiskpartScript` plan echo before raw script dump
+
+**Investigated:** open PR queue (30+ unmerged Claude routine branches),
+the 2026-08-08 routine-log entry on `origin/claude/lucid-keller-guhvy7`
+(PR #269), and the "novel surface" candidates it explicitly named as
+NOT covered by any in-flight branch:
+
+1. BCDBoot exit-code branch expansion to parity with the DISM switch.
+2. Diskpart-script generation could log the extra-wipe disk list it
+   embedded, so the operator can confirm the preamble matched what
+   they typed.
+
+Cross-checked the current `Set-BootConfiguration` at
+`unified_winpe_deploy.ps1:1211-1265`: it already logs `bootmgfw.efi`
+presence, S: mount state and free space, and a four-item common-causes
+list. bcdboot's exit-code semantics are effectively binary (0 or 1)
+per Microsoft docs, so per-code branching would only stack a
+`switch` around one arm without any new content — deferred.
+
+Took candidate #2 instead. Small blast radius, additive logging only,
+touches one function (`New-DiskpartScript`, `unified_winpe_deploy.ps1:931-1030`).
+
+Also cross-checked open PRs touching the same function to avoid a
+merge collision: PR #198 modifies the `Set-Content` inside the
+`try/catch` (adds `-ErrorAction Stop`) and enriches the catch block;
+PR #259 modifies `Select-AdditionalWipeDisks` (a caller) — different
+function. My edit adds a `Write-Log "Diskpart plan:"` block ABOVE the
+`try {` at line 1018, so it does not overlap the lines #198 touches
+and will three-way-merge cleanly whichever order lands first.
+
+**Found:** the raw diskpart-script echo (lines 1021-1024) is verbose —
+10+ lines of `select disk N`, `online disk noerr`, `attributes disk
+clear readonly noerr`, `clean`, `convert gpt`, `create partition efi
+size=300`, etc. Extra-wipe disks appear as bare `select disk N` lines
+mixed in with the target disk's `select disk M` line and the data
+disk's `select disk K` line. The operator has to visually parse three
+different `select disk` occurrences to confirm the derived plan
+matches what they typed at:
+- The `-TargetDisk` prompt or interactive selection (target disk).
+- The additional-wipe prompt (`Select-AdditionalWipeDisks`, lines
+  1417-1418) — the pending list is printed once during interactive
+  confirmation but scrolls out of sight during long dispatch.
+- The `-DataDiskNumber` param (silent) or its `WIPE DATA` prompt
+  (interactive), lines 1812-1815.
+
+Under silent mode with `-WipeDisks '1,2'` there is no intermediate
+echo of the resolved candidate list at all — the operator only sees
+the raw diskpart preamble scroll by, mixed with commands for the
+primary target.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `New-DiskpartScript` gains a 12-line
+  block immediately above the `try {` at line 1018 that logs a
+  `Diskpart plan:` summary with one line per operation: target disk
+  (number + partition layout), each extra-wipe disk (number + model),
+  and the data disk (when `-DataDiskNumber` is set). Uses the same
+  `Write-Log ... -Level Info` shape as the existing per-line dump so
+  the plan lines land in the log file alongside the raw echo.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing the
+  additive log block and explicitly noting no behavior change.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` v7.4.6 installed per CLAUDE.md recipe (GitHub Releases
+  tarball into `/opt/pwsh/`; network policy allowed the download
+  this session).
+- Baseline before edits: `test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0.
+- Post-edit (same three suites): 48/0, 16/0, 34/0 — unchanged. The
+  edit is purely additive Write-Log calls; no new function names or
+  drift-guard strings to update.
+- Brace balance on `unified_winpe_deploy.ps1`: **401 / 401** (unchanged
+  from `main`). Region balance: 10 / 10 (unchanged). The new block
+  adds one `if`/`else` and one `foreach` but their braces balance
+  net-zero against no other structural change.
+- Full-file `PSParser::Tokenize` via `pwsh -c '[System.Management.Automation.PSParser]::Tokenize(...)'` reports zero errors.
+- Structural review of the surrounding function: the new block reads
+  only from parameters (`$DiskNumber`, `$ExtraWipeDisks`) and
+  `$Script:Config.DataDiskNumber` — all set well before this function
+  is entered from `Start-Deployment`. Nothing destructive is touched;
+  no diskpart commands, no drive-letter manipulation, no `Set-Content`.
+
+**Risks / follow-ups:**
+- **Minimal.** Pure additive logging in one function. The three log
+  lines (target, extra-wipe, data) all use `-Level Info` — no
+  operator prompts, no `return` paths, no branches on state, no new
+  parameters. The subsequent raw-script dump at lines 1032-1036 is
+  unchanged, so a future consumer that parses the log by line prefix
+  still sees the same `> ` prefix on the diskpart commands and can
+  ignore or key off the `Diskpart plan:` banner.
+- Under silent mode with zero extra-wipe disks and `-DataDiskNumber
+  -1` (the default), the new block still prints two lines (target +
+  "Extra-wipe disks: none"). That's intentional — the operator can
+  confirm that neither an extra-wipe nor a data-disk was queued.
+- The 2026-08-08 triage backlog action items (queue thinning: PIN
+  redaction, deploy.args.example line-1 fix, log-only PR
+  consolidation) are unchanged by this pass; those are still the
+  highest-leverage maintainer actions. This is a code change, not
+  a triage-only pass, so it doesn't add to the 14 log-only PRs.
+
+**Next recommended improvement:** the BCDBoot-exit-code candidate
+called out above remains available for a future run, but the value
+is genuinely low because bcdboot exit-code semantics are effectively
+binary. A better next pick would be a Pester regression guard for
+the unattend-file `Copy-Item` staging failure (mock `Copy-Item` to
+throw, assert `Start-Deployment` returns `$false` before
+`Set-BootConfiguration`) — that's the follow-up PR #110 named for
+itself, still open.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
