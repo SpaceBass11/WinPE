@@ -5,6 +5,77 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-09 — Backlog-triage pass (no code change)
+
+**Investigated:** Open PRs against `main` via
+`mcp__github__list_pull_requests` (state=open, pages 1-3, ~200 PRs) and
+`search_pull_requests` for the specific candidates below. Cross-checked
+against the routine-log follow-up backlog and the actual code paths in
+`unified_winpe_deploy.ps1`, `scripts/build_iso.ps1`,
+`scripts/first-login.ps1`, and `docs/`.
+
+**Found:** Every small, high-confidence improvement I could identify
+this pass already sits in an open PR (many stale — `main` has not
+advanced since PR #52 merged pre-2026-08). Specifically:
+
+- **`scripts/build_iso.ps1` `-BitLockerPin` gates.** Length check =
+  PR #173; deploy.args-transport character check = PR #141 / #70; PIN
+  redaction from console echo = PR #131 / #66. Whitespace parity with
+  the deploy-side gate PR #273 introduced today would be the natural
+  follow-up, but it edits the same `if ($BitLockerPin)` block as
+  #173/#141 and would guarantee a merge conflict against both.
+- **`docs/BITLOCKER.md` line 54 confirmation-chain "placeholder PIN
+  refused outright" row.** Stale after PR #49 removed the content
+  policy — already addressed in PRs #167, #136, #104. Same claim in
+  `CHANGELOG.md` line 76-77 (contradicting the `## Unreleased /
+  ### Removed` bullet at line 24-34) already covered by PR #220.
+- **`docs/UNATTEND.md` §6 `[xml](Get-Content …)` without `-Raw`** —
+  covered by PR #274.
+- **`configs/deploy.args.example` first-line-is-a-comment footgun**
+  vs `startnet.cmd`'s `set /p` (reads first line only) — covered by
+  PR #157 on the example side, PR #54 on the reader side.
+- **`Get-WimImageInfo` swallows DISM `/Get-WimInfo` stderr** — covered
+  by PR #74.
+- **`Show-ImageList` / `Show-ImageSelection` ~30-line listing
+  duplication** — covered by PR #56, deferred across many prior
+  entries as load-bearing TUI UX regardless.
+
+**Changed:** Nothing besides this log entry. No code, tests, or
+non-log docs touched.
+
+**Verification:** None run — no `.ps1` and no code-adjacent doc
+touched. Markdown-only append at the top of an existing file. CI's
+`link-check` job will exercise the entry via lychee on push.
+
+**Risks / follow-ups:**
+
+- Zero risk; the entry is above the previous-newest entry, does not
+  reformat existing entries, and does not touch any code path.
+- The pattern of six consecutive triage-only routine-log entries
+  (#263 → #267 → #268 → #269 → #272 → this one) is itself signal:
+  the routine has saturated the small-improvement surface faster
+  than `main` can absorb it. A one-off triage of the open-PR queue
+  to close duplicates + rebase-drift ones would let future routine
+  runs find fresh ground; that's a maintainer decision, not a
+  routine-agent-appropriate action.
+- Genuinely untouched candidates for a future pass (spot-check —
+  no open PR title mentions these):
+  - **`scripts/first-login.ps1` OneDrive uninstall hang.** Line
+    161 uses `Start-Process -Wait -NoNewWindow` against
+    `OneDriveSetup.exe /uninstall`. If the uninstaller stalls on
+    some SKUs, the whole first-login script blocks indefinitely.
+    A `-Timeout` (via `Wait-Process -Timeout`) or a background
+    `Start-Process` + bounded wait would harden it. Verify
+    against actual first-login hang telemetry before changing —
+    might be a non-issue in practice.
+  - **`docs/SIGNING.md` `Cert:\CurrentUser\My -CodeSigningCert`
+    example** returns *all* code-signing certs including expired
+    ones; a paranoid `Where-Object { $_.NotAfter -gt (Get-Date) }`
+    would prevent an operator signing with a stale cert. Cosmetic;
+    signing failure is loud.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
