@@ -5,6 +5,79 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-15 — Extract shared image-listing render (`Show-ImageList` / `Show-ImageSelection`)
+
+**Investigated:** the routine backlog's oldest deferred cleanup — the
+byte-identical listing block shared by `Show-ImageList` and
+`Show-ImageSelection` (~20 lines each; flagged in the "Next recommended
+improvement" of at least three prior log entries and deferred every
+time as "UX is load-bearing"). Compared the two blocks line-by-line
+in `unified_winpe_deploy.ps1` and confirmed the render code (from the
+`Write-Host ""` opener through the closing `("="*80)` rule) was
+character-for-character duplicated. The only differences between the
+two functions were the surrounding no-images short-circuits (different
+extra hint line, different return type) and Show-ImageSelection's
+post-listing selection loop. Cross-checked what else pins the current
+shape: `tests/test_parse.ps1` requires both public function *names*
+to exist (function-presence guard, line 97), and
+`tests/validation-gates.Tests.ps1` mocks `Show-ImageSelection` by
+name (line 220). Both constraints are satisfied by keeping both
+public functions and delegating only the shared render block.
+
+**Changed:**
+
+- `unified_winpe_deploy.ps1` — added `Write-ImageListingTable` helper
+  (single copy of the header + per-image rows + footer render).
+  Rewrote `Show-ImageList` and `Show-ImageSelection` to short-circuit
+  on empty input as before, then delegate the listing render to the
+  helper. Both public function names, param lists, and return
+  contracts unchanged. Both distinct no-images hint lines preserved
+  (Show-ImageList returns nothing; Show-ImageSelection adds the
+  "-ImagePath / -WimFile" hint and returns `$null`). Show-ImageSelection's
+  auto-select / interactive-loop tail is untouched.
+- `CHANGELOG.md` — bullet under Unreleased / Changed. No version
+  bump (cleanup, no behavior change, no `$Script:Config.ScriptVersion`
+  touch).
+
+**Verification:**
+
+- `pwsh` installed once for this session (PowerShell 7.4.6, per the
+  CLAUDE.md recipe).
+- Baseline (pre-edit): `test_parse.ps1` 48/0, `test_wim_parser.ps1`
+  16/0, `test_disk_enumeration.ps1` 34/0.
+- Post-edit: same 48/0, 16/0, 34/0. All function-presence assertions
+  in `test_parse.ps1` still pass (both `Show-ImageList` and
+  `Show-ImageSelection` still declared).
+- Runtime parity: wrote a scratchpad script that sources the two
+  Show-* functions + helper standalone with stub `Write-Log` and
+  `$Script:Colors`, then rendered four cases (multi-image list,
+  empty list, single-image auto-select, empty selection). Output
+  matches the prior inline block verbatim (same rules, spacing,
+  colors, per-image row order, and log-line copy for the empty
+  branches).
+- CI's Pester `validation-gates.Tests.ps1` runs `Mock -CommandName
+  Show-ImageSelection`; that mock still resolves because the function
+  is still defined with the same name and param list.
+
+**Risks / follow-ups:**
+
+- Minimal. Cleanup-only; no destructive path touched; no CLI or
+  public-function surface changed. New helper is internal (no
+  exported alias, not referenced outside the file).
+- The helper is one call site per public function today; if a third
+  caller ever needs the same render, they should use the helper too
+  rather than copy-pasting a new third block.
+- Outstanding backlog carried forward:
+  - `Apply-WindowsImage` DISM exit-code table already covers 1, 2,
+    11, 50, 87, 112, 1168, 1392 + default (previous log entries'
+    50/87/1392 recommendation is closed).
+  - No known high-confidence, small-scope items remain from the
+    2026-05-11 deep-review. Next passes could audit
+    `docs/TROUBLESHOOTING.md` against the current in-script recovery
+    guidance for text drift.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **De-duplicated image-listing render (`Show-ImageList` /
+  `Show-ImageSelection`).** The two functions carried a byte-identical
+  20-line block (header rule, centered title, per-image Size / Modified
+  / Location / Path rows, footer rule); they now both delegate to a
+  single internal `Write-ImageListingTable` helper so a field change
+  can't drift between the `-ListOnly` output and the interactive
+  picker. Verified byte-identical output on empty, single-image, and
+  multi-image inputs. No public function signatures, no destructive
+  paths, no CLI surface changed. Both public function names are
+  retained (still asserted by `tests/test_parse.ps1`'s function-
+  presence guard and mocked by `tests/validation-gates.Tests.ps1`).
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
