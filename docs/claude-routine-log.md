@@ -5,6 +5,74 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-15 — `docs/USB_SETUP.md` "Manual alternative" points at `DEPLOY_ARGS.md`
+
+**Investigated:** open PR backlog (~34 open, mostly small
+`claude/lucid-keller-*` topic branches) plus the "Next recommended
+improvement" section at the bottom of PR #283's routine-log entry,
+which explicitly called out this follow-up: "Consider whether
+`docs/USB_SETUP.md`'s 'Manual alternative' `startnet.cmd` snippet
+should also mention that the builder's real `startnet.cmd` loads
+`deploy.args` and does `{DRIVE}` substitution."
+
+**Found:** `docs/USB_SETUP.md` lines 83-107 give a bare-minimum
+`startnet.cmd` for operators who can't run the builder. The snippet
+locates the IMAGES partition and launches the deploy script with
+no arguments — no `deploy.args` loader, no `{DRIVE}` substitution.
+That is intentional (it's the minimum viable bootloader), but the
+doc never says so, and it never points at
+[`docs/DEPLOY_ARGS.md`](docs/DEPLOY_ARGS.md) — which now has a
+full "How it works" section and a dedicated "`{DRIVE}` placeholder"
+section (added by open PR #283) — as the source for the extension
+pattern. An operator hand-building `boot.wim` who later wanted a
+silent/unattended deploy would have to reverse-engineer
+`scripts/build_boot_wim.ps1:291-309` to find the cmd blocks.
+
+**Changed:** `docs/USB_SETUP.md` — added a two-sentence note under
+the `startnet.cmd` code block (~line 108) explaining that the
+snippet is the minimum viable bootloader and pointing at
+`docs/DEPLOY_ARGS.md#how-it-works` for the `deploy.args` +
+`{DRIVE}` extension. `CHANGELOG.md` — one bullet under
+`## Unreleased / ### Changed` describing the doc addition.
+
+**Verification:**
+- Doc-only change; no PowerShell scripts, tests, or CI config
+  touched. `pwsh` isn't required for this pass.
+- Anchor slug guard (per CLAUDE.md's "When Editing Docs" section):
+  the link target `#how-it-works` slugs from the `## How it works`
+  heading (`docs/DEPLOY_ARGS.md` line 24) — no em/en dashes or
+  brackets in that heading, so GitHub's slugifier produces
+  `how-it-works` verbatim. `lychee` in CI will catch any live-link
+  regression on push.
+- Cross-checked that PR #283 does not remove or rename the "How
+  it works" heading in `docs/DEPLOY_ARGS.md` (it inserts a new
+  section between "How it works" and "Constraints", leaves the
+  target heading intact).
+
+**Risks / follow-ups:**
+- Minimal. Doc-only; no runtime behavior changed; no new
+  dependencies; additive to the existing "Manual alternative"
+  section (no content removed).
+- No coordination concern with PR #283 — it edits
+  `docs/DEPLOY_ARGS.md`, this edits `docs/USB_SETUP.md`, and the
+  link this adds points at a heading PR #283 leaves alone.
+- Outstanding routine-backlog candidates from prior entries that
+  I did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection` code factoring** —
+    ~30 lines of listing-render duplication; cleanup-only,
+    load-bearing TUI UX, worth batching with a hardware smoke
+    test rather than landing autonomously.
+  - **`build_iso.ps1` build-time overlap validation** —
+    `-DataDiskNumber == -TargetDisk` and `-TargetDisk` appearing
+    in `-WipeDisks` are already rejected at deploy time on the
+    target hardware, but catching them at ISO build time would
+    save the operator a wasted burn/boot cycle. Deferred this
+    pass because PR #285 already edits `build_iso.ps1`'s arg
+    generation and a second in-flight edit to the same region
+    would rebase-conflict.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

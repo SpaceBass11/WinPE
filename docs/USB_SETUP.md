@@ -106,6 +106,15 @@ echo Found image drive: %DEPLOY_IMAGE_DRIVE%
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
 ```
 
+This is the minimum viable bootloader: it locates the IMAGES partition
+and launches the deploy script with no arguments (fully interactive TUI).
+It does **not** read a per-USB `deploy.args` file or substitute the
+`{DRIVE}` placeholder — the builder's real `startnet.cmd` adds both.
+If you need silent/unattended deploys or paths that stay portable across
+USB drive letters, extend this snippet with the `set /p DEPLOYARGS=...`
+and `{DRIVE}` substitution blocks documented in
+[docs/DEPLOY_ARGS.md](DEPLOY_ARGS.md#how-it-works).
+
 And the offline registry tweak (inside the mounted `boot.wim`):
 
 ```cmd

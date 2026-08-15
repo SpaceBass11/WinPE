@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/USB_SETUP.md` "Manual alternative" now says it's minimal.**
+  The hand-authored `startnet.cmd` snippet under "Manual alternative
+  (if you can't run the builder)" is the minimum viable bootloader —
+  it locates the IMAGES partition and launches the deploy script with
+  no arguments. It intentionally omits the `deploy.args` loader and
+  `{DRIVE}` substitution blocks that the builder's real `startnet.cmd`
+  writes. Added a two-sentence note under the code block that spells
+  this split out and points manual builders at
+  [`docs/DEPLOY_ARGS.md`](docs/DEPLOY_ARGS.md#how-it-works) for the
+  extension pattern so a silent/unattended deploy stays reachable
+  without re-reading the builder script. Doc-only.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
