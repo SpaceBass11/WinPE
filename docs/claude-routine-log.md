@@ -5,6 +5,76 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-15 — `build_iso.ps1` silent-mode single-index pre-flight
+
+**Investigated:** the enormous open-PR backlog (200+ Claude routine PRs
+against branches merged into a fast-moving `main`; last merge was PR
+#52). Filtered for anything targeting `build_iso.ps1`'s handling of
+multi-index WIMs — no existing PR (searched via
+`repo:SpaceBass11/WinPE is:pr build_iso index|single-index|multi-index`)
+addresses this specific gap.
+
+**Found:** `unified_winpe_deploy.ps1` line 876-880 (`Select-ImageIndex`)
+hard-fails when `-Silent` is set and the WIM contains more than one
+index — "Silent mode cannot prompt for edition selection when multiple
+indexes exist". But `scripts/build_iso.ps1` embeds whatever
+`-WimFile` it's handed and generates a `-Force -Silent` `deploy.args`
+without validating index count. An admin who runs
+`build_iso.ps1 -WimFile install.wim` on a raw Windows install.wim
+(typically 5-11 indexes) produces an ISO that fails at end-user boot
+with a message the user has no way to act on. The WIM was already
+validated for `.wim`/`.esd` extension and file existence, so this was
+the last pre-flight gap between "admin builds ISO" and "end user boots
+and it works or fails cleanly."
+
+**Changed:**
+- `scripts/build_iso.ps1` — added a pre-flight block after the
+  `WimFile` extension/resolve validation. When `-Interactive` is not
+  set, calls `dism.exe /Get-WimInfo /WimFile:<path> /English`, counts
+  `^Index\s*:\s*\d+` matches, and throws with a fix-recipe pointing at
+  `prepare_wim.ps1 -SourceWim -Index N` (which was added in PR #22
+  specifically for this "peel one index off a multi-index WIM" flow).
+  Also handles the DISM-exits-nonzero and zero-indexes-parsed cases
+  as their own throws. Interactive-mode builds skip the check
+  (the runtime TUI can pick an edition from a multi-index WIM).
+- `CHANGELOG.md` — `## Unreleased / ### Added` bullet describing the
+  new gate.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per the CLAUDE.md session recipe.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0 failed
+  (build_iso.ps1 still parses cleanly).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0.
+- Sanity-tested the `^Index\s*:\s*\d+` regex against fixture DISM
+  output (multi-index → 3, single-index → 1) — matches the shape used
+  by `Get-WimImageInfo` in the deploy script.
+- PSSA can't run locally (network policy blocks PSGallery install);
+  CI's `pssa` job will run it on push. The added block uses only
+  `& dism.exe`, `$LASTEXITCODE`, `Select-String`, `throw`, and a
+  here-string — all patterns already present in this file.
+
+**Risks / follow-ups:**
+- Low. The check is additive and gated behind `-not $Interactive`, so
+  the existing interactive-TUI build path is unaffected. Failure mode
+  on the "DISM not on PATH" edge case is a clean throw before any file
+  copy, which is strictly better than the current "silently build a
+  broken ISO" behavior. `build_iso.ps1` already depends on `robocopy`,
+  `oscdimg`, and other Windows tools, so requiring `dism.exe` is not a
+  new dependency (it ships with every Windows install and every WinPE
+  build).
+- Not covered: a similar check for `-Interactive` builds. Deferred
+  because interactive TUI legitimately handles multi-index WIMs; the
+  operator picks. If we later add "silent mode of the interactive TUI"
+  (e.g. `-Interactive -Silent`), revisit.
+- Outstanding routine-backlog candidates still worth looking at:
+  - **`Show-ImageList` / `Show-ImageSelection` refactor** — PR #289
+    is open on this; monitor for merge before duplicating.
+  - **Extra ci(masterize) gates** — many open PRs (#187, #184, #169,
+    #122, #101, #96, #95) propose new checks; wait for owner triage.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -8,6 +8,20 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added
+- **`build_iso.ps1` pre-flight WIM-index count check for silent ISOs.**
+  When `-Interactive` is not set (i.e. the build produces a silent
+  destructive ISO), the builder now runs
+  `dism /Get-WimInfo /English` on `-WimFile` and refuses to build if
+  the WIM contains more than one index. Previously the failure only
+  surfaced at end-user boot time, where
+  `unified_winpe_deploy.ps1 -Silent` aborts in `Select-ImageIndex`
+  with "cannot prompt for edition selection when multiple indexes
+  exist". Error output points at `prepare_wim.ps1 -SourceWim -Index`
+  as the fix, or `-Interactive` if the operator TUI is intended.
+  Interactive-mode builds skip the check (the runtime TUI can pick
+  an edition).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

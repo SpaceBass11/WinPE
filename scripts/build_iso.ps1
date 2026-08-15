@@ -182,6 +182,37 @@ if ([IO.Path]::GetExtension($WimFile) -notin '.wim','.esd') {
 }
 $WimFile = (Resolve-Path $WimFile).Path
 
+# Silent-destructive ISOs must embed a single-index WIM. At runtime,
+# unified_winpe_deploy.ps1's -Silent gate refuses to guess an edition
+# when the WIM has multiple indexes and aborts (see Select-ImageIndex).
+# Catching that here means the admin fixes the WIM on their own machine
+# instead of the end-user discovering it at boot with no recourse.
+if (-not $Interactive) {
+    $dismOutput = & dism.exe /Get-WimInfo /WimFile:$WimFile /English 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "dism /Get-WimInfo failed on $WimFile (exit $LASTEXITCODE). Cannot verify single-index requirement for silent ISO.`n$dismOutput"
+    }
+    $indexCount = @($dismOutput | Select-String -Pattern '^Index\s*:\s*\d+').Count
+    if ($indexCount -gt 1) {
+        throw @"
+$WimFile contains $indexCount indexes. A silent-destructive ISO must
+embed a single-index WIM — unified_winpe_deploy.ps1 -Silent refuses to
+guess an edition and would abort at boot. Fix on the admin machine:
+
+  # Export just the edition you want to a fresh single-index WIM
+  .\scripts\prepare_wim.ps1 -SourceWim '$WimFile' -Index <N> `
+      -OutputWim '<path>\Custom_SingleIndex.wim'
+
+Then re-run build_iso.ps1 with -WimFile pointing at the new WIM. Or
+pass -Interactive to keep the multi-index WIM and let the operator
+pick an edition from the TUI at boot.
+"@
+    }
+    if ($indexCount -eq 0) {
+        throw "dism /Get-WimInfo returned no indexes for $WimFile. The WIM may be corrupt.`n$dismOutput"
+    }
+}
+
 if (-not (Test-Path $MediaDir -PathType Container)) {
     throw "MediaDir not found: $MediaDir`nRun build_boot_wim.ps1 first (default output: C:\WinPE_Build\media)."
 }
