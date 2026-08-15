@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`docs/TROUBLESHOOTING.md` "PowerShell runtime required" caveat**
+  now names all four test files instead of only `tests/test_parse.ps1`.
+  `tests/test_wim_parser.ps1` (v4.5.x), `tests/test_disk_enumeration.ps1`
+  (recent), and the Pester `tests/validation-gates.Tests.ps1` (v4.7.0)
+  all carry the same pwsh-on-PATH requirement, but the caveat still
+  read like it only applied to the syntax test. Same drift pattern PRs
+  #46 / #50 closed for CLAUDE.md and CI, now closed for
+  TROUBLESHOOTING.md. Also documents that the Pester suite needs
+  Pester v5+ (bundled on `windows-latest` runners; local install is
+  blocked in the Claude Code on the Web container per `CLAUDE.md`).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

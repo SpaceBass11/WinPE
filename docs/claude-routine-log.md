@@ -5,6 +5,75 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-15 — `docs/TROUBLESHOOTING.md` test-file caveat resync
+
+**Investigated:** the routine's usual candidate list against the
+current in-flight PR backlog (285+ open routine PRs on `main`, per
+`mcp__github__list_pull_requests`). The three most recently-updated
+open PRs (#283-285) cover deploy.args docs, Pester `-UnattendFile`
+gate, and `build_iso -Interactive -UnattendFile` passthrough — so the
+usual "small safety" and "test coverage" surfaces are already
+saturated. Grepped for `test_parse|test_wim_parser|test_disk_enumeration|validation-gates`
+across every `.md` file in the repo to find any inventory that had
+lagged behind the actual test set (four files, not one).
+
+**Found:** `docs/TROUBLESHOOTING.md` line 335-337 ("PowerShell runtime
+required for validation") names only `tests/test_parse.ps1`, but the
+same `pwsh`-on-PATH requirement covers `test_wim_parser.ps1`
+(added by PR #33), `test_disk_enumeration.ps1` (added by PR #50), and
+the Pester suite `validation-gates.Tests.ps1`. Same doc-drift class
+that PRs #112 (`docs: wire test_disk_enumeration.ps1 into local-test
+instructions`) and #138 (`docs: list test_disk_enumeration.ps1 in
+agent-facing docs`) closed for `CLAUDE.md`, `AGENTS.md`, and
+`README.md` — but neither PR touched `docs/TROUBLESHOOTING.md`. Two
+targeted GitHub searches (`"PowerShell runtime required"` and
+`"test_wim_parser" TROUBLESHOOTING`) confirmed zero open PRs
+addressing this specific caveat.
+
+**Changed:**
+- `docs/TROUBLESHOOTING.md` — rewrote the caveat body to name all
+  four test files and to spell out that the Pester suite additionally
+  requires Pester v5+ (bundled on `windows-latest` GitHub runners;
+  local install blocked in the Claude Code on the Web container per
+  the CLAUDE.md note). Section heading and surrounding sections
+  untouched.
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of `## Unreleased`
+  describing the caveat resync and cross-referencing the parallel
+  PRs #46 / #50 that added the untracked test files.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` installed once per session per the CLAUDE.md snippet
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0 passed
+  (unchanged; no code touched).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0
+  (unchanged).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+  (unchanged).
+- Read-pass around the edit (lines 329-343 of TROUBLESHOOTING.md) to
+  confirm the surrounding "Known Caveats" section headings, backtick
+  fencing, and cross-doc link (`../CHANGELOG.md`) survived. No new
+  URLs introduced, so the `link-check` lychee job is unaffected.
+- Pester suite (`tests/validation-gates.Tests.ps1`) cannot run
+  locally (PSGallery blocked per CLAUDE.md); CI is the source of
+  truth. Also expected unchanged — this PR touches no `.ps1` file.
+
+**Risks / follow-ups:**
+- Minimal. Documentation-only change. No production code, no test
+  code, no CI workflow touched. New content mirrors PR #138's
+  wording for the `test_disk_enumeration.ps1` rows in CLAUDE.md so
+  the two docs stay consistent.
+- Outstanding routine-backlog candidates that I did not take this
+  pass (each has one or more open PRs already):
+  - CCTK per-exit-code recovery guidance (PR #232, #256)
+  - Pester coverage for `-Silent` bare-precondition gates (PR #137)
+  - `Test-FinalWipeConfirmation` typed-input Pester tests (PR #174)
+  - `docs/BITLOCKER.md` stale "placeholder PIN" row (PR #136)
+  - Many others — see the full open-PR list for the current backlog.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -333,8 +333,13 @@ bugs. For a list of what's recently changed, see
 [CHANGELOG.md](../CHANGELOG.md).
 
 ### PowerShell runtime required for validation
-`tests/test_parse.ps1` requires `pwsh` on PATH. Run it from
-WinPE/Windows or any runner with PowerShell installed.
+The four repo test files (`tests/test_parse.ps1`,
+`tests/test_wim_parser.ps1`, `tests/test_disk_enumeration.ps1`, and
+the Pester `tests/validation-gates.Tests.ps1`) all require `pwsh` on
+PATH. Run them from WinPE/Windows or any runner with PowerShell
+installed. The Pester suite additionally needs Pester v5+ (bundled
+with `windows-latest` GitHub runners; see `CLAUDE.md` for the local
+install caveat).
 
 ### USB disks are excluded from target selection
 External USB SSDs/HDDs are filtered out of the target-disk list and the
