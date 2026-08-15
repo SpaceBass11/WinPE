@@ -39,7 +39,7 @@ disk wipe, silent-mode bypass, confirmation bypass) are prioritized.
 ## In Scope
 
 - Bypasses of the typed-confirmation safety chain
-  (`ERASE`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`)
+  (`ERASE`, `WIPE ALL`, `WIPE DATA`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`)
 - `-Silent` / `-Force` contract violations that make the tool act without
   required inputs
 - Disk-selection logic that could target a USB, system, or unintended disk

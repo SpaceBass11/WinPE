@@ -5,6 +5,97 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-15 — `SECURITY.md` In-Scope list missing v4.7.0 typed-confirmation gates
+
+**Investigated:** Backlog triage. Open PRs #190–#289 (~100 in flight) —
+most of the "next recommended improvement" items from prior routine
+entries are already open as PRs (`Show-ImageList` / `Show-ImageSelection`
+refactor is #227 / #289; `ARCHITECTURE.md` File Layout resync is #58 /
+#176; `AGENTS.md` / PR-template typed-confirmation list sync is #201;
+`test_disk_enumeration.ps1` in the local-runnable canon is #57; several
+BitLocker / build_iso hardening items are #197 / #200 / #213 / #224 / #236 /
+#273 / #282; etc). Cross-referenced open PRs against `SECURITY.md`,
+which no open PR touches (last edit was PR #43 in 2026-05-23, which only
+bumped the supported-versions table).
+
+**Found:** `SECURITY.md`'s "In Scope" list (line 41-42) names the
+typed-confirmation safety chain as `ERASE`, `DESTROY SYSTEM`,
+`CONTINUE ANYWAY`. Two v4.7.0 typed gates are missing from the list:
+
+- `WIPE ALL` — additional-wipe disks (`-WipeDisks`),
+  `Test-FinalWipeConfirmation` in `unified_winpe_deploy.ps1`
+  (line 712), typed at `Select-AdditionalWipeDisks` (line 1462).
+- `WIPE DATA` — data-disk format (`-DataDiskNumber`),
+  `Start-Deployment` line 1718 (silent gate) and the
+  interactive prompt.
+
+Cross-check confirms both gates are current: `README.md` lines 344 /
+390-393 list all four typed confirmations; `AGENTS.md` line 20 mentions
+`WIPE DATA` (and PR #201 is adding `WIPE ALL`); `CLAUDE.md` line 43
+mentions `WIPE ALL` in the deployment flow and line 188 mentions
+`WIPE DATA`. `SECURITY.md`'s scope statement is the sole doc that
+still enumerates the pre-v4.7 subset.
+
+Practical impact: a security researcher reading the disclosure policy
+would not know that bypasses of `WIPE ALL` or `WIPE DATA` fall inside
+the "critical issues" bucket named at the top of §Reporting
+("silent-mode bypass, confirmation bypass"). Their choice to disclose
+via GitHub Security Advisories vs. a public issue would rest on an
+incomplete scope list.
+
+**Changed:**
+
+- `SECURITY.md` — line 42: added `WIPE ALL` and `WIPE DATA` to the
+  In-Scope list of bypasses. Docs only; scope statement resync.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top of
+  the existing Changed block naming the drift and the resync.
+
+**Verification:**
+
+- `pwsh` is not preinstalled in this cloud session and PSGallery is
+  typically blocked from the container's egress policy — same
+  constraint flagged across the prior routine entries and PRs
+  #33-#286. `SECURITY.md` is not a `.ps1`, so `tests/test_parse.ps1`
+  is unaffected by definition; the lychee link-check has no new
+  targets to validate (the addition is inline backticked identifiers,
+  not new links); masterize CI Phase 1A doesn't grep `SECURITY.md`.
+- Manual grep across the doc surface after the edit:
+  `grep -n "WIPE DATA\|WIPE ALL\|ERASE\|DESTROY SYSTEM\|CONTINUE ANYWAY" SECURITY.md`
+  now shows both new gates. `README.md`, `CLAUDE.md`, `AGENTS.md`,
+  `docs/ARCHITECTURE.md`, and the deploy script's inline typed-prompt
+  strings all remain untouched — the drift was one-sided (SECURITY.md
+  behind), so no other doc needed to move.
+- The `Version: 4.7.x` supported-versions table (PR #43) is
+  unchanged; the current script version is still 4.7.1 per
+  `$Script:Config.ScriptVersion`. No version bump — the resync is
+  descriptive of already-shipped behavior.
+
+**Risks:** None. Docs-only edit to a scope statement. No production
+code, tests, CI, or PSSA touched. Worst case is a copy-edit typo in
+the added identifiers (both are single-quoted backtick strings that
+appear verbatim in `unified_winpe_deploy.ps1` — I re-grepped both
+against the source to confirm exact spelling).
+
+**Next recommended improvement:**
+
+- Once PRs #57 / #58 / #176 / #201 land (all four sync a piece of the
+  same drift class — test-file lists, ARCHITECTURE.md File Layout,
+  AGENTS.md typed-confirmation list), the follow-up would be to
+  extend masterize CI Phase 1A with a doc-consistency grep that
+  cross-checks all typed-confirmation identifiers (`ERASE`,
+  `WIPE ALL`, `WIPE DATA`, `DESTROY SYSTEM`, `CONTINUE ANYWAY`,
+  `DELETE ALL DATA`) between the deploy script and each of
+  `SECURITY.md`, `AGENTS.md`, `README.md`, `CLAUDE.md`,
+  `docs/ARCHITECTURE.md`. Would have caught this drift and the
+  four in-flight sync PRs at the same time.
+- Backlog still open in prior entries: `Show-ImageList` /
+  `Show-ImageSelection` extraction (PR #227 / #289), `SCRIPT_REFERENCE.md`
+  sections for `build_iso.ps1` and `first-login.ps1`,
+  `Initialize-BitLockerSetup` parse-time validation of the generated
+  first-boot script string (larger — mocking needed).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

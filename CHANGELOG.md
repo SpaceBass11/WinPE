@@ -9,6 +9,14 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`SECURITY.md` In-Scope list now names every typed-confirmation
+  gate.** The list was written pre-v4.7.0 and named only `ERASE`,
+  `DESTROY SYSTEM`, and `CONTINUE ANYWAY`. The v4.7.0 opt-in wipe
+  paths added two more typed gates — `WIPE ALL` (additional-wipe
+  disks, `-WipeDisks`) and `WIPE DATA` (data-disk format,
+  `-DataDiskNumber`) — that a security researcher reading the
+  disclosure policy would otherwise not realize are in scope. Docs
+  only; no behavior change.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
