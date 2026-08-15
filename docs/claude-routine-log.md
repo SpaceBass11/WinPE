@@ -5,6 +5,87 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-15 — backlog-triage pass, no code change
+
+**Investigated:** open PR queue (287+ open, dominated by prior routine
+`claude/*` topic branches), the deferred follow-ups called out in
+their bodies, and the current state of `unified_winpe_deploy.ps1`
+functions that don't yet have unit / drift-guard coverage.
+
+**Cross-checked the following candidates against open PRs; all
+already claimed** (recording so future runs don't re-explore):
+
+| Candidate | Claimed by |
+|---|---|
+| `ARCHITECTURE.md` File Layout stale rows (missing 11-14 files) | #176, #58 |
+| `startnet.cmd` `{DRIVE}` substitution drift-guard | #101 (masterize check), #258 (test) |
+| CCTK `Invoke-CctkConfig` per-exit-code recovery guidance | #232 |
+| Test coverage for `Invoke-CctkConfig` selection precedence | #203 |
+| `-BitLockerPin` whitespace rejection (deploy + build_iso) | #273, #282 |
+| `Test-FinalWipeConfirmation` behavior tests | #202, #235 |
+| `Show-ImageList` / `Show-ImageSelection` refactor | #227 |
+| `first-login.ps1` reg.exe stderr surfacing | #215 |
+| `first-login.ps1` OneDrive uninstall bounded wait | #279 |
+| `prepare_wim.ps1` / `build_boot_wim.ps1` reg.exe stderr | #205, #206 |
+| `build_iso.ps1` `-BitLockerPin` console echo redaction | #213, #236 |
+| `build_iso.ps1 -Interactive -UnattendFile` pass-through | #285 |
+| `build_iso.ps1` pre-flight disk / PIN sanity | #200 |
+| `refresh_usb.ps1` `-BootUsbDrive` early validation | #118 |
+| `refresh_usb.ps1` `-CctkSource` no-op warning | #228 |
+| `deploy.args` `{DRIVE}` docs / stale cmd snippet | #283, #209, #145, #257, #287 |
+| `deploy.args` ASCII / UTF-8-without-BOM docs | #276 |
+| `deploy.args.example` first-line `::` comment fix | #189 |
+| `unattend.example.xml` stale Default User hive comment | #277, #211, #195 |
+| `docs/UNATTEND.md` sanity-check recipe `-Raw` alignment | #274 |
+| `docs/SIGNING.md` expired-cert filter in examples | #280 |
+| `CLAUDE.md` stale "checks 8-19" range reference | #218 |
+| `CLAUDE.md` Version field count "four → five" | #234, #208 |
+| Pester coverage for `Start-Deployment -UnattendFile` gate | #284 |
+| Pester coverage for `-DataDiskNumber ∩ extra-wipe` overlap | #271 |
+| Diskpart derived-plan log line before raw script dump | #270 |
+| `New-DiskpartScript` `Set-Content` error trap | #198 |
+| `Test-SystemMemory` silent-mode WMI hard-fail | #221 |
+| `Get-SystemDisks` zero-size skip log | #281 |
+| DISM log-hint via `$env:WinDir` (not hardcoded `X:`) | #225 |
+| Fatal-catch stack-trace surfacing | #199 |
+| `-WimFile` silently overrides `-ImagePath` warn | #214 |
+| `-BitLockerKeyPath` without `-EnableBitLocker` warn | #219 |
+| Deploy-log preservation to `C:\Windows\Panther` on reboot | #191 |
+| Unattend copy failure hard-abort | #192 |
+
+Also scanned `Search-DirectoryForImages`, `Initialize-BitLockerSetup`
+(recently rewritten in PR #48), `Invoke-Diskpart` failure diagnostics
+(pre-covered), `Set-BootConfiguration` (already has diagnostics from
+2026-05-17 entry), and `docs/END_USER_DEPLOY.md` — no obvious defects
+that aren't already in flight.
+
+**Changed:** nothing but this log entry. Per operating rule 27, this
+run produces a review note and stops.
+
+**Next recommended improvement:** the truly high-value action right
+now is **not another routine tick** — it's consolidating and merging
+the open PR queue. 287+ open PRs from autonomous routine passes, many
+addressing the same or adjacent surfaces, has crossed the point where
+each new pass wastes tokens re-triaging the same claimed backlog.
+Concrete recommendations for the operator:
+
+1. Merge the ~10-20 highest-signal PRs (bug-fixes and Pester coverage
+   for real safety gates: e.g. #273 whitespace PIN, #279 OneDrive
+   hang, #221 memory hard-fail, #199 stack trace, #192 unattend
+   abort, #218 stale range, #204 DISM output, #191 log
+   preservation).
+2. Close the many docs-only + no-code-change routine-triage PRs
+   (#268, #269, #272, #278, #207, #216, #222, #230, #233, #237, plus
+   whatever exists earlier) that duplicate each other.
+3. Add a `.claude/routine-cooldown` marker or similar signal so
+   future scheduled runs can quickly see "backlog saturated, skip
+   this tick" instead of re-doing the exploration in this log.
+
+Until the PR queue drains, subsequent routine ticks should either
+skip entirely or produce log-only entries mirroring this one.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
