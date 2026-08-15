@@ -5,6 +5,122 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-15 — Document `{DRIVE}` placeholder in `docs/DEPLOY_ARGS.md`
+
+**Investigated:** the deploy.args pipeline end-to-end after noticing
+that `configs/deploy.args.example` shows a `{DRIVE}` token and
+`scripts/build_iso.ps1` emits it as the default path form for both
+its `-Interactive` and silent-mode branches (lines 264, 275, 279),
+but `docs/DEPLOY_ARGS.md` — the canonical page for authoring the
+args file — never explains what the token means or how it gets
+replaced. `scripts/build_boot_wim.ps1` (lines 301-307) does the
+substitution:
+
+```cmd
+set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"
+```
+
+before handing the args to PowerShell. That step was also missing
+from the "How it works" cmd snippet in the same doc.
+
+**Found:** three concrete drifts in `docs/DEPLOY_ARGS.md`:
+
+1. The "How it works" snippet lists the `set /p` block that reads
+   the file but omits the `{DRIVE}` substitution block that comes
+   right after. A reader translating the doc back into a manual
+   `startnet.cmd` would produce a broken bootloader for any USB
+   whose letter isn't stable.
+2. The `{DRIVE}` token itself has no explanation anywhere in the
+   doc. A first-time user seeing `{DRIVE}\images\Win11_Pro.wim` in
+   the example file has no way to know whether it's a live
+   substitution, a template placeholder they must edit, or
+   something the deploy script itself resolves.
+3. The environment-variable constraint bullet says "the example
+   uses absolute drive letters because those are stable on the
+   IMAGES USB" — which is only true of the first of three example
+   lines. Two use `{DRIVE}`, and the single-ISO workflow (the
+   modern default) requires it because Rufus flashes the ISO to a
+   USB whose letter is unknown at build time.
+
+**Changed:** `docs/DEPLOY_ARGS.md` only.
+
+- Added the missing four-line `{DRIVE}` substitution block to the
+  "How it works" cmd snippet so it matches what `startnet.cmd`
+  actually does.
+- Added a new "The `{DRIVE}` placeholder" section between "How
+  it works" and "Constraints" with (a) a one-sentence
+  explanation, (b) a canonical example line, (c) a link to
+  `build_iso.ps1` as the primary producer, (d) a two-row
+  when-to-use table (absolute letters for two-partition USBs
+  you control, `{DRIVE}` for single-ISO output or unpredictable
+  letters), and (e) a note on the safe-failure mode when
+  `DEPLOY_IMAGE_DRIVE` is unset (literal `{DRIVE}` reaches
+  PowerShell and produces an obvious path-not-found error, not a
+  silent wrong-target deploy).
+- Rewrote the "No environment-variable expansion" bullet to name
+  both mechanisms accurately (`{DRIVE}` substitution before the
+  PowerShell launch, `%DEPLOY_IMAGE_DRIVE%` inside a customized
+  `startnet.cmd`).
+
+`CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+describing the doc changes. No version bump (doc-only, no
+`$Script:Config.ScriptVersion` touch).
+
+**Verification:**
+
+- Doc-only change. No PowerShell scripts, tests, or CI config
+  touched, so `pwsh` / Pester / PSSA / actionlint outputs are
+  unaffected. Ran `pwsh -NoProfile -File ./tests/test_parse.ps1`
+  and `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` anyway
+  as sanity checks — both pass unchanged (43/0 and 16/0
+  respectively, matching the last routine run's baseline).
+- Cross-checked every claim in the new section against the actual
+  source:
+  - `build_boot_wim.ps1:301-307` — substitution block matches
+    the cmd snippet I added verbatim (same `if defined` guards,
+    same `!DEPLOYARGS:{DRIVE}=...!` delayed-expansion form).
+  - `build_iso.ps1:264,275,279` — three `{DRIVE}\...` emit
+    sites confirmed.
+  - `configs/deploy.args.example:6,8,12` — the header comment
+    already explains the substitution; the new section mirrors
+    that phrasing.
+- Link check: the one new relative link
+  (`../scripts/build_iso.ps1`) resolves in the working tree.
+  `lychee` is wired into CI and will catch any live-URL
+  regression on push.
+- Anchor slug guard (per CLAUDE.md's "When Editing Docs"
+  section): the new heading "The `{DRIVE}` placeholder" contains
+  backticks and braces — GitHub's slugifier strips both without
+  replacement, yielding `#the-drive-placeholder`. No TOC in this
+  doc references the heading, so nothing needed updating.
+
+**Risks / follow-ups:**
+
+- Minimal. Doc-only, no runtime behavior changed. No new
+  network dependency. Additive to the existing sections; no
+  content was removed except the outdated "example uses
+  absolute drive letters" phrasing.
+- Same outstanding routine-backlog candidates from prior entries
+  still apply — none taken this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** share ~30 lines
+    of listing-render code that could be factored out. Cleanup
+    only; deferred across multiple entries because the menu
+    render is load-bearing TUI UX.
+  - The `Set-BootConfiguration` diagnostics block has already
+    been expanded (was a candidate in an earlier entry; the
+    current form at `unified_winpe_deploy.ps1:1211-1265` already
+    prints `bootmgfw.efi` presence, S: mount state, and free
+    space alongside a common-causes list).
+  - Consider whether `docs/USB_SETUP.md`'s "Manual alternative"
+    startnet.cmd snippet (line 106) should also mention that the
+    builder's real startnet.cmd loads `deploy.args` and does
+    `{DRIVE}` substitution. That snippet is intentionally the
+    minimum viable bootloader — a note pointing manual builders
+    at `docs/DEPLOY_ARGS.md` for the full pattern would close
+    the loop without bloating the manual-fallback section.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

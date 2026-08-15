@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/DEPLOY_ARGS.md` now documents the `{DRIVE}` placeholder.**
+  `startnet.cmd` has substituted `{DRIVE}` with the IMAGES-partition
+  letter since the single-ISO workflow landed (`build_iso.ps1` emits
+  it as the default path form), but the canonical `deploy.args` doc
+  never explained it. Added a "The `{DRIVE}` placeholder" section
+  with a when-to-use table, fixed the stale "How it works" cmd
+  snippet to include the substitution step, and reworded the
+  environment-variable constraint bullet — it previously claimed
+  "the example uses absolute drive letters," which was inaccurate
+  since two of the three example lines use `{DRIVE}`. Doc-only.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

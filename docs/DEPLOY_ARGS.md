@@ -35,6 +35,11 @@ if defined DEPLOY_IMAGE_DRIVE (
         echo   Parameters loaded. Secrets, if present, are not displayed.
     )
 )
+if defined DEPLOY_IMAGE_DRIVE (
+    if defined DEPLOYARGS (
+        set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"
+    )
+)
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
 ```
 
@@ -43,6 +48,37 @@ a `deploy.args` was loaded — never its contents — so a BitLocker
 PIN or other secret in the file does not appear on the WinPE
 console, KVM, or any over-the-shoulder view. To inspect the args,
 read the file from the IMAGES partition directly.
+
+## The `{DRIVE}` placeholder
+
+`startnet.cmd` substitutes every literal `{DRIVE}` in the args
+line with the letter of the IMAGES partition (whatever WinPE
+assigned it — `D:`, `E:`, `I:`, etc.) before handing the line to
+PowerShell. Use it whenever the deploy paths live on the same USB
+as WinPE and you can't predict what letter WinPE will pick:
+
+```text
+-WimFile "{DRIVE}\images\Win11_Pro.wim" -TargetDisk 0 -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
+```
+
+This is the form [`scripts/build_iso.ps1`](../scripts/build_iso.ps1)
+writes into the ISO's `deploy.args` automatically — a single ISO
+that Rufus flashes to any USB still boots and finds its own WIM.
+
+Hard-coded drive letters (`I:\images\...`) also work and are
+appropriate for the legacy two-partition workflow where you
+control both the WinPE and IMAGES partitions and know their
+letters. Pick whichever fits how the USB was built:
+
+| USB layout | Recommended path form |
+|------------|-----------------------|
+| Two-partition USB you partitioned yourself, letters stable | Absolute (`I:\images\...`) |
+| Single ISO from `build_iso.ps1`, or any USB where the letter is unpredictable | `{DRIVE}\images\...` |
+
+If `DEPLOY_IMAGE_DRIVE` is unset (rare — the IMAGES-label probe
+failed), the substitution is skipped and any `{DRIVE}` tokens
+reach PowerShell literally, which produces an obvious "path not
+found" error rather than a silent wrong-target deploy.
 
 ## Constraints
 
@@ -54,9 +90,10 @@ read the file from the IMAGES partition directly.
   double quotes. PowerShell re-parses the args on its end so the
   normal `-Param "value"` pattern works.
 - **No environment-variable expansion** beyond what cmd.exe and
-  startnet.cmd already set (notably `%DEPLOY_IMAGE_DRIVE%` is
-  available, but the example uses absolute drive letters because
-  those are stable on the IMAGES USB).
+  startnet.cmd already set. Two things are available: the
+  `{DRIVE}` placeholder documented above (substituted before
+  PowerShell launches) and `%DEPLOY_IMAGE_DRIVE%` if you want to
+  reference it in a customized `startnet.cmd` rebuild.
 
 ## Security caveat — same as CCTK
 
