@@ -8,6 +8,21 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`build_iso.ps1 -Interactive -UnattendFile` now actually wires the
+  answer file through.** The interactive path staged
+  `<staging>\configs\<answer>.xml` into the ISO but only appended
+  `-UnattendFile` to `deploy.args` in the silent branch, so an operator
+  running `build_iso.ps1 -Interactive -UnattendFile foo.xml` built a
+  clean ISO that landed on manual OOBE on first boot — the deploy
+  script's Panther-stage pass (`unified_winpe_deploy.ps1` line 1932)
+  never fired because `$UnattendFile` was unbound at runtime. The
+  interactive branch now appends the same `-UnattendFile "{DRIVE}\configs\<name>"`
+  the silent branch does. `-TargetDisk`, `-WipeDisks`,
+  `-DataDiskNumber`, and `-BitLockerPin` remain silent-only (their
+  interactive equivalents live in the TUI); the `.PARAMETER Interactive`
+  docstring now spells this split out.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

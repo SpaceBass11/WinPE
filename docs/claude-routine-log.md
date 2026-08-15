@@ -5,6 +5,93 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-15 — `build_iso.ps1 -Interactive -UnattendFile` pass-through
+
+**Investigated:** open PR backlog (34 open, dominated by small
+`claude/lucid-keller-*` topic branches) and the deferred follow-ups
+called out in their bodies. PR #231's "risks / follow-ups" section
+explicitly named this one as skipped: "pass `-UnattendFile` through
+in interactive mode too" — deferred as behavior change larger than a
+warning. No other open PR touches the interactive-branch args line
+in `scripts/build_iso.ps1`.
+
+**Found:** `scripts/build_iso.ps1` lines 258-266 stage `-UnattendFile`
+to `<staging>\configs\<basename>` in **both** modes. Lines 272-302
+only appended `-UnattendFile "{DRIVE}\configs\<basename>"` to
+`deploy.args` in the **silent** (`else`) branch. Consequence: an
+operator invoking `build_iso.ps1 -Interactive -UnattendFile foo.xml`
+built a clean ISO whose `configs\foo.xml` was silently unused — the
+deploy script's Panther-stage pass at `unified_winpe_deploy.ps1:1932`
+only fires when `$UnattendFile` is bound, which requires the arg to
+reach the PowerShell invocation via `deploy.args`, which the
+interactive branch never wrote. First boot then landed on manual
+OOBE despite the operator having built with an answer file. The
+`.PARAMETER UnattendFile` docstring ("... referenced in the generated
+deploy.args so Windows Setup processes it on first boot") described
+the intended behavior, not the actual behavior.
+
+**Changed:**
+
+- `scripts/build_iso.ps1` — moved the `if ($unattendInIso) { $argsLine +=
+  " -UnattendFile ..." }` block into the interactive branch as well,
+  mirroring the silent branch. Added a comment explaining why unattend
+  is not an interactive-vs-silent knob (Panther-stage runs in both
+  modes). Updated the `.PARAMETER Interactive` docstring to explicitly
+  call out the split: `-ImagePath` and `-UnattendFile` are threaded
+  through; `-TargetDisk` / `-WipeDisks` / `-DataDiskNumber` /
+  `-BitLockerPin` are silent-only because their interactive
+  equivalents live in the TUI.
+- `CHANGELOG.md` — new `### Fixed` block at the top of Unreleased with
+  the same problem/fix summary and a pointer to the exact deploy-script
+  line the fix unblocks.
+
+**Verification:**
+
+- `pwsh` 7.4.6 installed once per session per the CLAUDE.md snippet
+  (GitHub-Releases download via session proxy; policy allows).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0.
+- Post-edit: same test → 48/0 (the new branch is inside an existing
+  `if` block that already parsed clean; test #12 asserts the ISO
+  builder tokenizes without error).
+- Behavioral fixture: reproduced the three cases in an isolated
+  `pwsh -c` script:
+  - `Interactive + Unattend` → `-ImagePath "{DRIVE}\images" -UnattendFile "{DRIVE}\configs\unattend.xml"` (new; was `-ImagePath ...` only)
+  - `Interactive alone`      → `-ImagePath "{DRIVE}\images"` (unchanged)
+  - `Silent + Unattend`      → `-WimFile "{DRIVE}\images\Win11.wim" -TargetDisk 0 -Force -Silent -UnattendFile "{DRIVE}\configs\unattend.xml"` (unchanged)
+- The Pester suite doesn't cover `build_iso.ps1` (CI-only, and
+  focused on `unified_winpe_deploy.ps1`'s BitLocker / diskpart
+  gates), so no fixture test was added there. The parse test and
+  the behavioral fixture together cover the change surface.
+
+**Risks / follow-ups:**
+
+- **Coordination with PR #231.** That open PR adds a `Write-Warn` when
+  `-Interactive` is combined with silent-only params, and its list
+  currently includes `-UnattendFile`. If both PRs land, PR #231 must
+  drop `-UnattendFile` from its warn list (my fix makes it a
+  supported combination, not a silent drop). The reverse is fine —
+  if #231 merges first, this PR just needs a rebase that removes the
+  now-obsolete UnattendFile-specific warning.
+- Zero touch to destructive code paths (`unified_winpe_deploy.ps1`,
+  diskpart, DISM, BitLocker, boot config). Additive on the ISO
+  builder's arg-generation surface only.
+- No new dependencies. No test infrastructure added.
+
+**Next recommended improvement:**
+
+- **`Show-ImageList` / `Show-ImageSelection` code factoring** — still
+  deferred across multiple routine entries; ~30 lines of listing
+  render duplicated between the two paths. Cleanup-only, load-bearing
+  TUI UX, worth batching with a hardware smoke test rather than
+  landing autonomously.
+- **`test_parse.ps1` version-consistency assertion for `build_iso.ps1`.**
+  The four scripts that get `Test-ScriptSyntax` right now don't get a
+  version-header cross-check like `unified_winpe_deploy.ps1` does;
+  `build_iso.ps1` doesn't declare its own version, but if it ever does,
+  aligning the assertion pattern would prevent drift.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
