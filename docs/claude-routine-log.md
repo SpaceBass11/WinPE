@@ -5,6 +5,84 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-15 — Pester coverage for `Start-Deployment -UnattendFile` gate
+
+**Investigated:** open PRs #184-#283 (many in flight for docs / small
+safety tweaks / `test_disk_enumeration` / `Write-ImageMenuTable`
+refactor / build_iso XML validation / `first-login` bounds). Cross-
+referenced the deploy script's `-UnattendFile` validation gate
+(`unified_winpe_deploy.ps1:1732-1747`) against `tests/validation-
+gates.Tests.ps1` and every open PR title that mentions "pester", "test",
+or "unattend". Grepped for "UnattendFile" across the Pester suite.
+
+**Found:** the runtime `-UnattendFile` gate (added in the 2026-05-17
+routine entry) checks two things — `Test-Path -PathType Leaf` and
+`[xml](Get-Content -Raw)` — before any destructive op runs, but has
+zero Pester coverage. Every other `Start-Deployment` validation gate is
+tested (data-disk overlap, BitLocker PIN length, silent-mode preconds,
+CCTK, wiring); this one silently isn't. A refactor that inverted the
+`try`/`catch`, removed the `Test-Path`, or shifted the block below
+`Find-ImageFiles` would surface only when a real operator's malformed
+unattend passed pre-flight, ran a destructive deploy, and then
+Windows Setup fell through to manual OOBE on first boot — which is
+exactly the wipe-and-re-deploy loop the gate was added to prevent.
+PR #265 covers the *build_iso* well-formedness check but not this one.
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — appended a new
+  `Describe "Start-Deployment -UnattendFile validation"` block with
+  three tests: nonexistent path, malformed XML (`<unattend><settings>`
+  → `System.Xml.XmlException`), and a valid file that reaches the
+  success log line. Both failure cases assert `Invoke-Diskpart` and
+  `Apply-WindowsImage` were invoked zero times. The malformed-XML case
+  also drift-guards the `"Windows Setup silently ignores"` follow-up
+  log so a future refactor can't quietly drop the recovery hint.
+  Uses `$TestDrive` for real (mal)formed files and `$Global:` for
+  passing the path across the `& $script:DeployModule { ... }`
+  boundary — same pattern the file already uses for `CapturedLogs`.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at top of the
+  Unreleased section, sits above the existing
+  `test_disk_enumeration.ps1` entry.
+
+**Verification:**
+- `pwsh` (v7.4.6) installed once per session per CLAUDE.md.
+- `PSParser::Tokenize` on `tests/validation-gates.Tests.ps1`: 0 errors
+  before and after. Brace balance: 128 / 128 (was 120 / 120; +8 open /
+  +8 close net from the new `BeforeEach`, `AfterEach`, and three `It`
+  blocks — matches expected).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 / 0 unchanged
+  (pipeline-scripts syntax test doesn't run Pester content).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16 / 0 unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34 / 0
+  unchanged.
+- Pre-flight sanity: verified `[xml]('<unattend><settings>')` throws
+  `System.Xml.XmlException` in PSv7 (matches PSv5.1 behavior) and that
+  `Test-Path <nonexistent> -PathType Leaf` returns `$false` — both
+  assertions the new tests rely on.
+- Pester itself cannot run in this Linux session — PSGallery is
+  blocked by the network policy so `Install-Module Pester` fails with
+  "No match was found" (same constraint documented in CLAUDE.md's
+  "Running Checks" section and in every prior routine entry that
+  touches the Pester file). CI's `pester` job on `windows-latest`
+  runs `Invoke-Pester` on push.
+
+**Risks / follow-ups:**
+- Test-only addition. No production code touched. Zero effect on
+  `unified_winpe_deploy.ps1`, the deploy pipeline scripts, the
+  diskpart / DISM / BCDBoot path, `-Force` / `-Silent` behavior, or
+  any version field.
+- The only CI risk is if Pester v5 on `windows-latest` handles the
+  `$Global:` scope or `$TestDrive` differently than reasoned — both
+  are documented Pester v5 patterns and the file already uses them.
+- Outstanding backlog items from prior entries that I did not take
+  this pass:
+  - `Show-ImageList` / `Show-ImageSelection` factoring — PR #227 has
+    it in flight (`Write-ImageMenuTable`). Should skip until that
+    merges.
+  - Nothing else stood out that isn't already covered by an open PR.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

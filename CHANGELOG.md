@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Start-Deployment -UnattendFile` gate now has Pester coverage.**
+  New `Describe "Start-Deployment -UnattendFile validation"` block in
+  `tests/validation-gates.Tests.ps1` exercises the pre-deploy well-
+  formedness check at `unified_winpe_deploy.ps1:1732-1747`: three cases
+  covering a nonexistent file, malformed XML (unclosed tags), and a
+  valid file that reaches the success log line. Both failure paths
+  assert `Invoke-Diskpart` / `Apply-WindowsImage` were never invoked, so
+  a refactor that removed the gate would surface in CI before any
+  operator wiped a disk to discover Windows Setup fell through to
+  manual OOBE. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -417,3 +417,115 @@ Describe "Start-Deployment validation gates" {
         $val | Should -Be 'goodpin42'
     }
 }
+
+Describe "Start-Deployment -UnattendFile validation" {
+
+    # The -UnattendFile gate lives at unified_winpe_deploy.ps1:1732-1747 and
+    # short-circuits the deploy with $false BEFORE any disk work when the
+    # file is missing or its XML is malformed. Windows Setup silently ignores
+    # a bad unattend.xml at first boot and falls through to manual OOBE, so
+    # discovering the failure post-wipe means re-deploying — this gate is
+    # what saves the operator that round-trip. No coverage before this block.
+
+    BeforeEach {
+        $Global:CapturedLogs = New-Object System.Collections.ArrayList
+
+        & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $ImagePath        = $null
+            $TargetDisk       = 0
+            $WipeDisks        = $null
+            $UnattendFile     = $null
+            $DataDiskNumber   = -1
+            $EnableBitLocker  = $false
+            $BitLockerPin     = $null
+            $BitLockerKeyPath = $null
+            $Force            = $true
+            $Silent           = $true
+            $ListOnly         = $false
+            $Script:Config.DataDiskNumber  = -1
+            $Script:Config.EnableBitLocker = $false
+            $Script:Config.BitLockerPin    = $null
+        }
+
+        Mock -ModuleName DeployUnderTest -CommandName Test-Administrator     -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Initialize-SystemPaths -MockWith { }
+        Mock -ModuleName DeployUnderTest -CommandName Write-Log              -MockWith {
+            param($Message, $Level)
+            [void]$Global:CapturedLogs.Add(@{ Message = $Message; Level = $Level })
+        }
+        # If the unattend gate passes, the deploy proceeds to image discovery.
+        # Stub image discovery so the run stops cleanly at "no image selected"
+        # without touching disks or DISM. Downstream destructive mocks catch
+        # any accidental reach-through.
+        Mock -ModuleName DeployUnderTest -CommandName Find-ImageFiles       -MockWith { @() }
+        Mock -ModuleName DeployUnderTest -CommandName Show-ImageSelection   -MockWith { $null }
+        Mock -ModuleName DeployUnderTest -CommandName Invoke-Diskpart       -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Apply-WindowsImage    -MockWith { $true }
+        Mock -ModuleName DeployUnderTest -CommandName Set-BootConfiguration -MockWith { $true }
+    }
+
+    AfterEach {
+        Remove-Variable -Scope Global -Name CapturedLogs, UnattendPath -ErrorAction SilentlyContinue
+    }
+
+    It "Rejects -UnattendFile pointing at a nonexistent path before any destructive op" {
+        # Path under TestDrive but no file created there — Test-Path -PathType
+        # Leaf returns $false and the gate exits with the "not found" message.
+        $Global:UnattendPath = Join-Path $TestDrive 'does-not-exist.xml'
+        $result = & $script:DeployModule {
+            $UnattendFile = $Global:UnattendPath
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        ($Global:CapturedLogs | Where-Object { $_.Message -match 'UnattendFile not found' }) |
+            Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects -UnattendFile that is not well-formed XML before any destructive op" {
+        # Unclosed tags — the [xml] cast throws System.Xml.XmlException, the
+        # catch block turns that into the operator-facing error path.
+        $Global:UnattendPath = Join-Path $TestDrive 'bad.xml'
+        Set-Content -Path $Global:UnattendPath -Value '<unattend><settings>' -Encoding UTF8
+        $result = & $script:DeployModule {
+            $UnattendFile = $Global:UnattendPath
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        ($Global:CapturedLogs | Where-Object { $_.Message -match 'not well-formed XML' }) |
+            Should -Not -BeNullOrEmpty
+        # Drift guard: the "why this matters" follow-up must still fire so a
+        # future refactor doesn't silently drop the recovery hint that
+        # explains the wipe-and-re-deploy loop this gate exists to prevent.
+        ($Global:CapturedLogs | Where-Object { $_.Message -match 'Windows Setup silently ignores' }) |
+            Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Passes the well-formed-XML gate for a valid -UnattendFile" {
+        $Global:UnattendPath = Join-Path $TestDrive 'good.xml'
+        Set-Content -Path $Global:UnattendPath -Value @'
+<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="oobeSystem"/>
+</unattend>
+'@ -Encoding UTF8
+        & $script:DeployModule {
+            $UnattendFile = $Global:UnattendPath
+            Start-Deployment | Out-Null
+        }
+        # The gate emits "Unattend file: <path>" only on the success branch;
+        # if a refactor short-circuited the XML validation or inverted the
+        # try/catch, either this log would be missing or the failure log
+        # would be present instead.
+        ($Global:CapturedLogs | Where-Object { $_.Message -match 'Unattend file: ' }) |
+            Should -Not -BeNullOrEmpty
+        ($Global:CapturedLogs | Where-Object { $_.Message -match 'not well-formed XML' }) |
+            Should -BeNullOrEmpty
+        ($Global:CapturedLogs | Where-Object { $_.Message -match 'UnattendFile not found' }) |
+            Should -BeNullOrEmpty
+    }
+}
