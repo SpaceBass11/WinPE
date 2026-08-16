@@ -8,6 +8,16 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`docs/CCTK.md` "Changing Existing Passwords" example listed
+  `--valsetuppwd=OldSetup123!` twice** (once after each `--*pwd=`
+  change), suggesting the auth line must be repeated per password
+  change. CCTK reads one `--valsetuppwd` / `--valsyspwd` per config
+  invocation to authenticate the entire batch. Consolidated the
+  example to a single `--valsetuppwd` line and added a one-sentence
+  clarification so the pattern is obvious. Docs-only, no script or
+  test surface touched.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

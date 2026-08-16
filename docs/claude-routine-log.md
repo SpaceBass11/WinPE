@@ -5,6 +5,86 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-16 — `docs/CCTK.md` "Changing Existing Passwords" duplicate `--valsetuppwd`
+
+**Investigated:** open PRs #235-#294 (approx. 40 in-flight branches,
+mostly small safety / docs / test additions) to find something that
+wasn't already being worked. Grep-cross-checked every open PR that
+touched `docs/CCTK.md` (PR #260 config-selection alnum note, PR #294
+`wmic`→`Get-WmiObject`) against the CCTK-related sections of the file.
+Neither PR touches the "Changing Existing Passwords" example block
+(~line 106-123, pre-edit) — a genuinely untouched area.
+
+**Found:** the "Changing Existing Passwords" example listed
+`--valsetuppwd=OldSetup123!` **twice** — once after `--setuppwd=…`
+and once after `--syspwd=…`. Two problems:
+
+1. **Factually misleading.** CCTK consumes one `--valsetuppwd`
+   (or `--valsyspwd`) per config invocation and uses it to
+   authenticate the entire batch of setting changes — it isn't
+   scoped per-line. Repeating the same auth token after each change
+   line implies otherwise and reads as either a typo or a
+   misunderstanding of how CCTK's auth works.
+2. **Reads as a typo of `--valsyspwd=OldSystem123!`.** A reader
+   would reasonably assume the second `--valsetuppwd` was meant to
+   authenticate the system-password change with the current system
+   password, and either copy the mistake into their own config or
+   ping the maintainer to ask.
+
+No open PR touches this block. No prior routine-log entry has
+flagged it. It's the kind of doc bug that survives indefinitely
+because it looks plausible on skim.
+
+**Changed:**
+- `docs/CCTK.md` — dropped the duplicate `--valsetuppwd` line,
+  reordered so the single `--valsetuppwd` sits after both
+  `--*pwd=…` changes it authenticates (matches the "one val per
+  batch" pattern), and added a one-sentence clarification
+  explaining that `--valsetuppwd` / `--valsyspwd` authenticates
+  the whole config, not each `--*pwd=` line. The **clearing** a
+  password example below is already correct (one change, one
+  val) and left untouched.
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of
+  `## Unreleased` describing the doc drift.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per the CLAUDE.md bootstrap recipe (GitHub
+  Releases tarball into `/opt/pwsh/`).
+- Baseline (pre-edit): `tests/test_parse.ps1` 48/0,
+  `tests/test_wim_parser.ps1` 16/0, `tests/test_disk_enumeration.ps1`
+  34/0.
+- Post-edit: all three pass identically (docs-only change; parsers
+  are agnostic to Markdown content).
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per
+  CLAUDE.md and does not assert on `docs/*.md` — not exercised here.
+- `grep -n 'valsetuppwd\|valsyspwd' docs/CCTK.md` post-edit shows
+  three call sites: one in the changed example (auth for both
+  password changes), one in the password-clearing example
+  (unchanged), and the new clarifying-sentence mention of both
+  auth flags. No duplicates.
+
+**Risks / follow-ups:**
+- **Minimal.** Docs-only. No `.ps1` files touched. No new
+  dependencies. No CI workflow surface changed. No destructive
+  code path involvement.
+- Outstanding routine-backlog candidates from prior entries not
+  taken this pass:
+  - `Show-ImageList` / `Show-ImageSelection` factoring — deferred
+    while PR #289 is in flight against that surface.
+  - Fixture test for the CCTK config-resolution precedence
+    (tag > model > default) — flagged as follow-up in PR #260's
+    routine entry. Higher mock burden (WMI query + Test-Path)
+    but tractable if another pass takes it.
+
+**Next recommended improvement:** grep every `.ini` fenced block in
+`docs/*.md` and `README.md` for other config-example patterns that
+look copy-paste-repetitive — the CCTK example was found by reading
+CCTK.md end-to-end, but a targeted scan for repeated tokens inside
+```ini fences would surface similar drift cheaply.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
