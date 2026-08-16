@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`tests/test_parse.ps1` now guards the embedded `startnet.cmd`
+  invariants in `scripts/build_boot_wim.ps1`.** Three new drift-guard
+  assertions in Test 9 confirm the here-string keeps `wpeinit` (WinPE
+  network stack), `setlocal enabledelayedexpansion` (required so
+  `!DEPLOYARGS!` and the `{DRIVE}` substitution expand at boot), and
+  the `{DRIVE}=%DEPLOY_IMAGE_DRIVE%` rewrite (required for
+  `build_iso.ps1`'s single-ISO end-user workflow). Regressions here
+  produce a boot.wim that fails silently at deploy time rather than
+  at build time; masterize CI check #25 already blocks the specific
+  `echo !DEPLOYARGS!` PIN-leak regression, but these three brittle
+  helpers had no test coverage. Test-only change (48 → 51 passed).
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

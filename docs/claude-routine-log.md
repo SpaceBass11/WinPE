@@ -5,6 +5,79 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-16 — `tests/test_parse.ps1` guards for embedded `startnet.cmd`
+
+**Investigated:** open PRs #269-#298 (30+ in flight from prior routine
+runs), the routine-log backlog, and the actual coverage of
+`scripts/build_boot_wim.ps1` in `tests/test_parse.ps1` Test 9 vs. the
+masterize CI checks (#24 / #25) in `.github/workflows/ci.yml`.
+
+**Found:** The `startnet.cmd` here-string embedded in
+`scripts/build_boot_wim.ps1` (lines 273-310) has three brittle bits
+whose regressions would produce a boot.wim that misbehaves at deploy
+time rather than failing at build time:
+
+1. `wpeinit` — without it, the WinPE network stack never comes up
+   and any later remote-help / driver-fetch step fails silently.
+2. `setlocal enabledelayedexpansion` — required so
+   `powershell.exe ... !DEPLOYARGS!` and the
+   `set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"`
+   substitution actually expand. Without it, `deploy.args` silently
+   loses all its parameters.
+3. `{DRIVE}=%DEPLOY_IMAGE_DRIVE%` — the single-ISO end-user workflow
+   (`build_iso.ps1`) writes `{DRIVE}\images\...` paths into
+   `deploy.args`; dropping this rewrite breaks every ISO build.
+
+Masterize CI check #24 confirms `deploy.args` and `set /p DEPLOYARGS`
+are still referenced, and #25 blocks the specific `echo !DEPLOYARGS!`
+PIN-leak regression from PR #42. Neither covers the three above.
+PR #52 (merged) added a builder-invariants block to Test 9 for the
+DCH DLL check and CCTK copy path — same pattern, natural place to
+extend.
+
+**Changed:**
+- `tests/test_parse.ps1` — three new `Write-Result` assertions inside
+  the existing `if ($builderOk) { ... }` block in Test 9, following
+  the same `$bc -match` pattern as the DCH DLL and `$cctkDir` copy
+  checks. Comment block explains why each of the three matters
+  (silent-if-broken at deploy time).
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`.
+
+**Verification:**
+- `pwsh` v7.4.6 installed per the CLAUDE.md tarball recipe (needed
+  because the on-web container starts without it).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` →
+  48 passed / 0 failed.
+- Post-edit: 51 passed / 0 failed (the +3 are the three new
+  assertions, all green against the current source).
+- Negative verification: manually mutated each of the three source
+  patterns in `scripts/build_boot_wim.ps1` in turn (`wpeinit` →
+  `rem wpeinit`; `setlocal enabledelayedexpansion` → `setlocal`;
+  `{DRIVE}=…` → `OLD=…`). Each mutation fired the corresponding
+  assertion (`Passed: 50 / Failed: 1`) and no other test. Restored
+  after each.
+- Sanity: `tests/test_wim_parser.ps1` still 16/0 and
+  `tests/test_disk_enumeration.ps1` still 34/0. No contamination.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. Assertions
+  use plain string / regex matches against the builder file, same
+  weakness the rest of Test 9 has (a refactor that moves the
+  `startnet.cmd` body into an external `.cmd` template file would
+  need all four assertions updated together — but that would be a
+  bigger and more visible change).
+- Outstanding backlog items I did not take this pass, since either
+  an open PR already covers them or the risk/reward is low:
+  - PR #289 open — `Show-ImageList` / `Show-ImageSelection` refactor.
+  - PR #292 open — `Test-FinalWipeConfirmation` parser test.
+  - PR #293 open — drift-guard the zero-size clause in
+    `Get-SystemDisks` filter.
+  - `Test-WinPEEnvironment` still has no fixture test. It's small
+    enough to unit-test but the failure modes are covered by the
+    typed-confirmation prompt at line 537, so lower priority.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
