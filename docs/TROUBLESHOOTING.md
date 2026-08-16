@@ -257,8 +257,10 @@ If CCTK silently skips (`No CCTK config matched`), check that:
 - The directory contains at least one of `<SERVICETAG>.ini`,
   `<MODEL>.ini`, or `default.ini`
 - `Win32_BIOS.SerialNumber` (your service tag) and `Win32_ComputerSystem.Model`
-  match what you expect — run `wmic bios get serialnumber` and
-  `wmic computersystem get model` from a WinPE shell to verify.
+  match what you expect — from a WinPE PowerShell prompt, run
+  `(Get-WmiObject Win32_BIOS).SerialNumber` and
+  `(Get-WmiObject Win32_ComputerSystem).Model` to verify. (`wmic` was
+  deprecated in Windows 10 21H1 and is not shipped in WinPE.)
 
 See `docs/CCTK.md` for full configuration details.
 

@@ -5,6 +5,90 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-16 — Replace `wmic` guidance in CCTK / TROUBLESHOOTING docs
+
+**Investigated:** Skimmed all ~40 open PRs (#181–#293) plus recent
+merges to find an area untouched by in-flight work. Grepped for
+`wmic` across the repo (`docs/`, root `.md`); three hits in two
+files, none referenced by any open PR (searched PR titles/bodies
+for `wmic`, `serialnumber`, `TROUBLESHOOTING serialnumber`,
+`bios serialnumber Win32_BIOS` — only #260 mentions `Win32_BIOS`
+and it modifies `Invoke-CctkConfig`, not the docs' `wmic` guidance).
+
+**Found:** `docs/CCTK.md` line 157-159 (Operational Notes:
+Service-tag lookup) and `docs/TROUBLESHOOTING.md` line 259-261
+(CCTK skip diagnosis) told operators to run `wmic bios get
+serialnumber` / `wmic computersystem get model` "from a WinPE
+shell." Two problems with this guidance:
+
+1. `wmic.exe` was deprecated in Windows 10 21H1 (April 2021) and
+   is not shipped as a default feature in Windows 11 24H2 (Sept
+   2024). Operators running the deploy tool today are increasingly
+   on hosts where `wmic` simply returns "not recognized."
+2. WinPE has never included `wmic.exe`. The `WinPE-WMI` optional
+   component (which `scripts/build_boot_wim.ps1` adds) enables
+   the WMI service, but the `wmic.exe` command-line client is a
+   separate binary that WinPE doesn't ship with. So "from a WinPE
+   shell" the command has always errored regardless of Windows
+   version.
+
+`Invoke-CctkConfig` in `unified_winpe_deploy.ps1` uses
+`Get-WmiObject Win32_BIOS` and `Get-WmiObject Win32_ComputerSystem`
+(per CLAUDE.md's "Known Constraints" note that pins the deploy
+script to `Get-WmiObject` over `Get-CimInstance` for broader WinPE
+compatibility). Rewriting the docs to the same call closes the
+drift with what the script actually does *and* gives operators a
+command that runs both on their admin workstation and inside WinPE.
+
+**Changed:**
+- `docs/CCTK.md` — swapped `wmic bios get serialnumber` for
+  `(Get-WmiObject Win32_BIOS).SerialNumber`; added a one-clause
+  note explaining why `wmic` is no longer the right recipe.
+- `docs/TROUBLESHOOTING.md` — same swap for both
+  `bios get serialnumber` and `computersystem get model`; wording
+  points operators at a PowerShell prompt explicitly since WinPE's
+  default shell is cmd.
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of
+  `## Unreleased` describing the swap and the underlying
+  Windows-version / WinPE reasoning.
+
+**Verification:**
+- `pwsh` 7.4.6 installed for this session per the CLAUDE.md
+  bootstrap recipe.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → **48 passed
+  / 0 failed** unchanged (docs-only change; PowerShell parse
+  surface untouched).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → **16 /
+  0** unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` →
+  **34 / 0** unchanged.
+- `grep -rn wmic docs/ *.md` post-edit shows only the two
+  intentional prose mentions (each inside a "wmic is deprecated"
+  parenthetical); no remaining `wmic` *commands* in the docs.
+- Cross-checked the two new `(Get-WmiObject …).<Property>`
+  expressions against `Invoke-CctkConfig`
+  (`unified_winpe_deploy.ps1:~1307-1315`) — same class names,
+  same property names, so what the doc tells the operator to see
+  is byte-identical to what the script sees.
+
+**Risks / follow-ups:**
+- Minimal. Docs-only change; no `.ps1` files touched, no
+  destructive code path (diskpart / DISM / BCDBoot / BitLocker /
+  CCTK invocation) involved, no version bump.
+- No file overlap with any of the open PRs surveyed (#181-#293).
+  Both edited docs are also touched by PR #260's CCTK service-tag
+  normalization, but at different line ranges — #260 modifies the
+  "Config Selection Precedence" section (~line 68-80) whereas
+  these edits modify the Operational Notes / CCTK-skip-diagnosis
+  sections. Clean linear-append merge either direction.
+- Outstanding routine-log candidates from prior entries not taken
+  this pass: `Show-ImageList` / `Show-ImageSelection` factoring
+  (PR #56 / #289 in flight), `first-login.ps1` SYNOPSIS dual-hive
+  wording (deferred while PRs #162 and #182 land, per PR #183's
+  follow-up).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

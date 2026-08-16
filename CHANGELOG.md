@@ -8,6 +8,20 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`wmic` guidance in `docs/CCTK.md` and `docs/TROUBLESHOOTING.md`
+  replaced with PowerShell equivalents.** The service-tag / model
+  lookup examples told operators to run `wmic bios get serialnumber`
+  and `wmic computersystem get model` from a WinPE shell — but
+  `wmic.exe` was deprecated in Windows 10 21H1, removed from Windows
+  11 24H2 as a default feature, and never shipped in WinPE in the
+  first place. Replaced with
+  `(Get-WmiObject Win32_BIOS).SerialNumber` and
+  `(Get-WmiObject Win32_ComputerSystem).Model` — the same
+  `Get-WmiObject` calls `Invoke-CctkConfig` uses internally, and
+  compatible with the WinPE-PowerShell / WinPE-WMI components already
+  added by `scripts/build_boot_wim.ps1`.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
