@@ -5,6 +5,88 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-16 — `/review` skill checklist stale vs. actual prompts
+
+**Investigated:** Open PRs (~100 in flight from prior routine passes,
+covering nearly every code and doc surface), the maintenance log's
+"next recommended improvement" backlog, and every mention of typed
+confirmation strings across the repo (`grep DELETE ALL DATA|ERASE|
+WIPE ALL|WIPE DATA|DESTROY SYSTEM`). Cross-checked candidate PRs
+via `mcp__github__search_pull_requests` to avoid duplication.
+
+**Found:** `.claude/commands/review.md` — the `/review` slash-command
+skill definition — carried two stale lines and three coverage gaps in
+its Safety & Security Audit checklist:
+
+- Line 18 said `Verify disk selection requires typed confirmation
+  ("DELETE ALL DATA")`, but the actual `Read-Host` prompts at
+  `unified_winpe_deploy.ps1:762,808` say `Type 'ERASE'`.
+  `Test-FinalWipeConfirmation` at `:715-716` still accepts
+  `DELETE ALL DATA` as a normalized alternate (case-insensitive +
+  `Trim`), and CI check 19 in `.github/workflows/ci.yml` requires
+  both strings to remain present — but the operator only ever sees
+  the `ERASE` prompt, so a `/review` run keyed on the doc's exact
+  string produces a false trail.
+- Line 20's `-Force skips "DELETE ALL DATA"` phrasing had the same
+  drift. `-Force` actually skips the `ERASE` prompt at `:733,747-748`
+  and never the `DESTROY SYSTEM` prompt at `:735-745`.
+- `WIPE ALL` (streamlined additional-wipe confirmation at
+  `Select-AdditionalWipeDisks:1460-1465`), `WIPE DATA` (data-disk
+  format at `:1811-1816`), and the WIM source-drive protection in
+  `New-DiskpartScript:955-958` were not on the checklist at all —
+  all three are safety-critical destructive-op gates added in
+  v4.7.x.
+
+Not covered by any open PR — verified via
+`search_pull_requests` for `refresh_usb Test-Path Leaf` (already
+covered by PR #77), `review.md ERASE typed confirmation` (0 hits),
+and `.claude commands review DELETE ALL DATA` (only closed PR #20
+about unrelated dead-infrastructure removal).
+
+**Changed:**
+- `.claude/commands/review.md` — Safety & Security Audit block
+  rewritten. `ERASE` is now the primary prompt string with a
+  parenthetical note that `DELETE ALL DATA` is an accepted alternate
+  in the parser (so a reviewer running the checklist and grepping
+  the script for either finds a consistent story). Added checklist
+  rows for `WIPE ALL`, `WIPE DATA`, silent-`DataDiskNumber`-without-
+  `-Force` fail-fast, and the `ProtectedSourceDrive` guard. The
+  `-Force` skip list is now explicit (`ERASE`, `WIPE ALL`,
+  `WIPE DATA`) so a reviewer can't miss the parity across the three
+  typed gates that `-Force` is designed to bypass.
+
+**Verification:**
+- The five string claims cross-checked against the deploy script
+  live line numbers (all lines pre-Read this pass, not memorized).
+- Markdown-only change to a skill file; no PowerShell to parse.
+  `tests/test_parse.ps1`, `tests/test_wim_parser.ps1`,
+  `tests/test_disk_enumeration.ps1`, and the Pester suite are
+  unaffected (the skill file is not part of any test surface).
+- CI: nothing in `.github/workflows/ci.yml` touches
+  `.claude/commands/`; the `link-check` job runs on `**/*.md` but
+  the new text contains no new URLs.
+- No `$Script:Config.ScriptVersion` bump (skill-file doc fix, not
+  a runtime change).
+
+**Risks:** None. Changes an internal review prompt only; no runtime
+code, no CI checks, no destructive path touched. Worst case a
+future reviewer disagrees with a checklist wording and rewrites it
+again.
+
+**Next recommended improvement:**
+- The `.claude/commands/deep-review.md` skill likely has similar
+  drift and additional coverage gaps around v4.7.x BitLocker /
+  data-disk / deploy.args surfaces — worth a parallel pass.
+- The `.claude/commands/strip-dead-code.md` skill was not audited
+  this pass and may have similar staleness against the current
+  codebase.
+- With ~100 open routine-log PRs in flight from prior passes, the
+  highest-leverage next move for a maintenance run is likely
+  triaging that queue (merge conflicts, rebases against `main`,
+  CI status) rather than adding another PR.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

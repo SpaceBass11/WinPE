@@ -15,12 +15,15 @@ Run a comprehensive review of unified_winpe_deploy.ps1. Check ALL of the followi
 - Verify WinPE environment detection blocks non-WinPE unless user types "CONTINUE ANYWAY"
 - Verify -Silent mode aborts (not bypasses) when not in WinPE
 - Verify memory check with warning/prompt
-- Verify disk selection requires typed confirmation ("DELETE ALL DATA")
+- Verify target-disk selection requires typed "ERASE" (Test-FinalWipeConfirmation also accepts "DELETE ALL DATA" as a case-insensitive/trimmed alternate — grep for both strings)
 - Verify system disk requires extra confirmation ("DESTROY SYSTEM")
-- Verify -Force skips "DELETE ALL DATA" but NEVER skips "DESTROY SYSTEM" for system disks
-- Verify -TargetDisk without -Force still requires typed confirmation
+- Verify additional-wipe disks (-WipeDisks / interactive extra-wipe menu) require a single typed "WIPE ALL" for the whole set
+- Verify data-disk format requires typed "WIPE DATA" when -DataDiskNumber is set, and that -Silent -DataDiskNumber without -Force fails fast (WIPE DATA cannot prompt silently)
+- Verify -Force skips "ERASE", "WIPE ALL", and "WIPE DATA" but NEVER skips "DESTROY SYSTEM" for system disks
+- Verify -TargetDisk without -Force still requires typed "ERASE"
 - Check that USB drives are excluded from target disk list
 - Verify mountvol /d never unmounts $env:SystemDrive
+- Verify New-DiskpartScript refuses to release the WIM source drive (ProtectedSourceDrive guard)
 - Verify disk size validation blocks undersized disks
 - Look for any code paths that could bypass safety checks
 
