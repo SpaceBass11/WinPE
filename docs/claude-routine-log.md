@@ -5,6 +5,89 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-16 — `test_disk_enumeration.ps1` drift guard for zero-size filter
+
+**Investigated:** open-PR backlog against `main` (~130 PRs, #93-#292)
+to avoid duplicating in-flight work; the `Get-SystemDisks` filter in
+`unified_winpe_deploy.ps1` (line 598-604) and its downstream
+`test_disk_enumeration.ps1` drift guard (lines 227-266). Related
+open PRs: #281 (adds Write-Log for zero-size skips — doesn't touch
+the filter or the guard) and #229 (`-MinImageSizeMB ValidateRange`
+— unrelated parameter). Neither closes the drift-guard gap.
+
+**Found:** `Get-SystemDisks`'s eligibility filter includes five
+safety-critical clauses:
+```
+$_.InterfaceType -ne 'USB' -and
+$_.MediaType -notlike "*removable*" -and
+$_.MediaType -notlike "*cd*" -and
+$_.Model -notlike "*cd*" -and
+([double]$_.Size -gt 0)
+```
+
+The drift guard at the bottom of `tests/test_disk_enumeration.ps1`
+pins the first four literals so a future refactor that drops one
+fails the test. The fifth clause — `[double]$_.Size -gt 0`, which
+excludes empty card-reader slots, offline HBA LUNs, and unreadable
+drives — was unguarded. Because the fixture test uses a **local
+copy** of the predicate (`Test-DiskEligible`, line 53-62), a
+regression removing the deploy script's zero-size clause would
+silently pass all 34 fixture assertions. The two Size=0 fixture
+rows (`DVD via Model`, `Empty card slot`) would still return
+`Expected=$false` against the untouched local predicate.
+
+Consequence of the gap: a Size=0 disk that passes the interface /
+media checks could reach `Show-DiskMenu` as a valid target and — if
+the operator picked its number by mistake or `-TargetDisk` matched
+it — reach diskpart. Diskpart itself would fail, but the failure
+would come after the typed `ERASE` confirmation, past the intended
+safety wall.
+
+**Changed:**
+- `tests/test_disk_enumeration.ps1` — added one drift-guard assertion
+  matching `[double]$_.Size -gt 0` verbatim, with a two-line comment
+  explaining why the clause matters. Slotted after the existing four
+  literal-match guards (USB, removable, CD-via-MediaType,
+  CD-via-Model) for a consistent block.
+- `CHANGELOG.md` — bullet at top of `## Unreleased / ### Changed`
+  describing the gap and the fix.
+
+No production code touched. No new dependencies.
+
+**Verification:**
+- `pwsh` 7.4.6 installed once per session per CLAUDE.md
+  (PowerShell/Releases tarball into `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1`
+  → 34 passed / 0 failed before edit.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1`
+  → 35 passed / 0 failed (the new drift-guard assertion is the +1).
+- Cross-check: `pwsh -NoProfile -File ./tests/test_parse.ps1`
+  → 48 / 0 unchanged. `pwsh -NoProfile -File ./tests/test_wim_parser.ps1`
+  → 16 / 0 unchanged.
+- Regex uniqueness: `[regex]::Matches` on the deploy script for the
+  same pattern the guard uses returns exactly 1 match — the target
+  filter line and nowhere else. A future edit removing that one line
+  drops the count to 0 and fails the guard.
+
+**Risks / follow-ups:**
+- Minimal. Test-only change. No touch to destructive code paths,
+  no new mocks, no new fixture rows, one added Write-Result call.
+  Follows the exact pattern of the four existing drift-guard blocks
+  (same `-match` shape, same `-Detail` shape, same commentary style).
+- Outstanding routine-backlog candidates I did not take this pass
+  because open PRs already carry them (a small sample from ~130
+  open):
+  - `Show-ImageList` / `Show-ImageSelection` refactor — PR #289
+  - `Test-FinalWipeConfirmation` Pester coverage — PR #292 (+ #174,
+    #142, #102 duplicates)
+  - `build_iso.ps1` multi-index safety — PR #291
+  - `-UnattendFile` pass-through in Interactive build_iso — PR #285
+  - Zero-size disk skip logging — PR #281
+- Truly novel finds are increasingly rare — the aggressive routine-
+  agent pace over the last ~90 days has covered most drift.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

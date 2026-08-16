@@ -9,6 +9,16 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`test_disk_enumeration.ps1` drift guard now pins the zero-size
+  filter clause.** Get-SystemDisks excludes disks reporting
+  `Size <= 0` (empty card-reader slots, offline HBA LUNs, unreadable
+  drives) so they never reach `Show-DiskMenu`. The existing drift
+  guard pinned the USB / removable / CD literals but did not pin
+  `[double]$_.Size -gt 0`, so a refactor that dropped that clause
+  would silently pass the test suite (the fixture predicate is a
+  local copy). Added the missing assertion. Test-only; no production
+  code changed.
+
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

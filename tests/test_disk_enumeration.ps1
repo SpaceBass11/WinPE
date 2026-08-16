@@ -263,6 +263,13 @@ if (-not (Test-Path $scriptPath)) {
     Write-Result -Test "CD exclusion still present on Model" `
         -Pass ($scriptText -match 'Model -notlike "\*cd\*"') `
         -Detail 'expected Model -notlike "*cd*"'
+
+    # Zero-size clause guards against empty card-reader slots, offline HBA
+    # LUNs, and unreadable drives being surfaced as valid deploy targets.
+    # A refactor that drops it would let Size=0 disks reach Show-DiskMenu.
+    Write-Result -Test "Zero-size exclusion still present in disk filter" `
+        -Pass ($scriptText -match '\[double\]\$_\.Size -gt 0') `
+        -Detail 'expected [double]$_.Size -gt 0'
 }
 
 # --- Summary ---
