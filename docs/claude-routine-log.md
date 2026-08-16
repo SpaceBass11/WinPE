@@ -5,6 +5,129 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-16 — Routine backlog-triage pass (no code change)
+
+**Investigated:** Current open PR queue (~200 open, all from prior
+routine passes) versus every candidate improvement I could turn up
+after reading `unified_winpe_deploy.ps1` in full plus the helper
+scripts under `scripts/`, tests under `tests/`, docs under `docs/`,
+config templates under `configs/`, the `.github/workflows/ci.yml`
+masterize invariants, `.github/PULL_REQUEST_TEMPLATE.md`, and the
+prior deep-review under `.claude/reviews/`. Ran targeted
+`mcp__github__search_pull_requests` queries for every file /
+function name I planned to touch before doing so, per PR #298's
+recommendation.
+
+**Found:** Every small-scope, verifiable improvement I identified
+was already in flight. Concrete matches between candidates and
+existing open PRs:
+
+- `Invoke-CctkConfig` selection-precedence fixture test → PR #84
+  / #119 / #158 / #203
+- `Invoke-CctkConfig` per-exit-code recovery guidance → PR #232
+- BIOS service-tag alnum normalization → PR #260
+- `Test-FinalWipeConfirmation` unit test → PR #174 / #246 / #292
+- `Get-WimImageInfo` error-output surfacing → PR #74 / #204
+- `Get-WimImageInfo` multi-index rejection in silent ISO → PR #291
+- `Get-SystemDisks` zero-size disk logging → PR #281
+- `Get-SystemDisks` zero-size drift-guard → PR #293
+- Additional-wipe: exclude system disks → PR #149 / #259
+- Additional-wipe: swap DataDiskNumber before Force gate → PR #243
+- `-MinImageSizeMB` negative-value rejection → PR #100 / #229
+- `-ImagePath` pointing at a file → PR #166 / #186 / #239
+- `-WimFile` resolve to absolute path → PR #168
+- `-WimFile` silently ignores `-ImagePath` → PR #214
+- `-BitLockerPin` deploy-time whitespace gate → PR #273
+- `-BitLockerPin` build-time whitespace gate → PR #282
+- `-BitLockerPin` build-time length pre-validation → PR #173 / #245
+- `-BitLockerPin` special-char round-trip → PR #141 / #224
+- `-BitLockerPin` build-console redaction → PR #66 / #131 / #213 / #236
+- `-BitLockerKeyPath` warn without `-EnableBitLocker` → PR #88 / #153 / #219
+- `-BitLockerKeyPath` relative-path rejection → PR #105 / #139
+- `Resolve-BitLockerKeyPath` LookupMode Pester coverage → PR #108 / #178
+- BitLocker staging: wipe PIN-bearing script on failure → PR #159
+- `Show-ImageList` / `Show-ImageSelection` dedupe → PR #227 / #289
+- `Set-BootConfiguration` evidence-based verdict → PR #297
+- `Test-SystemMemory` silent-mode WMI hard-fail → PR #221
+- DISM-log path via `$env:WinDir` → PR #115 / #225
+- `startnet.cmd` drift-guard invariants → PR #140 / #299
+- `startnet.cmd` `{DRIVE}` substitution test → PR #101 / #258
+- `build_boot_wim.ps1` reject `-UsbDrive == $env:SystemDrive` → PR #240
+- `build_iso.ps1` warn `-VolumeLabel != IMAGES` → PR #251
+- `build_iso.ps1` `-Interactive` drops `-UnattendFile` → PR #155 / #285
+- `build_iso.ps1` disk-collision pre-flight → PR #67 / #114 / #147 / #188 / #254
+- `build_iso.ps1` well-formed `-UnattendFile` check → PR #80 / #152
+- `refresh_usb.ps1` `-OutputName` safety → PR #261
+- `prepare_wim.ps1` `-OutputWim == -SourceWim` rejection → PR #210
+- `prepare_wim.ps1` fixture test → PR #180
+- `refresh_usb.ps1` fixture test → PR #190
+- `first-login.ps1` Default-User hive invariants test → PR #65 / #130 / #182
+- `first-login.ps1` reg.exe stderr surfacing → PR #162 / #215
+- `first-login.ps1` OneDrive uninstall timeout → PR #279
+- `unattend.example.xml` stale Default-User comment → PR #76 / #111 / #150 / #181 / #195 / #211 / #277
+- `configs/unattend.example.xml` well-formedness masterize check → PR #248
+- `docs/CCTK.md` duplicate `--valsetuppwd` → PR #295
+- `docs/CCTK.md` stale wmic guidance → PR #294
+- `docs/DEPLOY_ARGS.md` `{DRIVE}` substitution documentation → PR #257 / #283
+- `docs/DEPLOY_ARGS.md` `!` (delayed-expansion) warning → PR #223
+- `docs/USB_SETUP.md` manual startnet.cmd resync → PR #144 / #217 / #287
+- `docs/TROUBLESHOOTING.md` name all four test files → PR #286
+- `docs/SIGNING.md` filter expired certs in examples → PR #280
+- `docs/BITLOCKER.md` / README stale placeholder-PIN claims → PR #97 / #104 / #167 / #197 / #220 / #250
+- `docs/SECURITY.md` add WIPE ALL / WIPE DATA to In-Scope list → PR #290
+- `AGENTS.md` + PR template typed-confirmation resync → PR #92 / #201
+- `docs/ARCHITECTURE.md` File Layout table refresh → PR #58 / #176
+- `docs/SCRIPT_REFERENCE.md` v4.7.1 resync → PR #55 / #163 / #196
+- CI masterize `.VERSION` block pin → PR #122 / #169
+- CI masterize `-NoNewWindow` pin → PR #187
+- CI masterize ERASE / WIPE ALL / CONTINUE ANYWAY pin → PR #184
+- Pester `-Silent` foundational gates → PR #69 / #137
+- Pester BitLocker PIN length boundary → PR #64 / #98 / #123
+- Pester `-UnattendFile` XML well-formedness → PR #152 / #284
+- Pester `-DataDiskNumber` ∩ extra-wipe overlap → PR #125 / #271
+- `warn(deploy): -WipeDisks without -Silent` → PR #154
+- `logging: preserve deploy log to C:\Windows\Panther on reboot` → PR #191
+- `diskpart: echo derived plan before raw script dump` → PR #270
+
+The four most recent routine ticks recorded the same conclusion
+(PR #298 on 2026-08-16, PR #288 on 2026-08-15, PR #278 on
+2026-08-09, PR #268 on 2026-08-08). Every angle I tried today
+—`Initialize-SystemPaths` temp-dir writability, PIN reprompt on
+invalid interactive input, `Search-DirectoryForImages` recursion
+depth, `Select-AdditionalWipeDisks` data-disk overlap surfaced
+earlier, `Find-ImageFiles` env-drive fallback logging, `Write-Log`
+`LogWriteFailureNotified` reset semantics, `Show-DiskMenu` colour
+mapping — mapped onto an already-open PR, or turned out to be a
+behaviour change to a security-adjacent surface where the current
+one-shot semantics are defensible.
+
+**Changed:** This log entry only. No script, test, CI, config, or
+user-facing doc touched.
+
+**Verification:** N/A — no code path modified. `pwsh` bootstrap
+skipped intentionally; adding a log entry does not need it.
+
+**Risks / follow-ups:** None. Standing recommendation from PR #298
+carries forward: the queue is drainage-bound, not idea-bound.
+Landing the docs-only and test-only PRs from the list above would
+free up review bandwidth and let the next routine pass find genuine
+gaps again. Until the queue thins, log-only entries are the correct
+output per rule 27.
+
+**Next recommended improvement:**
+
+- **Highest value (operator):** merge a batch of the docs-only
+  PRs from the list above. They are individually small,
+  independently reviewable, and land visible clarity improvements
+  in one sitting.
+- **For future routine agents:** continue PR #298's discipline —
+  `mcp__github__search_pull_requests` against every file and
+  function before touching it. When five consecutive routines
+  land log-only entries, the signal is "queue is saturated,"
+  not "search harder."
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
