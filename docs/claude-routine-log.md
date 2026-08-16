@@ -5,6 +5,88 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-16 — `Test-FinalWipeConfirmation` fixture-test coverage
+
+**Investigated:** open PRs (#262–#291) to avoid duplicating in-flight work,
+then the shared confirmation parsers in `unified_winpe_deploy.ps1` for
+any load-bearing function that had no unit-test coverage. Cross-checked
+existing test files (`test_parse.ps1`, `test_wim_parser.ps1`,
+`test_disk_enumeration.ps1`, `validation-gates.Tests.ps1`) against
+`grep -n "^function " unified_winpe_deploy.ps1`.
+
+**Found:** `Test-FinalWipeConfirmation` (`unified_winpe_deploy.ps1:712`)
+is the shared parser behind the primary-target final confirmation
+prompt. It is called from two paths in `Select-TargetDisk`
+(`:763` when `-TargetDisk` is supplied without `-Force`, and `:810`
+in the interactive selection loop). Its output decides whether a
+destructive `dispart` + `dism` chain runs. Yet:
+
+- The masterize CI Phase 1B check 19 only greps for the literal
+  strings `DELETE ALL DATA` and `DESTROY SYSTEM` — it cannot see
+  a regression that narrows the accepted set (e.g. someone strips
+  `.ToUpperInvariant()`, so operators typing `erase` hit a silent
+  cancel loop) or widens it (e.g. `YES` accidentally added, so a
+  hurried operator's throwaway `y` proceeds with the wipe).
+- `test_parse.ps1` Test 5 only asserts the function is *defined*.
+- The Pester `validation-gates.Tests.ps1` suite mocks
+  `Select-TargetDisk` outright and never exercises the parser.
+
+So a critical safety parser had a real coverage gap, and no open
+PR (#262–#291) addresses it.
+
+**Changed:**
+- New `tests/test_confirmation_parser.ps1` — 9 accepted-input cases
+  (canonical, lowercase, mixed case, surrounding whitespace, tabs,
+  both `ERASE` and `DELETE ALL DATA` phrasings) + 20 rejected-input
+  cases (empty, `$null`, other prompts' ceremony strings
+  `DESTROY SYSTEM` / `WIPE ALL` / `WIPE DATA` that must NOT pass
+  this parser, common casual affirmations `YES`/`Y`/`OK`/`1`, prefix
+  and suffix near-misses, and internal-spacing tampering that `Trim()`
+  won't fix). Includes a five-check drift guard: function still
+  defined, normalizer still `.Trim().ToUpperInvariant()`, accepted-set
+  literal still `('ERASE', 'DELETE ALL DATA')`, and BOTH call sites
+  in `Select-TargetDisk` still route through the parser (regression
+  to an inline `-eq 'ERASE'` at either site would silently drop
+  case-insensitive / trim-tolerant behavior for operators).
+- `.github/workflows/ci.yml` — added the new test as a follow-on step
+  in the `syntax` job, matching the existing `test_wim_parser.ps1`
+  and `test_disk_enumeration.ps1` steps.
+- `CLAUDE.md` — Key Files table row + Running Checks command list.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`.
+
+**Verification:**
+- `pwsh` (7.4.6) installed per the CLAUDE.md note (the GitHub-releases
+  tarball fetch is allowed by this container's network policy).
+- Baseline: `test_parse.ps1` 48/0, `test_disk_enumeration.ps1` 34/0
+  (unchanged pre-edit).
+- Post-edit: `test_confirmation_parser.ps1` 35/0 (9 accept + 20 reject
+  + 1 script-exists + 5 drift-guard = 35).
+- Cross-check the mirrored function body against the deploy script
+  line-by-line — same `if ($null -eq $InputText) { '' } else { ... }`
+  ternary, same `Trim().ToUpperInvariant()` pipeline, same
+  `-in @('ERASE', 'DELETE ALL DATA')` accepted set.
+- Pre-checked that the `Select-TargetDisk` call sites at `:763` and
+  `:810` both pass the raw `Read-Host` result via `-InputText $finalConfirm`
+  so the count-callsites drift guard is stable.
+
+**Risks / follow-ups:**
+- Minimal. Test-only addition. No production code touched. No new
+  network dependencies. Pattern matches the existing
+  `test_wim_parser.ps1` and `test_disk_enumeration.ps1` fixture tests
+  (mirror + drift guard) exactly, including PS 5.1 compatibility.
+- If the deploy script later evolves the parser (e.g. adds a
+  `WIPE ALL` alias here for consistency with the extra-wipe prompt),
+  the drift guard will fail and force the test to be updated
+  intentionally — that's the point.
+- Outstanding routine-backlog candidates I did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection`** shared listing-render
+    factor-out — already in flight as PR #289.
+  - **`Resolve-BitLockerKeyPath`** has Pester coverage but no plain-pwsh
+    fixture test; less urgent, since the Pester suite runs on every
+    push and covers the three precedence branches.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

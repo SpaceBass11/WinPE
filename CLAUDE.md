@@ -114,12 +114,14 @@ The repo has three test files; know which is which before changing one:
 |------|----------------|---------------|
 | `tests/test_parse.ps1` | PowerShell syntax + function presence + version consistency across every shipped pipeline script (`unified_winpe_deploy.ps1` + the five under `scripts/`) | Anywhere with `pwsh` (also CI) |
 | `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` regex parser used by `Get-WimImageInfo` — guards against silent edition mis-attribution | Anywhere with `pwsh` (also CI) |
+| `tests/test_confirmation_parser.ps1` | Fixture test for `Test-FinalWipeConfirmation` — the shared parser behind the final `ERASE` / `DELETE ALL DATA` prompt in `Select-TargetDisk`; guards against accept-set narrowing (locks operators out) and widening (`YES`/`Y` slipping through) | Anywhere with `pwsh` (also CI) |
 | `tests/validation-gates.Tests.ps1` | **Pester suite.** v4.7.0 BitLocker default-config invariants, `Resolve-BitLockerKeyPath` precedence, `New-DiskpartScript` source-drive protection, `Start-Deployment` validation gates | **CI only** — see Pester note below |
 
 ```bash
 # Syntax + parser fixtures - runs anywhere with pwsh installed
 pwsh -NoProfile -File ./tests/test_parse.ps1
 pwsh -NoProfile -File ./tests/test_wim_parser.ps1
+pwsh -NoProfile -File ./tests/test_confirmation_parser.ps1
 ```
 
 The deeper safety/diskpart/BCDBoot greps that used to live in

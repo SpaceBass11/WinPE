@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Test-FinalWipeConfirmation` parser now has fixture-test coverage.**
+  New `tests/test_confirmation_parser.ps1` exercises the shared parser
+  behind the primary-target `ERASE` / `DELETE ALL DATA` prompt in
+  `Select-TargetDisk` — 9 accepted-input cases (canonical, lowercase,
+  mixed case, surrounding whitespace, tabs) and 20 rejected-input
+  cases (empty, `$null`, other prompts' ceremony strings like
+  `DESTROY SYSTEM` / `WIPE ALL` / `WIPE DATA`, casual affirmations
+  `YES`/`Y`/`OK`/`1`, prefix and suffix near-misses, and internal-
+  spacing changes). Includes a drift guard that fails if the function
+  disappears, its normalizer stops applying `Trim().ToUpperInvariant()`,
+  the accepted-set literal drifts, or a call site regresses from the
+  shared parser to an inline `-eq 'ERASE'` comparison. Wired into the
+  CI `syntax` job. No production code changed.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
