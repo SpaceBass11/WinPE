@@ -1230,7 +1230,8 @@ function Set-BootConfiguration {
         # look at the EFI bit here: bcdboot copies bootmgfw.efi from this exact
         # path onto S: - if it's missing, bcdboot fails before touching S:.
         $bootmgfwEfi = 'C:\Windows\Boot\EFI\bootmgfw.efi'
-        if (Test-Path $bootmgfwEfi) {
+        $bootmgfwPresent = Test-Path $bootmgfwEfi
+        if ($bootmgfwPresent) {
             Write-Log "  $bootmgfwEfi present" -Level Info
         } else {
             Write-Log "  $bootmgfwEfi NOT found - applied image is missing the UEFI boot manager (non-bootable WIM or wrong arch)" -Level Warning
@@ -1242,6 +1243,7 @@ function Set-BootConfiguration {
         # BCD/EFI tree fits in a few MB, so anything under ~30 MB free is a
         # red flag.
         $sVol = Get-PSDrive -Name 'S' -ErrorAction SilentlyContinue
+        $sFreeMB = $null
         if ($sVol) {
             $sFreeMB = [math]::Round($sVol.Free / 1MB, 1)
             Write-Log "  S: mounted, free: $sFreeMB MB" -Level Info
@@ -1252,11 +1254,42 @@ function Set-BootConfiguration {
             Write-Log "  S: NOT mounted - re-assign letter S to the EFI partition via diskpart and retry" -Level Warning
         }
 
-        Write-Log "Common causes:" -Level Info
-        Write-Log "  1. EFI partition is not letter S: or was reformatted as non-FAT32" -Level Info
-        Write-Log "  2. Applied image has no UEFI boot manager (bootmgfw.efi) - re-check the WIM source or arch" -Level Info
-        Write-Log "  3. Firmware is in Legacy/CSM mode - this script targets pure UEFI (/f UEFI)" -Level Info
-        Write-Log "  4. See bcdboot output above for the exact failure point" -Level Info
+        # Operator-facing recovery guidance. BCDBoot's exit-code surface is
+        # thinner than DISM's (most failures come out as exit 1 with the real
+        # cause on stderr), so for exit 1 we lean on the diagnostic evidence
+        # above to name the single most likely cause instead of dumping a
+        # generic menu. A couple of documented Win32 errors that bcdboot
+        # passes through (5 access denied, 87 invalid parameter) get their
+        # own arms so they don't get lost inside the exit-1 verdict.
+        switch ($process.ExitCode) {
+            5 {
+                Write-Log "Exit code 5 ('Access denied') - bcdboot could not write to S: or open a source file under C:\Windows\Boot\EFI." -Level Warning
+                Write-Log "  Confirm S: is mounted read-write (see 'S: mounted' line above) and no other process has the BCD store locked." -Level Info
+            }
+            87 {
+                Write-Log "Exit code 87 ('Invalid parameter') - bcdboot rejected its arguments." -Level Warning
+                Write-Log "  Script passes 'C:\Windows /s S: /f UEFI'; this should never fail on a healthy target. Capture the console output for triage - likely a script bug or a WIM that fails bcdboot's boot-manager validation." -Level Info
+            }
+            default {
+                Write-Log "Most likely cause based on diagnostics above:" -Level Warning
+                if (-not $bootmgfwPresent) {
+                    Write-Log "  Missing bootmgfw.efi on the applied image - the WIM is non-bootable (capture-only) or the wrong architecture." -Level Warning
+                    Write-Log "  Recovery: re-check the WIM source (must be Windows install media, not capture-only) and confirm arch matches the firmware." -Level Info
+                } elseif (-not $sVol) {
+                    Write-Log "  S: lost its drive letter between diskpart and bcdboot (rare timing race, or a competing volume mount)." -Level Warning
+                    Write-Log "  Recovery: re-run the deploy, or manually re-assign S in diskpart and retry: bcdboot C:\Windows /s S: /f UEFI" -Level Info
+                } elseif ($sFreeMB -ne $null -and $sFreeMB -lt 30) {
+                    Write-Log "  S: (EFI partition) is too small or too full for the BCD/EFI tree - the deploy script provisions 300 MB, so confirm the EFI partition wasn't reformatted smaller." -Level Warning
+                } else {
+                    Write-Log "  bootmgfw.efi and S: both look healthy - the failure is most likely one of:" -Level Warning
+                    Write-Log "    - Firmware in Legacy/CSM mode (this script targets pure UEFI via /f UEFI)" -Level Info
+                    Write-Log "    - Architecture mismatch (x64 WIM on ARM firmware, or vice-versa)" -Level Info
+                    Write-Log "    - BCD template on the applied WIM is corrupt (try a different edition or re-download the source)" -Level Info
+                    Write-Log "  See bcdboot stderr above for the exact failure point." -Level Info
+                }
+                Write-Log "See docs/TROUBLESHOOTING.md ('BCDBoot fails') for the full symptom-to-cause table." -Level Info
+            }
+        }
         return $false
     } catch {
         Write-Log "Boot configuration error: $($_.Exception.Message)" -Level Error

@@ -5,6 +5,123 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-16 — evidence-based verdict for `Set-BootConfiguration` BCDBoot failure
+
+**Investigated:** the open-PR queue (296 open, ~30 unique routine
+branches unmerged against `main`) and the "next recommended follow-up"
+lines in the two most recent routine-log entries. PR #276
+(`docs(deploy-args): document ASCII / UTF-8-without-BOM …`) explicitly
+called out "BCDBoot exit-code-specific branch expansion in
+`Set-BootConfiguration`" as the highest-value candidate no open PR
+covers, with the annotation "lower priority than the DISM arms since
+bcdboot's own stderr is now surfaced via `-NoNewWindow`." PR #269's
+triage note repeated the same recommendation. Cross-checked:
+`gh pr search set-bootconfiguration bcdboot exit code state:open`
+returned only unrelated PRs (`#256` DISM fixture coverage, `#175` DISM
+exit-code drift guard, `#187` `-NoNewWindow` masterize pin, `#276`
+DEPLOY_ARGS docs) — none touch `Set-BootConfiguration`'s failure
+branch.
+
+**Found:** `unified_winpe_deploy.ps1:1225-1259` (pre-edit) collected
+three pieces of diagnostic evidence on any non-zero bcdboot exit
+(`bootmgfw.efi` presence, `S:` mount, `S:` free space) and then
+printed a static "Common causes: 1./2./3./4." list regardless of what
+was found. The operator had to mentally correlate the evidence with
+the list — a preventable step when the script has enough signal to
+name the single most likely cause. Also: bcdboot's exit-code surface
+is thinner than DISM's (most failures come out as exit 1 with the
+real cause on stderr), so a DISM-shaped switch table would fabricate
+per-exit-code guidance for codes bcdboot never actually returns. The
+better shape is exit-code arms for the small documented set (5, 87)
+plus an evidence-based verdict inside the exit-1 default arm.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `Set-BootConfiguration` failure branch:
+  - Preserved the three evidence-collection lines
+    (`bootmgfw.efi`, `S:` mount, `S:` free) verbatim; only lifted
+    their captured values (`$bootmgfwPresent`, `$sVol`, `$sFreeMB`)
+    up to variables so the verdict block can consult them.
+  - Replaced the static "Common causes" list with a `switch` on
+    `$process.ExitCode`: dedicated arms for exit 5 (access denied)
+    and exit 87 (invalid parameter — script bug); `default` (which
+    catches exit 1, the near-universal bcdboot failure code) runs
+    an `if/elseif` ladder over the collected evidence and prints
+    one verdict pointing at the most likely cause + a recovery
+    command. The all-green branch keeps the multi-item list that
+    was previously the default fallback, since that's the case
+    where the evidence doesn't disambiguate.
+- `docs/TROUBLESHOOTING.md` — "BCDBoot fails" section rewritten:
+  removed the flat "Common causes" table; added an **exit-code arm
+  table** (0/1/5/87) and a **symptom table** (used to pick the
+  exit-1 verdict) so the two sides of the switch stay in sync
+  with the docs. "What the script now surfaces" bullet updated
+  to mention the verdict line.
+- `CHANGELOG.md` — bullet under `## Unreleased / ### Changed`.
+  Behavior-adjacent (log output) change; no version bump since
+  the destructive path is unchanged and no CLI surface moves.
+
+**Verification:**
+- `pwsh 7.4.6` installed per the CLAUDE.md tarball recipe
+  (GitHub Releases direct download works; `/opt/pwsh/pwsh --version`
+  → `PowerShell 7.4.6`).
+- Structural counts on post-edit `unified_winpe_deploy.ps1`
+  (stripped comment/string, so approximate but a signal):
+  braces 396/396, parens 412/412, brackets 84/84, region/endregion
+  10/10 — matches the pre-edit baseline modulo the +2 from the new
+  `switch` and `if/elseif` blocks.
+- `PSParser::Tokenize` on the full file → **0 errors**.
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → **48/0**
+  (unchanged from post-#52 baseline).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → **16/0**
+  unchanged.
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → **34/0**
+  unchanged.
+- **Isolated behavioral verification** — extracted
+  `Set-BootConfiguration` verbatim, stubbed `Start-Process`
+  (returned a chosen ExitCode), `Test-Path`, `Get-PSDrive`, and
+  `Write-Log`. Ran six cases; each fires the intended arm:
+  - `exit=1 bootmgfw=missing` → "Missing bootmgfw.efi… non-bootable
+    (capture-only) or wrong architecture" + recovery step.
+  - `exit=1 S:_not_mounted` → "S: lost its drive letter between
+    diskpart and bcdboot" + manual `bcdboot C:\Windows /s S: /f UEFI`
+    recovery.
+  - `exit=1 S:_low_space` (10 MB) → "S: too small or too full for
+    the BCD/EFI tree - script provisions 300 MB".
+  - `exit=1 all_healthy` → 3-item likely-cause list (Legacy/CSM,
+    arch mismatch, corrupt BCD template) + "see bcdboot stderr".
+  - `exit=5` → "Access denied" arm — bypasses evidence verdict.
+  - `exit=87` → "Invalid parameter, script bug" arm — bypasses
+    evidence verdict.
+- Pester (CI-only per CLAUDE.md; PSGallery blocked in-container)
+  not exercised locally — the existing `Set-BootConfiguration` mocks
+  in `validation-gates.Tests.ps1:245,386` short-circuit before the
+  failure branch runs, so no test surface changes.
+
+**Risks / follow-ups:**
+- **Minimal.** Only the failure branch's log output changed; success
+  path is byte-identical, destructive code paths (diskpart, DISM
+  apply) untouched, no new parameters, no version bump. Masterize CI
+  checks 14/17/18 (unattend ordering, `bcdboot ... /s S: ... /f UEFI`
+  args, `ExitCode` handling) still pass — none of them grep for the
+  removed "Common causes" phrasing.
+- The rewritten "BCDBoot fails" section in `docs/TROUBLESHOOTING.md`
+  drops the old `/f UEFI rejected` symptom row and folds it into
+  the exit-1 all-green verdict. No downstream doc anchors point at
+  the old row (grepped `TROUBLESHOOTING.md#bcdboot` / `bcdboot-fails`
+  across the repo — zero cross-links).
+- Outstanding backlog items from prior entries still uncovered by
+  any open PR that a future pass could pick up:
+  - `Show-ImageList` / `Show-ImageSelection` share ~30 lines of
+    listing-render code — PR #289 attempts the refactor (open).
+  - `first-login.ps1` beyond parse-syntax test coverage
+    (PR #182 attempts fixture coverage, open).
+  - `configs/deploy.args.example` starts with `::` comments so a
+    verbatim copy trips the `set /p`-reads-first-line footgun
+    (PR #189 attempts a fix, open since 2026-07-04). This is a
+    maintainer-side merge/close decision, not another duplicate PR.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

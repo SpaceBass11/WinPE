@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Set-BootConfiguration` now picks an evidence-based verdict on BCDBoot
+  failure.** The previous failure branch collected diagnostic evidence
+  (`bootmgfw.efi` presence, `S:` mount state, `S:` free space) and then
+  printed a static four-item "common causes" list regardless of what
+  was found. The list now becomes a single verdict line that names
+  the specific likely cause based on the evidence collected — so an
+  operator sees `Most likely cause: S: lost its drive letter…` instead
+  of having to correlate the diagnostics with the generic list.
+  Bcdboot's `exit 5` (access denied) and `exit 87` (invalid parameter,
+  script bug) get their own arms so they don't blur into the exit-1
+  verdict. `docs/TROUBLESHOOTING.md` "BCDBoot fails" section rewrites
+  the common-causes table into an exit-code arm table and a symptom
+  table so the two sides stay in sync.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
