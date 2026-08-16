@@ -5,6 +5,72 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-16 — Routine backlog-triage pass (no code change)
+
+**Investigated:** Current open PR queue (~200+ from prior routine
+passes; ~30 opened in the last two weeks) against `unified_winpe_deploy.ps1`,
+the helper scripts under `scripts/`, tests under `tests/`, docs under
+`docs/`, config templates under `configs/`, and the masterize CI checks
+(Phase 1A #1-7, Phase 1B #8-26). Also read `first-login.ps1`,
+`build_iso.ps1`, `prepare_wim.ps1`, and `build_boot_wim.ps1` in full
+to look for gaps not already claimed.
+
+**Found:** Every small-scope, verifiable improvement I turned up is
+already in flight. Concrete overlaps between the candidates I
+identified and the existing PR queue:
+
+- `CLAUDE.md` / `AGENTS.md` missing `tests/test_disk_enumeration.ps1`
+  in the local-test recipe → PR #57
+- `docs/ARCHITECTURE.md` File Layout table stale (missing
+  `build_iso.ps1`, `first-login.ps1`, three test files, five docs
+  under `docs/`, and the `configs/` templates) → PR #58 / PR #176
+- `.github/PULL_REQUEST_TEMPLATE.md` and `AGENTS.md` typed-confirmation
+  lists missing `WIPE ALL` / `WIPE DATA` → PR #201 / PR #290
+- `Invoke-CctkConfig` service-tag normalization → PR #260
+- `docs/CCTK.md` duplicate `--valsetuppwd` in the password-change
+  example (line 115 should be `--valsyspwd`) → PR #295
+- `docs/CCTK.md` stale wmic guidance → PR #294
+- `docs/SIGNING.md` cert-lookup examples don't filter expired certs →
+  PR #280
+- `scripts/build_iso.ps1` -BitLockerPin length validation → PR #245
+- `scripts/build_iso.ps1` `-UnattendFile` XML well-formedness → PR #265
+- `Show-ImageList` / `Show-ImageSelection` render-block dedupe →
+  PR #289
+- `Test-FinalWipeConfirmation` unit test → PR #246 / PR #292
+- `Set-BootConfiguration` bcdboot evidence-based verdict → PR #297
+- `scripts/refresh_usb.ps1` -OutputName path/extension safety →
+  PR #261
+
+The last three routine ticks (PR #263 on 2026-08-02, PR #268 on
+2026-08-08, PR #278 on 2026-08-09, PR #288 on 2026-08-15) each
+recorded the same finding and made the same recommendation. Every
+new investigation angle I tried today (memory check, image auto-
+discovery, BitLocker staging, first-login hive load/unload,
+build_boot_wim CCTK embed, config templates) mapped onto an
+already-open PR.
+
+**Changed:** This log entry only. No script, test, CI, config, or
+user-facing doc touched.
+
+**Verification:** N/A — no code path modified. `pwsh` bootstrap
+skipped intentionally; adding a log entry doesn't need it.
+
+**Next recommended improvement:**
+
+- **Highest value:** operator-side triage of the open PR queue.
+  Merging five of the small docs / test PRs above lands more
+  reviewer-visible safety and clarity improvements in one sitting
+  than the next month of routine ticks can produce without
+  duplicating pipelined work.
+- **For future routine agents:** before opening a new PR, run
+  `mcp__github__search_pull_requests` (or the equivalent `gh pr list`)
+  against the specific file or function you're about to touch.
+  Duplicative branches are actively hurting reviewer throughput —
+  the queue grows faster than it drains. Prefer log-only entries
+  (rule 19 / 27) until the queue thins.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
