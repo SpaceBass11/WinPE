@@ -363,7 +363,13 @@ if ($Interactive) {
 
 Set-Content -Path $deployArgsPath -Value $argsLine -Encoding ASCII -Force
 Write-Ok "deploy.args written"
-Write-Host "  $argsLine" -ForegroundColor DarkGray
+# Redact -BitLockerPin from the console echo. The file on disk still has
+# the real PIN (the deploy script needs to consume it), but a PIN echoed
+# to stdout can land in scrollback, screencasts, or build-log capture.
+# Same principle as the startnet.cmd redaction enforced by masterize
+# check 25 (PR #42). The replace is a no-op when no PIN is present.
+$argsDisplay = $argsLine -replace '(-BitLockerPin\s+")[^"]*(")', '${1}<redacted>${2}'
+Write-Host "  $argsDisplay" -ForegroundColor DarkGray
 
 # --- Run oscdimg ---
 
