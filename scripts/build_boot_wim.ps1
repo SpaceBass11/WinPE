@@ -228,22 +228,47 @@ try {
     $offlineHive = Join-Path $mountDir 'Windows\System32\config\SYSTEM'
     if (-not (Test-Path $offlineHive)) { throw "Offline SYSTEM hive not found at $offlineHive" }
 
-    & reg.exe load 'HKLM\WinPE_OFFLINE' $offlineHive | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "reg load failed (exit $LASTEXITCODE)" }
+    # Capture reg.exe output so a non-zero exit can be paired with the actual
+    # diagnostic (file locked, access denied, hive corrupt, wrong format).
+    # reg.exe's exit codes are undocumented; the bare integer alone is opaque.
+    # Matches the pattern used in prepare_wim.ps1 and first-login.ps1.
+    $loadOutput = & reg.exe load 'HKLM\WinPE_OFFLINE' $offlineHive 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $loadMsg = ($loadOutput | Out-String).Trim()
+        if ($loadMsg) {
+            throw "reg load failed (exit $LASTEXITCODE): $loadMsg"
+        } else {
+            throw "reg load failed (exit $LASTEXITCODE)"
+        }
+    }
 
     try {
         foreach ($t in $RegTweaks) {
             $regPath = "HKLM\WinPE_OFFLINE\$($t.Path)"
-            & reg.exe add $regPath /v $t.Name /t "REG_$($t.Type)" /d $t.Value /f | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "reg add failed for $($t.Name) (exit $LASTEXITCODE)" }
+            $addOutput = & reg.exe add $regPath /v $t.Name /t "REG_$($t.Type)" /d $t.Value /f 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                $addMsg = ($addOutput | Out-String).Trim()
+                if ($addMsg) {
+                    throw "reg add failed for $($t.Name) (exit $LASTEXITCODE): $addMsg"
+                } else {
+                    throw "reg add failed for $($t.Name) (exit $LASTEXITCODE)"
+                }
+            }
             Write-Ok "Set $regPath\$($t.Name) = $($t.Value)"
         }
     } finally {
         # Drop any lingering handles before unloading
         [gc]::Collect()
         [gc]::WaitForPendingFinalizers()
-        & reg.exe unload 'HKLM\WinPE_OFFLINE' | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Warn "reg unload returned exit $LASTEXITCODE - may need a reboot to fully release" }
+        $unloadOutput = & reg.exe unload 'HKLM\WinPE_OFFLINE' 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $unloadMsg = ($unloadOutput | Out-String).Trim()
+            if ($unloadMsg) {
+                Write-Warn "reg unload returned exit $LASTEXITCODE - may need a reboot to fully release: $unloadMsg"
+            } else {
+                Write-Warn "reg unload returned exit $LASTEXITCODE - may need a reboot to fully release"
+            }
+        }
     }
 
     # Step 5: embed the deploy script
