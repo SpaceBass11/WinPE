@@ -1707,6 +1707,13 @@ function Start-Deployment {
     if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
         Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
     }
+    # -WipeDisks only feeds Select-AdditionalWipeDisks's silent branch. In
+    # interactive mode the operator types disk numbers fresh at the prompt
+    # and the parameter is silently discarded - warn loudly so an operator
+    # who forgot -Silent doesn't believe their extra-wipe set queued up.
+    if ($WipeDisks -and -not $Silent) {
+        Write-Log "-WipeDisks provided without -Silent - parameter has no effect in interactive mode (use the additional-wipe prompt instead)" -Level Warning
+    }
 
     # Silent mode is intended for unattended runs and must not trigger prompts
     if ($Silent -and -not $ListOnly) {
