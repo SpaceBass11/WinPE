@@ -5,6 +5,98 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-22 — `docs/ARCHITECTURE.md` File Layout table refresh
+
+**Investigated:**
+- Open PRs (25+ open at time of run — much of the routine backlog
+  from #66–#305 is still in-flight). Cross-referenced with the
+  routine log's outstanding-follow-ups list to avoid duplicating any
+  active work.
+- Compared `ls scripts/ tests/ docs/ configs/` against
+  `docs/ARCHITECTURE.md`'s **File Layout** table.
+- Searched open + closed PRs for
+  `ARCHITECTURE build_iso File Layout`, `ARCHITECTURE.md docs file
+  layout`, `ARCHITECTURE.md build_iso` — no hits, so nobody else
+  is refreshing that table.
+
+**Found:** The File Layout table listed only 15 rows and hadn't been
+touched since roughly the v4.5 era. It was missing the entire
+end-user distribution workflow:
+
+- `scripts/build_iso.ps1` — the primary distribution packager added
+  in PR #35 (May 2026). A user reading ARCHITECTURE.md's "File
+  Layout" section would not learn this exists.
+- `scripts/first-login.ps1` — staged into the target image by
+  `prepare_wim.ps1 -DisableExtraBloat` (PR #33 era).
+- Three of the four `tests/*.ps1` files:
+  `test_wim_parser.ps1` (WIM parser fixture, PR #33),
+  `test_disk_enumeration.ps1` (disk-filter fixture, PR #50),
+  `validation-gates.Tests.ps1` (Pester suite).
+- Five docs that are user-facing surfaces:
+  `BITLOCKER.md`, `UNATTEND.md`, `DEPLOY_ARGS.md`, `END_USER_DEPLOY.md`,
+  `RELEASE_VALIDATION.md`. All exist in the shipping repo, all are
+  referenced from the README / other docs, none appeared in the
+  architecture doc's own table.
+- The `configs/` directory (both `deploy.args.example` and
+  `unattend.example.xml`).
+- `AGENTS.md` at repo root (PR #45).
+
+CI masterize check #2 only cross-references three script names in a
+handful of docs — none of which trigger on `build_iso.ps1`,
+`first-login.ps1`, or `refresh_usb.ps1`. So the gap was invisible to
+the build-time invariants; the failure mode is purely "contributor
+reads the architecture doc, forms a wrong mental model of what
+ships."
+
+**Changed:**
+- `docs/ARCHITECTURE.md` — File Layout table extended from 15 rows
+  to 26 rows. Added the seven missing scripts / tests / config
+  templates and the five missing user-facing docs. Kept the existing
+  rows verbatim (their descriptions were accurate for what they
+  described; the problem was omission, not drift). Preserved the
+  "Three Programs, One Product" diagram, the Safety Model, and the
+  Non-Goals sections untouched — the pipeline it describes is
+  intentionally the three core stages, not every helper script.
+- `CHANGELOG.md` — new `## Unreleased / ### Changed` bullet at the
+  top describing the table refresh and why the gap was invisible to
+  CI.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` not installed in this Linux session; no `.ps1` files
+  touched, so `tests/test_parse.ps1` isn't relevant.
+  `tests/test_wim_parser.ps1` and `tests/test_disk_enumeration.ps1`
+  likewise irrelevant — the change is docs-only.
+- Cross-referenced every new row against the real filesystem via
+  `ls -la` on `scripts/`, `tests/`, `docs/`, and `configs/`. Every
+  new path is present.
+- All in-doc relative links added (`[DEPLOY_ARGS.md](DEPLOY_ARGS.md)`,
+  `[UNATTEND.md](UNATTEND.md)`) point at sibling files in the same
+  `docs/` directory — the `lychee` link-check job on push will confirm
+  they resolve.
+- Markdown table structure preserved (2-column pipe-and-dash format,
+  no cell-spanning surprises). All added rows follow the existing
+  pattern `\| \`file\` \| Role sentence. \|`.
+
+**Risks / follow-ups:**
+- Minimal. Docs-only change. No production code, no CI logic, no
+  destructive path touched. Worst case: a docs typo, which the
+  `link-check` job would catch on push (all new links are relative
+  and target files that exist).
+- The CI masterize `Cross-doc script coverage` check #2 still only
+  greps for three script names (`prepare_wim`, `build_boot_wim`,
+  `unified_winpe_deploy`). Extending it to also assert `build_iso`
+  presence in `README.md` / `ARCHITECTURE.md` / `CLAUDE.md` would
+  lock this fix in — deferred to a follow-up so this PR stays
+  minimal.
+- Not taken this pass, still-open backlog items from prior entries:
+  - `Show-ImageList` / `Show-ImageSelection` factoring — open PR #289.
+  - `Test-SystemMemory` exception surfacing — open PR #304.
+  - Pester coverage for `-UnattendFile` well-formedness — open PRs
+    #107, #152, #284.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

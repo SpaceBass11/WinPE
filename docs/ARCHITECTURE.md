@@ -154,16 +154,29 @@ Fail loud and early:
 | `unified_winpe_deploy.ps1` | The deploy script. Runs inside WinPE. |
 | `scripts/prepare_wim.ps1` | WIM prep tool. ISO → debloated/customized install.wim (admin Windows workstation). |
 | `scripts/build_boot_wim.ps1` | Build-time WinPE builder. Runs on Windows with ADK. |
+| `scripts/build_iso.ps1` | Distribution packager. WinPE media + prepared WIM → single bootable ISO for end-user Rufus workflow. |
 | `scripts/refresh_usb.ps1` | Workflow wrapper: new ISO → prep + (optional) boot rebuild. |
-| `tests/test_parse.ps1` | PowerShell syntax validation. Runs in CI. |
+| `scripts/first-login.ps1` | First-boot per-user tweaks. Staged into the target image by `prepare_wim.ps1 -DisableExtraBloat`. |
+| `tests/test_parse.ps1` | PowerShell syntax validation for every shipped pipeline script. Runs in CI. |
+| `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` parser (`Get-WimImageInfo`). Runs in CI. |
+| `tests/test_disk_enumeration.ps1` | Fixture test for `Get-SystemDisks` filter + partition rendering. Runs in CI. |
+| `tests/validation-gates.Tests.ps1` | Pester suite for `Start-Deployment` safety gates (BitLocker, data-disk, source-drive protection). CI only. |
 | `PSScriptAnalyzerSettings.psd1` | Shared PSSA rule config. Used locally and in CI. |
+| `configs/deploy.args.example` | Template for the per-USB `deploy.args` file consumed by `startnet.cmd`. See [DEPLOY_ARGS.md](DEPLOY_ARGS.md). |
+| `configs/unattend.example.xml` | Template unattend.xml for `-UnattendFile`. See [UNATTEND.md](UNATTEND.md). |
 | `docs/USB_SETUP.md` | User-facing: how to prepare the boot USB. |
+| `docs/END_USER_DEPLOY.md` | User-facing: plain-English Rufus flashing guide for non-IT end users. |
 | `docs/SCRIPT_REFERENCE.md` | User-facing: parameters and functions. |
 | `docs/TROUBLESHOOTING.md` | User-facing: failure modes, fixes, and known caveats. |
 | `docs/ARCHITECTURE.md` | This file. Design rationale. |
 | `docs/CCTK.md` | User-facing: Dell CCTK pre-apply BIOS configuration. |
+| `docs/BITLOCKER.md` | User-facing: opt-in BitLocker + data-disk staging. |
+| `docs/UNATTEND.md` | User-facing: unattend.xml authoring for first-boot orchestration. |
+| `docs/DEPLOY_ARGS.md` | User-facing: per-USB `deploy.args` file that retargets a boot.wim without rebuilding it. |
 | `docs/SIGNING.md` | User-facing: enterprise code-signing of the deploy script. |
+| `docs/RELEASE_VALIDATION.md` | Contributor-facing: manual hardware validation checklist run before tagging a release. |
 | `.claude/MASTERIZE.md` | Internal: release-audit playbook (per-release, not per-session). |
+| `AGENTS.md` | Portable pointer to `CLAUDE.md` for non-Claude AI tools. |
 | `CLAUDE.md` | Contributor-facing: project conventions and safety rules. |
 | `CHANGELOG.md` | Release history (keepachangelog). |
 

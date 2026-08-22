@@ -9,6 +9,19 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/ARCHITECTURE.md` File Layout table now matches the shipping
+  repo.** The table had drifted since PR #35 (single-ISO end-user
+  workflow, May 2026) and never listed `scripts/build_iso.ps1` — the
+  primary end-user distribution tool — nor `scripts/first-login.ps1`,
+  the newer `tests/test_wim_parser.ps1` / `tests/test_disk_enumeration.ps1`
+  / `tests/validation-gates.Tests.ps1` files, the `configs/` templates,
+  or the `BITLOCKER.md` / `UNATTEND.md` / `DEPLOY_ARGS.md` /
+  `END_USER_DEPLOY.md` / `RELEASE_VALIDATION.md` docs. A contributor
+  reading the architecture doc's canonical inventory now sees the
+  real shipping surface. CI masterize check #2 only pins three script
+  names cross-doc, so the gap was invisible at build-time.
+
+### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by
