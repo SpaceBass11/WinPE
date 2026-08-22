@@ -328,6 +328,21 @@ list partition
 detail disk
 ```
 
+### Reading the deploy log after reboot
+
+The session log is written to `X:\Windows\Temp\deploy_YYYYMMDD_HHMMSS.log`
+during the deploy. `X:` is the WinPE RAM disk and disappears on reboot,
+so once DISM has applied the image the script also copies the log to
+`C:\Windows\Panther\WinPE-Deploy\deploy_YYYYMMDD_HHMMSS.log` on the
+target. That copy survives into the deployed OS and can be inspected
+post-first-boot as a provenance artifact (same folder Windows Setup
+uses for its own logs and where the unattend.xml lands).
+
+If `C:\Windows\Panther\WinPE-Deploy\` is empty after a deploy, the
+failure happened before DISM apply — check `X:\Windows\Temp\` in the
+still-running WinPE session (or re-boot to WinPE and inspect the
+target disk directly with a live tool).
+
 ## Known Caveats
 
 These are intentional design choices or environmental constraints, not
