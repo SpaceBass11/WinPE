@@ -130,3 +130,8 @@ files for `-TargetDisk 0` (production single-disk) vs `-TargetDisk
 - **File missing or empty.** `startnet.cmd` falls back to launching
   the script without args (interactive TUI). Not a failure — that's
   the documented default.
+- **Both `-WimFile` and `-ImagePath` in the same args line.** The
+  deploy script uses single-file mode and ignores `-ImagePath`. It
+  logs a warning at start so the drop isn't silent, but the safer
+  fix is to pick one: `-WimFile` for a specific image, `-ImagePath`
+  to scan a directory for candidates.
