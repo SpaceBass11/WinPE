@@ -2074,6 +2074,24 @@ try {
     }
 } catch {
     Write-Log "Critical error: $($_.Exception.Message)" -Level Error
+    # Emit the script line/position and call stack so an unexpected exception
+    # (null-ref, bad property access, etc.) can be triaged without guessing at
+    # ~2000 lines. Nearly every risky operation inside Start-Deployment already
+    # returns $false via its own try/catch, so what reaches this outer catch is
+    # almost always a programming defect where the message alone is not enough.
+    if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
+        foreach ($line in ($_.InvocationInfo.PositionMessage -split "`n")) {
+            $trimmed = $line.Trim()
+            if ($trimmed) { Write-Log "  $trimmed" -Level Error }
+        }
+    }
+    if ($_.ScriptStackTrace) {
+        Write-Log "Script stack trace:" -Level Error
+        foreach ($line in ($_.ScriptStackTrace -split "`n")) {
+            $trimmed = $line.Trim()
+            if ($trimmed) { Write-Log "  $trimmed" -Level Error }
+        }
+    }
     if ($Script:SystemPaths.LogFile) {
         Write-Log "Full log: $($Script:SystemPaths.LogFile)" -Level Info
     }
