@@ -46,6 +46,15 @@ read the file from the IMAGES partition directly.
 
 ## Constraints
 
+- **Line 1 is the only line that matters.** `set /p` reads exactly
+  the first line of the file. Anything on subsequent lines — even
+  `::` comments or blank lines — is inert data, not a fallback.
+  In particular, if line 1 is a `::` comment, the deploy will
+  fail at boot: PowerShell rejects `::` as a positional argument
+  before touching disk. The shipped `configs/deploy.args.example`
+  is structured so a verbatim copy puts a valid interactive-TUI
+  args line on line 1; alternative profiles live in commented
+  reference blocks below that you swap onto line 1 to activate.
 - **Single line.** `set /p` reads only the first line of the file.
   If you need more parameters than fit on one line, stop using
   `deploy.args` and rebuild `boot.wim` with a customized

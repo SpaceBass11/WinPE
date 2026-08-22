@@ -1,12 +1,33 @@
-:: Two-partition USB (legacy workflow: FAT32 WinPE boot + NTFS IMAGES data partition)
-:: Drive letter is fixed at whatever letter the IMAGES partition gets (I: below is an example).
--WimFile "I:\images\Win11_Enterprise.wim" -TargetDisk 0 -UnattendFile "I:\configs\unattend.xml" -DataDiskNumber 1 -EnableBitLocker -BitLockerPin "ReplaceWithYourPin42" -Force -Silent
-
-:: Single-ISO workflow (build_iso.ps1 output — one file, Rufus to USB)
-:: {DRIVE} is substituted at boot time with the actual drive letter WinPE assigns the USB.
-:: build_iso.ps1 writes this file automatically; edit as needed before building.
--WimFile "{DRIVE}\images\Win11_Pro_Custom.wim" -TargetDisk 0 -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
-
-:: Interactive/TUI variant: pre-locates the WIM dir but prompts the operator
-:: for edition selection, target disk, and confirmations. Good for lab/testing USBs.
 -ImagePath "{DRIVE}\images"
+
+:: ---------------------------------------------------------------------
+:: HOW THIS FILE WORKS
+:: ---------------------------------------------------------------------
+:: startnet.cmd reads only the FIRST LINE of this file (via `set /p`)
+:: and passes it verbatim to unified_winpe_deploy.ps1. Everything after
+:: line 1 - including these `::` comment lines and blank lines - is
+:: silently ignored. Do NOT put commentary on line 1 or the shipped
+:: default becomes broken PowerShell input.
+::
+:: To switch profiles: DELETE the line 1 default above and paste one of
+:: the examples below onto line 1 (drop its leading `::` prefix). Edit
+:: paths, disk numbers, PIN, etc. for your USB, then save.
+::
+:: Verbatim copy of this file gives you the safe interactive default:
+:: WIM lookup pre-set to {DRIVE}\images, everything else prompted at
+:: the WinPE console.
+::
+:: ---------------------------------------------------------------------
+:: EXAMPLE 1 - Single-ISO workflow (build_iso.ps1 output, one file, Rufus to USB)
+:: {DRIVE} is substituted at boot time with the drive letter WinPE
+:: assigns the USB. build_iso.ps1 writes this file automatically; edit
+:: before building if you want a different profile.
+:: ---------------------------------------------------------------------
+:: -WimFile "{DRIVE}\images\Win11_Pro_Custom.wim" -TargetDisk 0 -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
+::
+:: ---------------------------------------------------------------------
+:: EXAMPLE 2 - Two-partition USB (legacy: FAT32 WinPE boot + NTFS IMAGES data partition)
+:: Drive letter is fixed at whatever letter the IMAGES partition gets
+:: (I: below is an example - substitute your own).
+:: ---------------------------------------------------------------------
+:: -WimFile "I:\images\Win11_Enterprise.wim" -TargetDisk 0 -UnattendFile "I:\configs\unattend.xml" -DataDiskNumber 1 -EnableBitLocker -BitLockerPin "ReplaceWithYourPin42" -Force -Silent
