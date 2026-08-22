@@ -136,6 +136,22 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # startnet.cmd invariants — the embedded here-string is silently critical:
+    # a regression doesn't fail the build_boot_wim.ps1 run, it just produces
+    # a boot.wim that misbehaves at deploy time. Guard the three brittle bits.
+    #  - wpeinit: without it, WinPE never brings up the network stack, so any
+    #    later remote-help / driver-fetch step fails with no obvious cause.
+    #  - setlocal enabledelayedexpansion: required so the final
+    #      powershell.exe ... !DEPLOYARGS!
+    #    line and the {DRIVE} substitution actually expand — without it,
+    #    deploy.args silently loses all its parameters.
+    #  - {DRIVE}=%DEPLOY_IMAGE_DRIVE% substitution: the single-ISO end-user
+    #    workflow relies on this to rewrite {DRIVE}\images\... paths at
+    #    boot; dropping it breaks every build_iso.ps1 output.
+    Write-Result -Test 'Builder: startnet.cmd runs wpeinit' -Pass ($bc -match '(?m)^\s*wpeinit\s*$')
+    Write-Result -Test 'Builder: startnet.cmd enables delayed expansion' -Pass ($bc -match 'setlocal\s+enabledelayedexpansion')
+    Write-Result -Test 'Builder: startnet.cmd substitutes {DRIVE} placeholder' -Pass ($bc -match '\{DRIVE\}=%DEPLOY_IMAGE_DRIVE%')
 }
 
 # Test 10: prepare_wim.ps1 — syntax + key behavioral invariants
