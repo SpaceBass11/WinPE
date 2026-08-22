@@ -40,9 +40,12 @@
     script is 'Windows 11 Enterprise'.
 
 .PARAMETER OutputName
-    Basename for the resulting WIM (no extension, no path). Defaults
-    to the source filename minus its extension, e.g.
-    'Win11_24H2_English_x64.iso' becomes 'Win11_24H2_English_x64.wim'.
+    Basename for the resulting WIM. Must be a bare filename: no path
+    separators, no invalid Windows filename characters, and no trailing
+    `.wim`/`.esd` (the extension is appended). Dotted version tokens
+    like `Win11.24H2` are fine. Defaults to the source filename minus
+    its extension, e.g. `Win11_24H2_English_x64.iso` becomes
+    `Win11_24H2_English_x64.wim`.
 
 .PARAMETER ImagesPath
     Directory where the resulting WIM is placed. Default: 'I:\images'.
@@ -159,6 +162,17 @@ if (-not (Test-Path $ImagesPath -PathType Container)) {
 if (-not $OutputName) {
     $OutputName = [System.IO.Path]::GetFileNameWithoutExtension($sourcePath)
     Write-Step "Output name derived from $sourceKind`: $OutputName"
+}
+# Reject anything that isn't a bare filename basename. The doc calls this
+# out ("no extension, no path"), but silent Join-Path concatenation lets
+# 'foo/bar' land inside a nested subdir and lets 'name.wim' produce
+# 'name.wim.wim'; both surface as "WIM not found on IMAGES partition" at
+# deploy time. Catch it here where the operator can retype it.
+if ($OutputName -match '[\\/:*?"<>|]') {
+    throw "-OutputName must be a bare filename (no path, no invalid Windows filename characters). Got: '$OutputName'"
+}
+if ([IO.Path]::GetExtension($OutputName) -in '.wim', '.esd') {
+    throw "-OutputName must not include the .wim/.esd extension (it is appended). Got: '$OutputName'"
 }
 $outputWim = Join-Path $ImagesPath "$OutputName.wim"
 Write-Step "Output WIM: $outputWim"
