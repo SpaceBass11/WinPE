@@ -1748,6 +1748,12 @@ function Start-Deployment {
             Write-Log "  Sanity-check manually: [xml](Get-Content -Path '$UnattendFile' -Raw)  (see docs/UNATTEND.md section 6)" -Level Info
             return $false
         }
+        # Normalize to absolute path so the post-DISM Copy-Item (line ~1937) is
+        # robust to CWD changes between here and then. Mirrors the same pattern
+        # the companion scripts (build_iso.ps1, prepare_wim.ps1, build_boot_wim.ps1)
+        # already apply to their input paths, and PR #124's -WimFile fix in
+        # Find-ImageFiles.
+        $UnattendFile = (Resolve-Path $UnattendFile).Path
         Write-Log "Unattend file: $UnattendFile" -Level Info
     }
 
