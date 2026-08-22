@@ -5,6 +5,76 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-22 — BitLocker PIN upper-bound (21-char) Pester coverage
+
+**Investigated:** open PR list (20 branches, none touching BitLocker
+PIN length tests), the `Start-Deployment validation gates` Describe in
+`tests/validation-gates.Tests.ps1`, and the actual gate at
+`unified_winpe_deploy.ps1:1691-1695`.
+
+**Found:** the 6-20 char window is enforced by a single conditional
+that OR's `$Script:Config.BitLockerPin.Length -lt 6` with `.Length -gt 20`.
+There was one `It` block for the floor case (`'abcde'` → 5 chars), but
+nothing for the ceiling. A future refactor that collapsed the two-bound
+check to just the lower bound would silently let 21+ char PINs through
+gate validation; they'd then fail at Windows first-boot inside
+`Enable-BitLocker` (the Enhanced PIN policy caps at 20) — after the
+target disk was already wiped, which is exactly the class of failure
+the gate exists to prevent. No open or closed PR addresses this
+(searched `git diff origin/main..origin/claude/lucid-keller-*` for the
+relevant branches; PRs #282, #284, #292 focus on `-UnattendFile`,
+`Test-FinalWipeConfirmation`, and `-BitLockerPin` whitespace, not the
+length ceiling).
+
+**Changed:**
+- `tests/validation-gates.Tests.ps1` — one new `It` block immediately
+  after "five-char value below length floor", mirroring its pattern:
+  same `-Silent -Force -EnableBitLocker` setup, 21-char PIN
+  (`'a' * 21`), asserts `$false` return, the "6-20 characters" log
+  line, and `Invoke-Diskpart` called `-Times 0` as the destructive-op
+  regression guard.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet describing
+  the coverage extension. No version bump; test-only.
+
+**Verification:**
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed
+  / 0 failed before edits.
+- Post-edit: same result (48/0). The Pester file is not covered by
+  `test_parse.ps1` directly, so I ran the AST parser against it:
+  `[System.Management.Automation.Language.Parser]::ParseFile(...)` →
+  no parse errors, so Pester will load it. The full Pester suite runs
+  in CI on `windows-latest` (per `.github/workflows/ci.yml` → `pester`
+  job) since PSGallery is blocked from the container network policy.
+- Manual walkthrough of the mock chain: `BeforeEach` (lines 189-253)
+  resets all params and sets `Mock Invoke-Diskpart { $true }`. With
+  `$BitLockerPin = 'a' * 21`, `Start-Deployment` reaches line 1691's
+  conditional (`Length -gt 20` → true), logs "6-20 characters", and
+  returns `$false` before `Get-SystemDisks` runs — so `Invoke-Diskpart`
+  is genuinely never invoked. The `Should -Invoke -Times 0` assertion
+  is meaningful.
+
+**Risks / follow-ups:**
+- Minimal. One new Pester `It`, no production code, no new mocks, no
+  new dependencies. Same pattern as the existing lower-bound test, so
+  future maintainers will find it in the obvious place.
+- Outstanding routine-backlog candidates from prior entries and open
+  PR bodies that I did not take this pass:
+  - **`Show-ImageList` / `Show-ImageSelection` code factoring** —
+    PR #289 (`refactor(image-menu): extract shared listing render
+    helper`) is already open and covers this. Don't duplicate.
+  - **`-BitLockerKeyPath` validation on WinPE `C:\...`** — currently
+    a path pointing at `C:\` on the deploy target lands recovery keys
+    on the encrypted volume (silent lockout risk on TPM reset). Not
+    trivial: `C:\` in the operator's docstring is described as a valid
+    "fixed-disk path on the deployed machine" option, so tightening
+    this needs a design conversation, not a routine pass.
+  - **Dead-code cleanup at `unified_winpe_deploy.ps1:1721-1724`**
+    (silent + `-DataDiskNumber` without `-Force` is unreachable
+    because the outer silent gate at 1710 already requires `-Force`).
+    Cosmetic; not worth a PR on its own.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **BitLocker PIN upper-bound now has Pester coverage.**
+  `tests/validation-gates.Tests.ps1` gained an `It` block for a 21-char
+  PIN that mirrors the existing 5-char below-floor test. The 6-20 window
+  in `Start-Deployment` (`unified_winpe_deploy.ps1:1691-1695`) is a single
+  conditional that OR's both bounds — the floor was tested, the ceiling
+  was not. A refactor collapsing that to just the lower bound would have
+  let 21+ char PINs pass the gate and fail silently at first-boot inside
+  `Enable-BitLocker` (Enhanced PIN policy caps at 20). Test-only change;
+  no production code touched.
+
+### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

@@ -354,6 +354,27 @@ Describe "Start-Deployment validation gates" {
         ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
     }
 
+    It "Rejects -EnableBitLocker -BitLockerPin 21-char value above length ceiling" {
+        # The 6-20 window is a single conditional (unified_winpe_deploy.ps1:1691-1695)
+        # that OR's the lower and upper bounds. If a refactor collapses that to
+        # just the lower bound, a 21+ char PIN would pass the gate and fail
+        # silently at Windows first boot inside Enable-BitLocker (Enhanced PIN
+        # policy caps at 20). This guards the ceiling explicitly.
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $true
+            $BitLockerPin    = 'a' * 21  # 21 chars, ceiling is 20
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match '6-20 characters' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+    }
+
     It "Rejects -Silent -DataDiskNumber without -Force (WIPE DATA prompt cannot run silently)" {
         $result = & $script:DeployModule {
             $WimFile        = 'I:\images\Win.wim'
