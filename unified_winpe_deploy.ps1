@@ -475,15 +475,13 @@ function Search-DirectoryForImages {
     return $images
 }
 
-function Show-ImageList {
+# Shared header + per-image rows + footer used by both -ListOnly and the
+# interactive image picker. Kept as one helper so the two paths can't drift
+# out of sync (a stale field or misaligned column would show up in one menu
+# and not the other, which is exactly the kind of TUI inconsistency an
+# operator notices last).
+function Write-ImageListingTable {
     param([array]$Images)
-
-    if ($Images.Count -eq 0) {
-        Write-Log "No Windows image files found!" -Level Error
-        Write-Log "Searched for: $($Script:Config.ImageExtensions -join ', ')" -Level Info
-        Write-Log "In directories: $($Script:Config.SearchPaths -join ', ')" -Level Info
-        return
-    }
 
     Write-Host ""
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
@@ -507,6 +505,19 @@ function Show-ImageList {
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
 }
 
+function Show-ImageList {
+    param([array]$Images)
+
+    if ($Images.Count -eq 0) {
+        Write-Log "No Windows image files found!" -Level Error
+        Write-Log "Searched for: $($Script:Config.ImageExtensions -join ', ')" -Level Info
+        Write-Log "In directories: $($Script:Config.SearchPaths -join ', ')" -Level Info
+        return
+    }
+
+    Write-ImageListingTable -Images $Images
+}
+
 function Show-ImageSelection {
     param([array]$Images)
 
@@ -518,26 +529,7 @@ function Show-ImageSelection {
         return $null
     }
 
-    Write-Host ""
-    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
-    Write-Host "AVAILABLE WINDOWS IMAGE FILES".PadLeft(50) -ForegroundColor $Script:Colors.Header
-    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
-
-    for ($i = 0; $i -lt $Images.Count; $i++) {
-        $image = $Images[$i]
-        $sizeGB = [Math]::Round($image.Size / 1GB, 2)
-        $modified = $image.LastModified.ToString('yyyy-MM-dd HH:mm')
-
-        Write-Host ""
-        Write-Host "[$($i + 1)] $($image.Name)" -ForegroundColor $Script:Colors.Success
-        Write-Host "     Size: $sizeGB GB" -ForegroundColor White
-        Write-Host "     Modified: $modified" -ForegroundColor White
-        Write-Host "     Location: $($image.Type)" -ForegroundColor $Script:Colors.Info
-        Write-Host "     Path: $($image.Path)" -ForegroundColor Gray
-    }
-
-    Write-Host ""
-    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+    Write-ImageListingTable -Images $Images
 
     # Auto-select if only one image
     if ($Images.Count -eq 1) {
