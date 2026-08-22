@@ -252,14 +252,30 @@ if ($outputDir -and -not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 
-# Load whitelist from file if given
+# Load whitelist from file if given.
+# Trim first, then filter — a whitespace-only line ('   ') is truthy in
+# PowerShell and passes '$_ -and', so trimming before filtering is what
+# actually drops it. Wrap in @() so a single-entry file becomes an array,
+# not a bare string (matters for .Count / -contains downstream).
 if ($WhitelistFile) {
     if (-not (Test-Path $WhitelistFile -PathType Leaf)) {
         throw "WhitelistFile not found: $WhitelistFile"
     }
-    $Whitelist = Get-Content $WhitelistFile |
-        Where-Object { $_ -and $_ -notmatch '^\s*#' } |
-        ForEach-Object { $_.Trim() }
+    $Whitelist = @(Get-Content $WhitelistFile |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and $_ -notmatch '^#' })
+    # Reject an effectively-empty whitelist. Otherwise -contains on the
+    # empty array below matches nothing and the debloat loop removes EVERY
+    # provisioned AppX package (Store, Terminal, Photos, Camera, Notepad,
+    # security health, ...) - a silent "fail open to worst case".
+    if ($Whitelist.Count -eq 0) {
+        throw @"
+WhitelistFile '$WhitelistFile' has no usable entries - only blank lines and/or '#' comments.
+An empty whitelist would remove EVERY provisioned AppX package (Store, Terminal, Photos,
+Camera, Notepad, security health, codecs). Add at least one DisplayName to the file, or
+omit -WhitelistFile to fall back to the built-in default whitelist.
+"@
+    }
     Write-Step "Loaded $($Whitelist.Count) whitelist entries from $WhitelistFile"
 }
 

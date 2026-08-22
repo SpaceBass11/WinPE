@@ -110,13 +110,18 @@ Use `/review` to run a comprehensive check of the deployment script covering:
 
 ### Running Checks
 
-The repo has three test files; know which is which before changing one:
+The repo has these test files; know which is which before changing one:
 
 | File | What it covers | Where it runs |
 |------|----------------|---------------|
 | `tests/test_parse.ps1` | PowerShell syntax + function presence + version consistency across every shipped pipeline script (`unified_winpe_deploy.ps1` + the five under `scripts/`) | Anywhere with `pwsh` (also CI) |
 | `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` regex parser used by `Get-WimImageInfo` — guards against silent edition mis-attribution | Anywhere with `pwsh` (also CI) |
 | `tests/test_bitlocker_setup.ps1` | Fixture test for `Initialize-BitLockerSetup`'s generated `bitlocker-setup.ps1` — parses each branch (IMAGES-label / Literal, with and without DataDisk) and checks PIN apostrophe doubling so a malformed first-boot script can't ship to disk | Anywhere with `pwsh` (also CI) |
+| `tests/test_disk_enumeration.ps1` | Fixture test for `Get-SystemDisks` — pins USB/removable/CD exclusion and the Linux/LVM-disk-shown-as-empty mitigation | Anywhere with `pwsh` (also CI) |
+| `tests/test_cctk_selection.ps1` | Fixture test for `Invoke-CctkConfig` config-file precedence (`<SERVICETAG>.ini` → `<MODEL>.ini` → `default.ini` → skip) and the model-string alnum normalization — guards against pushing the wrong BIOS config onto a machine | Anywhere with `pwsh` (also CI) |
+| `tests/test_disk_size_check.ps1` | Fixture test for the disk-size-vs-image-size validation math in `Start-Deployment` | Anywhere with `pwsh` (also CI) |
+| `tests/test_dism_exitcodes.ps1` | Fixture test for `Apply-WindowsImage`'s DISM exit-code → recovery-guidance table | Anywhere with `pwsh` (also CI) |
+| `tests/test_whitelist_loader.ps1` | Fixture test for `prepare_wim.ps1`'s `-WhitelistFile` loader — guards the effectively-empty-whitelist rejection that would otherwise strip every provisioned AppX package | Anywhere with `pwsh` (also CI) |
 | `tests/validation-gates.Tests.ps1` | **Pester suite.** v4.7.0 BitLocker default-config invariants, `Resolve-BitLockerKeyPath` precedence, `New-DiskpartScript` source-drive protection, `Start-Deployment` validation gates | **CI only** — see Pester note below |
 
 ```bash
@@ -124,6 +129,11 @@ The repo has three test files; know which is which before changing one:
 pwsh -NoProfile -File ./tests/test_parse.ps1
 pwsh -NoProfile -File ./tests/test_wim_parser.ps1
 pwsh -NoProfile -File ./tests/test_bitlocker_setup.ps1
+pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1
+pwsh -NoProfile -File ./tests/test_cctk_selection.ps1
+pwsh -NoProfile -File ./tests/test_disk_size_check.ps1
+pwsh -NoProfile -File ./tests/test_dism_exitcodes.ps1
+pwsh -NoProfile -File ./tests/test_whitelist_loader.ps1
 ```
 
 The deeper safety/diskpart/BCDBoot greps that used to live in
