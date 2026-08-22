@@ -62,12 +62,15 @@
     -Interactive is not set.
 
 .PARAMETER Interactive
-    When set, the generated deploy.args only pre-sets -ImagePath so the
-    deploy script auto-discovers the WIM but still prompts the user for
+    When set, the generated deploy.args pre-sets -ImagePath (and
+    -UnattendFile when one is staged) so the deploy script auto-discovers
+    the WIM and picks up the answer file, but still prompts the user for
     edition, target disk, and confirmations. Useful for lab/testing USBs
-    where you want the TUI. When not set, a fully silent destructive
-    deploy.args is generated and -ConfirmSilentDestructiveIso must be
-    passed to acknowledge that.
+    where you want the TUI. Other silent-mode-only parameters
+    (-TargetDisk, -WipeDisks, -DataDiskNumber, -BitLockerPin) are dropped
+    because their interactive equivalents live in the TUI itself. When
+    not set, a fully silent destructive deploy.args is generated and
+    -ConfirmSilentDestructiveIso must be passed to acknowledge that.
 
 .PARAMETER ConfirmSilentDestructiveIso
     Required acknowledgement when neither -Interactive is set. The
@@ -372,7 +375,16 @@ $deployArgsPath = Join-Path $stagingDir 'deploy.args'
 if ($Interactive) {
     # Pre-locate the WIM dir so the TUI doesn't scan all drives,
     # but leave edition / disk / confirmations to the operator.
+    # -UnattendFile is passed through when staged: it's not an
+    # interactive-vs-silent knob (the deploy script stages it to
+    # C:\Windows\Panther after DISM apply regardless of TUI mode),
+    # and without the arg the staged copies\unattend.xml on the ISO
+    # would be silently unused - first boot would fall through to
+    # manual OOBE despite the operator building with -UnattendFile.
     $argsLine = "-ImagePath `"{DRIVE}\images`""
+    if ($unattendInIso) {
+        $argsLine += " -UnattendFile `"$unattendInIso`""
+    }
     Write-Step "Generating interactive deploy.args (TUI mode)"
 } else {
     # Fully silent: boot -> deploy -> done, no prompts
