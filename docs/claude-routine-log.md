@@ -1,7 +1,88 @@
 # Claude Routine Maintenance Log
 
-Lightweight, one-entry-per-run log so the autonomous maintenance agent
-doesn't keep re-investigating the same areas. Newest entries on top.
+Lightweight, one-entry-on-top per run so the autonomous maintenance
+agent doesn't keep re-investigating the same areas. Newest entries
+on top.
+
+---
+
+## 2026-08-22 — backlog-triage pass (no code change)
+
+**Investigated:** open Claude branches on the fork (~293 total), the
+30 most-recent open PRs against `main` (#273–#302), and the concrete
+drifts that a fresh finder pass turned up in `unified_winpe_deploy.ps1`,
+`.github/workflows/ci.yml`, `CLAUDE.md`, and the docs tree.
+
+**Finder surface remains saturated by the open-PR backlog.** Every
+concrete drift I spot-checked this run is already carried by an open
+PR (or in one case, is a deliberate historical gap):
+
+| Drift | Already covered by |
+|---|---|
+| CLAUDE.md "Version field lives in **four** places" says four but lists five, and `~line 39` pointer is 96 lines stale | PR #208 (`docs(CLAUDE): fix Version field count (four → five) and stale line ref`) |
+| Masterize CI check numbering jumps 20 → 22 (no comment explaining removed #21) | PR #247 (`ci(masterize): comment where check #21 was removed`) — also noted as intentional per `CHANGELOG.md` `## Unreleased / ### Removed` line 34 |
+| CLAUDE.md "Phase 1B, checks 8-19" is stale (now 8-26 with 21 removed) | PR #218 (`docs(CLAUDE): drop stale "checks 8-19" range`) |
+| `docs/BITLOCKER.md` "placeholder PIN refused" row is stale after PR #49 stripped the content policy | PR #136 |
+| `tests/test_disk_enumeration.ps1` not referenced in AGENTS.md / CLAUDE.md local-test sections | PR #193 (plus prior #57 / #112 / #138) |
+| `-BitLockerPin` 21-char upper bound not covered by Pester | PR #302 |
+| `Start-Deployment -UnattendFile` validation gate not covered by Pester | PR #284 |
+| `Test-FinalWipeConfirmation` parser has no fixture test | PR #292 |
+| `Get-SystemDisks` zero-size clause has no drift-guard test | PR #293 |
+| `Show-ImageList` / `Show-ImageSelection` listing render duplication | PR #289 |
+| `scripts/build_iso.ps1` accepts multi-index WIM for silent-destructive ISOs | PR #291 |
+| `scripts/build_iso.ps1` doesn't pass `-UnattendFile` through in `-Interactive` deploy.args | PR #285 |
+| `scripts/first-login.ps1` OneDrive uninstall can hang OOBE | PR #279 |
+| `Set-BootConfiguration` failure diagnostics need evidence-based verdict | PR #297 |
+| `startnet.cmd` invariants (deploy.args wiring, PIN redaction) need drift-guard | PR #299 |
+| `docs/CCTK.md` password-change example has duplicate `--valsetuppwd` | PR #295 |
+| `docs/CCTK.md` still references `wmic` (deprecated) | PR #294 |
+| `docs/DEPLOY_ARGS.md` doesn't document `{DRIVE}` placeholder | PR #283 |
+| `docs/DEPLOY_ARGS.md` doesn't document ASCII / UTF-8-without-BOM constraint | PR #276 |
+| `docs/UNATTEND.md` sanity-check recipe doesn't match script's `-Raw` form | PR #274 |
+| `docs/unattend.example.xml` has stale Default User hive comment | PR #277 |
+| `docs/USB_SETUP.md` manual startnet.cmd template omits deploy.args lookup | PR #287 |
+| `docs/TROUBLESHOOTING.md` pwsh caveat doesn't name all four test files | PR #286 |
+| `docs/SIGNING.md` cert-lookup examples don't filter expired certs | PR #280 |
+| `docs/SECURITY.md` typed-confirmation list missing WIPE ALL / WIPE DATA | PR #290 |
+| `-BitLockerPin` accepts leading/trailing whitespace at deploy AND at build_iso | PRs #273 + #282 |
+| `scripts/prepare_wim.ps1` accepts non-`.iso` `-SourceIso` paths | PR #275 |
+| `Get-SystemDisks` doesn't surface skipped zero-size disks in log | PR #281 |
+| `docs/BITLOCKER.md` escrow-path docstring says per-machine but is flat dir | PR #301 |
+| `docs/routine-log` backlog-triage entries for 2026-07-19, -08-09, -08-15, -08-16 | PRs #237 / #278 / #288 / #298 / #300 |
+
+**Decision:** per rule 27, produce a review note and stop. The
+merge-side bottleneck (30 open PRs against `main`, 293 open Claude
+branches, no PR older than #22 merged since 2026-08-22) is the
+governing constraint, not the finder. Piling another duplicate onto
+the queue would not help. Same observation as PR #237's entry: when
+the open-PR count drops below ~50, incremental improvements will
+surface again; until then, log-only passes are the honest routine
+output.
+
+**Recommended maintainer action (unblocks the routine, not the
+routine's job to execute):**
+
+- Triage the 30 open PRs against `main` in bulk. Most are strictly
+  additive (docs fixes, test additions, drift guards) and mergeable
+  in any order — no chain dependencies except where two edit the
+  same section of the same file (e.g. #273 + #282 both touch the
+  BitLocker PIN validation surface). A single triage pass could
+  clear 20+ PRs.
+- After the queue drains, the next routine pass will have a fresh
+  finder surface. Candidates that are NOT in any open PR as of this
+  run and would surface on a clean pass:
+  - `Test-SystemMemory`'s catch swallows exceptions with a "continuing anyway" log — could log the exception message so a WMI failure surfaces in the log rather than being invisible (`unified_winpe_deploy.ps1:569-571`).
+  - `Resolve-BitLockerKeyPath` accepts `-BitLockerKeyPath` verbatim — no leading/trailing whitespace check parallel to the PIN whitespace fix landing in PRs #273/#282.
+  - No fixture test for `prepare_wim.ps1`'s `-SourceWim` / `-SourceIso` parameter-set validation (flagged 2026-05-16 log entry; still open).
+
+**Verification:** log-only change. Diff is one new heading + one
+table + prose in `docs/claude-routine-log.md`. No `.ps1` file
+touched; `tests/test_parse.ps1`, `tests/test_wim_parser.ps1`,
+`tests/test_disk_enumeration.ps1`, and the Pester suite are
+unaffected. CI's `link-check` and `masterize` still run on push;
+version-consistency check #1 unchanged (no version bump).
+
+**Risks:** zero. Pure log entry, no runtime behavior or CI change.
 
 ---
 
