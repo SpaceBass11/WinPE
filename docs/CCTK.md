@@ -7,8 +7,9 @@
 > Dell Command | Configure directly from Dell's support site onto your
 > admin workstation and reference it by path via `-CctkSource` when
 > running `scripts/build_boot_wim.ps1`. `.gitignore` is set up to block
-> `/vendor/`, `/cctk-source/`, `cctk.exe`, and `hapint*.inf/.sys` as a
-> safety net.
+> `/vendor/`, `/cctk-source/`, `cctk.exe`, the DCH API DLLs
+> (`dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`), and the legacy
+> `hapint*.inf/.sys` HAPI driver as a safety net.
 
 The deploy tool can optionally apply BIOS configuration via Dell's
 [Client Configuration Toolkit (CCTK)](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure)
