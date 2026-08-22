@@ -156,8 +156,10 @@ the "plug in USB, boot, walk away" model.
 - **Windows auto-detects the new storage mode** at first boot (PnP
   loads stock AHCI/NVMe drivers). No driver injection needed.
 - **Service-tag lookup** uses `Win32_BIOS.SerialNumber`, which is the
-  same tag Dell prints on the chassis. Confirm with `wmic bios get
-  serialnumber` on a reference machine.
+  same tag Dell prints on the chassis. Confirm with
+  `(Get-WmiObject Win32_BIOS).SerialNumber` in a PowerShell prompt on a
+  reference machine (`wmic` was deprecated in Windows 10 21H1 and is not
+  available in WinPE regardless).
 
 ## Troubleshooting
 
