@@ -122,6 +122,20 @@ Write-Result -Test "CmdletBinding attribute present" -Pass $hasCmdletBinding
 $hasRequires = $content -match '#Requires\s+-RunAsAdministrator'
 Write-Result -Test "#Requires -RunAsAdministrator present" -Pass $hasRequires
 
+# Test 8b: Unattend copy is guarded against silent Copy-Item failures.
+# The staging block runs AFTER DISM apply succeeds, so the disk is already
+# written and the operator is committed. A bare `Copy-Item -Force` uses the
+# default -ErrorAction Continue: a failure prints a red line but the next
+# `Write-Log "Unattend file staged"` still runs, giving a false success
+# summary. Windows Setup then silently ignores the missing unattend.xml and
+# first boot lands in manual OOBE — the exact failure mode the pre-flight
+# XML well-formedness check was added to prevent. Pin -ErrorAction Stop on
+# the copy and a recovery-guidance line in the catch.
+$unattendCopyGuarded = $content -match "Copy-Item\s+-Path\s+\`$UnattendFile[^\r\n]*-ErrorAction\s+Stop"
+Write-Result -Test 'Unattend copy uses -ErrorAction Stop' -Pass $unattendCopyGuarded
+$unattendRecoveryLogged = $content -match 'First boot will land in manual OOBE'
+Write-Result -Test 'Unattend copy failure logs recovery guidance' -Pass $unattendRecoveryLogged
+
 # Test 9: build_boot_wim.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_boot_wim.ps1 ---" -ForegroundColor Cyan
 $builderOk = Test-ScriptSyntax -Path $builderPath -Label "Builder"
