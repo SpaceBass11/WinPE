@@ -144,6 +144,21 @@ jobs:
           for f in CHANGELOG.md CLAUDE.md README.md; do
             if grep -q "$ver" "$f"; then echo "OK: $f"; else echo "FAIL: $f missing $ver"; fail=1; fi
           done
+          # Independently verify the .VERSION block's top entry (in the
+          # script's own header comment) matches $Script:Config.ScriptVersion.
+          # CLAUDE.md lists the .VERSION block as one of four places that
+          # must match; a stale top entry would otherwise drift silently
+          # because grep -q above only scans CHANGELOG / CLAUDE / README.
+          hdr_ver=$(awk '/^\.VERSION/{flag=1; next} flag && /^[[:space:]]+[0-9]+\.[0-9]+/{match($0, /[0-9]+\.[0-9]+\.[0-9]+/); print substr($0, RSTART, RLENGTH); exit}' unified_winpe_deploy.ps1)
+          if [ -z "$hdr_ver" ]; then
+            echo "FAIL: could not extract version from .VERSION block in script header"
+            fail=1
+          elif [ "$hdr_ver" = "$ver" ]; then
+            echo "OK: .VERSION block top entry matches ($hdr_ver)"
+          else
+            echo "FAIL: .VERSION block top entry ($hdr_ver) != ScriptVersion ($ver)"
+            fail=1
+          fi
 
           echo ""
           echo "=== 2. Cross-doc script coverage ==="
