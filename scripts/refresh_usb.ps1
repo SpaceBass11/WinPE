@@ -143,12 +143,16 @@ $fromIso    = $PSCmdlet.ParameterSetName -eq 'FromIso'
 $sourcePath = if ($fromIso) { $SourceIso } else { $SourceWim }
 $sourceKind = if ($fromIso) { 'ISO' } else { 'WIM' }
 
-# Inputs
-if (-not (Test-Path $sourcePath)) {
-    throw "$sourceKind not found: $sourcePath"
+# Inputs. Match the -PathType Leaf / Container pattern used by the
+# sibling scripts (prepare_wim.ps1, build_iso.ps1, build_boot_wim.ps1)
+# so a swapped file/directory argument fails fast here with a clear
+# message instead of producing a bogus derived OutputName and then
+# bombing further down in prepare_wim.ps1 or Get-ChildItem.
+if (-not (Test-Path $sourcePath -PathType Leaf)) {
+    throw "$sourceKind not found (or is a directory, not a file): $sourcePath"
 }
-if (-not (Test-Path $ImagesPath)) {
-    throw "ImagesPath not found: $ImagesPath (is the USB IMAGES partition mounted as $ImagesPath ?)"
+if (-not (Test-Path $ImagesPath -PathType Container)) {
+    throw "ImagesPath not found (or is a file, not a directory): $ImagesPath (is the USB IMAGES partition mounted as $ImagesPath ?)"
 }
 
 # Derive output name from the source filename if not given
