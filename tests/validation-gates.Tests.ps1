@@ -926,4 +926,266 @@ Describe "Start-Deployment -UnattendFile validation" {
         $result | Should -BeTrue
         Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 1
     }
+    # --- consolidated from PR #273 ---
+    It "Rejects -EnableBitLocker -BitLockerPin with leading or trailing whitespace" {
+        # Whitespace gate at unified_winpe_deploy.ps1 (just after the length
+        # window check): a stray leading/trailing space bakes into the staged
+        # bitlocker-setup.ps1 verbatim, so TPM+PIN unlocks with a PIN the
+        # operator cannot type at the invisible BIOS PIN prompt.
+        # Realistic mis-config: deploy.args edited in Notepad with trailing
+        # whitespace after the quoted PIN, or a space typed at Read-Host.
+        # Length passes (' goodpin42' is 10 chars, in 6-20 window) - only the
+        # trim comparison catches it.
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $true
+            $BitLockerPin    = ' goodpin42'   # leading space
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'leading or trailing whitespace' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects -EnableBitLocker -BitLockerPin with trailing whitespace (invisible-space case)" {
+        $result = & $script:DeployModule {
+            $WimFile         = 'I:\images\Win.wim'
+            $TargetDisk      =  0
+            $Force           = $true
+            $Silent          = $true
+            $EnableBitLocker = $true
+            $BitLockerPin    = 'goodpin42 '   # trailing space
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'leading or trailing whitespace' }) | Should -Not -BeNullOrEmpty
+    }
+
+
+    # --- consolidated from PR #139 ---
+    It "Rejects -EnableBitLocker -BitLockerKeyPath with a relative path" {
+        # The override is embedded literally into the staged first-boot script.
+        # A relative value would resolve against the deployed OS's CWD and
+        # silently land somewhere unintended - reject pre-flight.
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $true
+            $BitLockerPin     = 'goodpin42'
+            $BitLockerKeyPath = 'keys'    # relative - the gate
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerKeyPath must be an absolute' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+    }
+
+    It "Rejects -EnableBitLocker -BitLockerKeyPath with a drive-relative form (C:keys)" {
+        # 'C:keys' is drive-relative on Windows - resolves against the CWD of
+        # C: at first boot. Same silent-misplacement footgun as a fully
+        # relative path.
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $true
+            $BitLockerPin     = 'goodpin42'
+            $BitLockerKeyPath = 'C:keys'
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerKeyPath must be an absolute' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It "Accepts -EnableBitLocker -BitLockerKeyPath with a UNC path" {
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $true
+            $BitLockerPin     = 'goodpin42'
+            $BitLockerKeyPath = '\\fileserver\BitLockerKeys'
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerKeyPath must be an absolute' }) | Should -BeNullOrEmpty
+    }
+
+    It "Accepts -EnableBitLocker -BitLockerKeyPath with a drive-qualified path" {
+        $result = & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $true
+            $BitLockerPin     = 'goodpin42'
+            $BitLockerKeyPath = 'C:\BitLockerKeys'
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'BitLockerKeyPath must be an absolute' }) | Should -BeNullOrEmpty
+    }
+
+
+    # --- consolidated from PR #219 ---
+    It "Warns when -BitLockerKeyPath is provided without -EnableBitLocker (parallel to -BitLockerPin gate)" {
+        # -BitLockerKeyPath is only consulted through Resolve-BitLockerKeyPath,
+        # which is called from Initialize-BitLockerSetup, which early-returns when
+        # EnableBitLocker is off. Without this warning the operator's escrow
+        # override is silently ignored - same failure mode as the pre-existing
+        # -BitLockerPin-without-EnableBitLocker warning.
+        & $script:DeployModule {
+            $WimFile          = 'I:\images\Win.wim'
+            $TargetDisk       =  0
+            $Force            = $true
+            $Silent           = $true
+            $EnableBitLocker  = $false
+            $BitLockerKeyPath = '\\fileserver\BitLockerKeys'
+            Start-Deployment | Out-Null
+        }
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object {
+            $_.Level -eq 'Warning' -and $_.Message -match '-BitLockerKeyPath provided without -EnableBitLocker'
+        }) | Should -Not -BeNullOrEmpty
+    }
+
+
+    # --- consolidated from PR #165 ---
+
+    # -----------------------------------------------------------------------
+    # -WipeDisks regex validation (silent-mode gate). The pattern at
+    # unified_winpe_deploy.ps1:1714 is the only thing standing between a
+    # malformed -WipeDisks string and Select-AdditionalWipeDisks's
+    # `[int]$_.Trim()` parse, which would throw a confusing
+    # InvalidCastException mid-deploy. A regex regression here (e.g. a
+    # refactor that loosens the character class) would let garbage slip
+    # through to the parse and surface as a cryptic exception after the
+    # operator has already typed -Force.
+    # -----------------------------------------------------------------------
+
+    It "Rejects malformed -WipeDisks 'abc' (non-digit) before any destructive op" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = 'abc'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects mixed -WipeDisks '1,abc' (one bad token) before any destructive op" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1,abc'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 0
+    }
+
+    It "Rejects -WipeDisks with trailing comma '1,'" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1,'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It "Accepts canonical -WipeDisks '1,2' and reaches diskpart" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1,2'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 1
+    }
+
+    It "Accepts spaced -WipeDisks '1 , 2' (the pattern tolerates inner whitespace)" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1 , 2'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'comma-separated disk numbers' }) | Should -BeNullOrEmpty
+    }
+
+    It "Accepts single-disk -WipeDisks '1'" {
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+    }
+
+    # --- consolidated from PR #271 ---
+    It "Rejects overlap between -DataDiskNumber and the extra-wipe list (disk would be cleaned twice)" {
+        # Overlap gate at unified_winpe_deploy.ps1 ~line 1826-1833: if
+        # -DataDiskNumber matches a disk that Select-AdditionalWipeDisks
+        # returns, the diskpart script would clean the same disk twice and
+        # end with a bare 'clean' where the data-disk format was expected.
+        # Realistic mis-config: silent USB with -DataDiskNumber 1 -WipeDisks '1'.
+        Mock -ModuleName DeployUnderTest -CommandName Select-AdditionalWipeDisks -MockWith {
+            ,@([PSCustomObject]@{ Number=1; Size=500; Model='Data NVMe'; InterfaceType='SCSI'; HasPartitions=$true; PartitionInfo='Part1:500GB'; IsSystemDisk=$false })
+        }
+        $result = & $script:DeployModule {
+            $WimFile        = 'I:\images\Win.wim'
+            $TargetDisk     =  0
+            $DataDiskNumber =  1
+            $WipeDisks      = '1'
+            $Force          = $true
+            $Silent         = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'both -DataDiskNumber and in the additional-wipe list' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
 }

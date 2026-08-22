@@ -300,6 +300,21 @@ $buildIsoOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
 if ($buildIsoOk) {
     $ic = Get-Content $buildIsoPath -Raw
 
+Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
+$isoBuilderOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($isoBuilderOk) {
+    $ibc = Get-Content $buildIsoPath -Raw
+
+    # BitLockerPin edge-whitespace must be rejected at build time so a bad
+    # PIN fails before ISO staging and distribution instead of at WinPE
+    # pre-flight on the target. Matches the parity gate in
+    # unified_winpe_deploy.ps1 Start-Deployment (BitLockerPin.Length -ne
+    # BitLockerPin.Trim().Length). Without this, TPM+PIN would unlock with
+    # a PIN the operator cannot type at the invisible first-boot prompt.
+    $pinWhitespaceGate = $ibc -match '\$BitLockerPin\.Length\s+-ne\s+\$BitLockerPin\.Trim\(\)\.Length'
+    Write-Result -Test "ISO builder: -BitLockerPin edge-whitespace rejected" -Pass $pinWhitespaceGate
+}
+
     Write-Result -Test "ISO builder: -ConfirmSilentDestructiveIso gate present" `
         -Pass ($ic -match 'if\s*\(\s*-not\s+\$Interactive\s+-and\s+-not\s+\$ConfirmSilentDestructiveIso\s*\)')
 
@@ -311,6 +326,20 @@ if ($buildIsoOk) {
 
     Write-Result -Test "ISO builder: -WipeDisks regex validation present" `
         -Pass ($ic -match '\$WipeDisks\s+-notmatch\s+''\^\\s\*\\d\+')
+
+# Test 12: build_iso.ps1 — syntax + key behavioral invariants
+Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
+$isoBuilderOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($isoBuilderOk) {
+    $ibc = Get-Content $buildIsoPath -Raw
+
+    # BitLockerPin length must be validated at build time so a malformed
+    # PIN fails before ISO staging rather than being baked into deploy.args
+    # and only surfacing at WinPE pre-flight on the target hardware.
+    $pinLenLower = $ibc -match '\$BitLockerPin\.Length\s+-lt\s+6'
+    $pinLenUpper = $ibc -match '\$BitLockerPin\.Length\s+-gt\s+20'
+    Write-Result -Test "ISO builder: -BitLockerPin length pre-validated (6-20)" -Pass ($pinLenLower -and $pinLenUpper)
+}
 
     Write-Result -Test "ISO builder: oscdimg -bootdata references etfsboot.com (BIOS)" `
         -Pass ($ic -match 'etfsboot\.com')

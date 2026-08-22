@@ -76,7 +76,11 @@
 .PARAMETER BitLockerKeyPath
     Override the default IMAGES-partition escrow path for recovery keys.
     Use a UNC share (e.g. \\fileserver\BitLockerKeys) or a fixed-disk
-    path on the deployed machine for centralized escrow.
+    path on the deployed machine (e.g. C:\BitLockerKeys) for centralized
+    escrow. The value is embedded verbatim into the staged first-boot
+    setup script and must be absolute (drive-qualified or UNC) - a
+    relative path would resolve against the first-boot CWD and silently
+    land somewhere unintended, so the script rejects it pre-flight.
 
     Default behavior: the staged first-boot script looks up the IMAGES
     partition by volume label (Get-Volume -FileSystemLabel 'IMAGES')
@@ -1944,8 +1948,40 @@ function Start-Deployment {
         Write-Log "BitLockerPin must be 6-20 characters (Enhanced PIN policy)" -Level Error
         return $false
     }
+    # Reject leading/trailing whitespace before we bake the PIN into
+    # bitlocker-setup.ps1. TPM+PIN treats the space as part of the PIN, so
+    # a stray leading/trailing space brings the disk up encrypted with a
+    # PIN the operator cannot type at the first-boot prompt (spaces are
+    # invisible in that BIOS-drawn text field). Common culprits: editor
+    # whitespace in deploy.args, a leading space typed at the WinPE
+    # Read-Host prompt, or copy-paste that introduced a NBSP. We reject
+    # rather than trim so the operator sees the input needs fixing.
+    if ($Script:Config.EnableBitLocker -and
+        $Script:Config.BitLockerPin.Length -ne $Script:Config.BitLockerPin.Trim().Length) {
+        Write-Log "BitLockerPin has leading or trailing whitespace - reject to avoid unlocking with a PIN the operator cannot type at TPM prompt" -Level Error
+        Write-Log "  Check deploy.args for editor whitespace around the -BitLockerPin value, or retype at the WinPE prompt." -Level Info
+        return $false
+    }
     if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
         Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
+    }
+    if (-not $Script:Config.EnableBitLocker -and $BitLockerKeyPath) {
+        Write-Log "-BitLockerKeyPath provided without -EnableBitLocker - escrow path ignored" -Level Warning
+    }
+
+    # Validate -BitLockerKeyPath format. The value is embedded verbatim into
+    # the staged bitlocker-setup.ps1 that runs on the deployed machine at
+    # first boot, where it has to resolve unambiguously without depending on
+    # CWD. Accept drive-qualified (e.g. C:\BitLockerKeys) or UNC (e.g.
+    # \\fileserver\BitLockerKeys) paths only; reject relative paths and
+    # drive-relative forms like 'C:' or 'C:keys' that would silently land
+    # somewhere the operator did not intend.
+    if ($Script:Config.EnableBitLocker -and $BitLockerKeyPath -and
+        $BitLockerKeyPath -notmatch '^([A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])') {
+        Write-Log "-BitLockerKeyPath must be an absolute path: drive-qualified (e.g. C:\BitLockerKeys) or UNC (e.g. \\fileserver\BitLockerKeys)" -Level Error
+        Write-Log "  Got: '$BitLockerKeyPath'" -Level Error
+        Write-Log "  The value is embedded into the first-boot setup script and must resolve without relying on CWD" -Level Info
+        return $false
     }
     # -WipeDisks only feeds Select-AdditionalWipeDisks's silent branch. In
     # interactive mode the operator types disk numbers fresh at the prompt

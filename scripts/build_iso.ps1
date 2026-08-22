@@ -266,6 +266,25 @@ UnattendFile is not well-formed XML: $UnattendFile
 }
 
 if ($BitLockerPin) {
+    # Fail fast on a PIN outside the Windows Enhanced-PIN 6-20 window.
+    # Without this, a malformed PIN is baked into deploy.args on the ISO,
+    # distributed, and only rejected by unified_winpe_deploy.ps1 at
+    # pre-flight on the target. The length is echoed but the PIN itself is
+    # not, mirroring the redaction of the console echo.
+    if ($BitLockerPin.Length -lt 6 -or $BitLockerPin.Length -gt 20) {
+        throw "BitLockerPin must be 6-20 characters (Windows Enhanced PIN policy). Got: $($BitLockerPin.Length) character(s)."
+    }
+    # Reject leading/trailing whitespace before it lands in deploy.args and
+    # gets baked into bitlocker-setup.ps1 verbatim at deploy time. TPM+PIN
+    # unlocks against the space-prefixed PIN, but the pre-Windows PIN prompt
+    # is a hidden field: the operator cannot see or type an invisible edge
+    # space, so the disk comes up unrecoverable-with-typed-PIN and only the
+    # recovery key works. Length is deliberately not echoed here (the PIN
+    # has whitespace by definition, so reporting length would leak content).
+    # Middle whitespace is still allowed - that is a passphrase choice.
+    if ($BitLockerPin.Length -ne $BitLockerPin.Trim().Length) {
+        throw "BitLockerPin has leading or trailing whitespace (tabs and NBSP count). TPM+PIN would unlock with a PIN the operator cannot type at the invisible first-boot prompt. Retype without edge whitespace."
+    }
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
     }
