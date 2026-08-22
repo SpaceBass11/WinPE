@@ -127,8 +127,9 @@ pwsh -NoProfile -File ./tests/test_bitlocker_setup.ps1
 ```
 
 The deeper safety/diskpart/BCDBoot greps that used to live in
-`validate_script.ps1` are now in the masterize CI job (Phase 1B,
-checks 8-19). They run on every push — no local replica needed.
+`validate_script.ps1` are now in the masterize CI job (Phase 1B —
+code-safety invariants). They run on every push — no local replica
+needed.
 
 **Pester (`tests/validation-gates.Tests.ps1`) runs in CI only.** The
 Claude Code on the Web container's network policy typically blocks
