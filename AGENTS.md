@@ -57,6 +57,11 @@ Run these locally — they are also enforced in CI:
 pwsh -NoProfile -File ./tests/test_parse.ps1
 pwsh -NoProfile -File ./tests/test_wim_parser.ps1
 pwsh -NoProfile -File ./tests/test_bitlocker_setup.ps1
+pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1
+pwsh -NoProfile -File ./tests/test_cctk_selection.ps1
+pwsh -NoProfile -File ./tests/test_disk_size_check.ps1
+pwsh -NoProfile -File ./tests/test_dism_exitcodes.ps1
+pwsh -NoProfile -File ./tests/test_whitelist_loader.ps1
 ```
 
 The Pester suite (`tests/validation-gates.Tests.ps1`) runs in CI

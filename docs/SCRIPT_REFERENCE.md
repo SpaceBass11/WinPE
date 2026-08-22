@@ -93,8 +93,14 @@ Setup searches on first boot. Use this for:
 - **Domain join** (`JoinDomain`, `MachineObjectOU`, domain credentials in `specialize`)
 - **Autologon** (`AutoLogon` in `oobeSystem`)
 
-The file is validated (must exist) before any destructive disk work begins —
-the deploy aborts early if the path is wrong.
+The file is validated (must exist and parse as well-formed XML via
+`[xml](Get-Content ...)`) before any destructive disk work begins —
+the deploy aborts early if the path is wrong or the answer file is
+malformed. Windows Setup silently ignores a bad `unattend.xml` and
+falls through to manual OOBE, so catching it here saves a full
+re-deploy after the operator notices OOBE prompted on first boot.
+See [UNATTEND.md §6](UNATTEND.md#6-verify-it-parses) for the same
+recipe you can run manually.
 
 ```powershell
 .\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" `
