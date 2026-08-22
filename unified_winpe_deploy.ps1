@@ -374,11 +374,19 @@ function Find-ImageFiles {
 
     # If specific image path provided, search there
     if ($ImagePath) {
-        if (Test-Path $ImagePath) {
-            return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
+        if (-not (Test-Path $ImagePath)) {
+            Write-Log "Specified image path not found: $ImagePath" -Level Error
+            return @()
         }
-        Write-Log "Specified image path not found: $ImagePath" -Level Error
-        return @()
+        # -ImagePath must be a directory to scan. A file path here is a
+        # parameter mix-up (should have been -WimFile) and would silently
+        # either match only the file itself or return zero results; fail
+        # loud so the operator fixes the invocation.
+        if (Test-Path $ImagePath -PathType Leaf) {
+            Write-Log "-ImagePath must be a directory to scan (got a file: $ImagePath). Use -WimFile for a single image file." -Level Error
+            return @()
+        }
+        return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
     }
 
     # Auto-discovery across all non-system drives (specify -ImagePath or -WimFile to skip scanning)
