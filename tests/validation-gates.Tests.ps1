@@ -151,6 +151,58 @@ Describe "Resolve-BitLockerKeyPath escrow precedence" {
         $result.Path | Should -Not -Match '^D:'
         $result.Path | Should -Match 'C:\\Windows'
     }
+
+    # ---- v4.7.1 LookupMode contract ----
+    # The LookupMode field added in v4.7.1 drives which branch of
+    # Initialize-BitLockerSetup runs: 'ImagesLabel' bakes a runtime
+    # `Get-Volume -FileSystemLabel 'IMAGES'` lookup into the staged
+    # first-boot script (survives Windows reassigning the USB letter);
+    # 'Literal' bakes the resolved path verbatim. A regression that
+    # drops the field, mis-spells the value, or flips a branch silently
+    # breaks the v4.7.1 escrow fix - recovery keys would fail to write
+    # to the USB when the drive letter shifted between WinPE and Windows.
+
+    It "LookupMode='Literal' for the -BitLockerKeyPath override (no per-boot lookup)" {
+        $result = & $script:DeployModule {
+            $BitLockerKeyPath = '\\fileserver\BitLockerKeys'
+            Resolve-BitLockerKeyPath
+        }
+        $result.LookupMode | Should -Be 'Literal'
+    }
+
+    It "LookupMode='Literal' even when env var ALSO set (override wins precedence)" {
+        # Regression guard: the IMAGES-label lookup must NOT activate when the
+        # operator pinned an explicit escrow path. Their UNC share has no IMAGES
+        # label and the runtime Get-Volume call would fall through to C:.
+        $env:DEPLOY_IMAGE_DRIVE = $TestDrive
+        $result = & $script:DeployModule {
+            $BitLockerKeyPath = '\\fileserver\BitLockerKeys'
+            Resolve-BitLockerKeyPath
+        }
+        $result.Path       | Should -Be '\\fileserver\BitLockerKeys'
+        $result.LookupMode | Should -Be 'Literal'
+    }
+
+    It "LookupMode='ImagesLabel' when DEPLOY_IMAGE_DRIVE is set and no override" {
+        # This is the v4.7.1 fix path. The Path field is informational
+        # (operator log line); the runtime lookup ignores it.
+        $env:DEPLOY_IMAGE_DRIVE = $TestDrive
+        $result = & $script:DeployModule {
+            $BitLockerKeyPath = $null
+            Resolve-BitLockerKeyPath
+        }
+        $result.LookupMode | Should -Be 'ImagesLabel'
+    }
+
+    It "LookupMode='Literal' on the final fallback (no env, no override)" {
+        # C:\Windows\Setup\BitLockerKeys is a fixed path on the encrypted
+        # volume - no label lookup possible or needed.
+        $result = & $script:DeployModule {
+            $BitLockerKeyPath = $null
+            Resolve-BitLockerKeyPath
+        }
+        $result.LookupMode | Should -Be 'Literal'
+    }
 }
 
 Describe "New-DiskpartScript source-drive protection" {
