@@ -219,9 +219,36 @@ if ($buildIsoOk) {
         -Pass ($ic -match '\{DRIVE\}\\images')
 }
 
-# Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
+# Test 13: first-login.ps1 — syntax + key behavioral invariants
+# The script does TWO things that silently regress in obvious ways:
+#   1. Dual-hive apply (Pass 1 = HKCU live, Pass 2 = Default User template).
+#      If Pass 2 is dropped in a refactor, the current user gets the tweaks
+#      but every future user provisioned from C:\Users\Default\NTUSER.DAT
+#      (TechL0/1/2, etc.) silently doesn't — and the regression only
+#      manifests months later when those accounts first log in.
+#   2. [gc]::Collect() before reg.exe unload. PowerShell holds onto registry
+#      handles past the last property access; without the forced collect
+#      the unload call fails and leaves the Default User hive loaded,
+#      blocking the NTUSER.DAT file from flushing until reboot.
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $firstLoginPath -Label "First-login tweaks" | Out-Null
+$firstLoginOk = Test-ScriptSyntax -Path $firstLoginPath -Label "First-login tweaks"
+if ($firstLoginOk) {
+    $fc = Get-Content $firstLoginPath -Raw
+
+    Write-Result -Test "First-login: Apply-Tweak helper present" -Pass ($fc -match 'function\s+Apply-Tweak\b')
+    Write-Result -Test "First-login: Pass 1 applies tweaks to HKCU (current user)" `
+        -Pass ($fc -match "Apply-Tweak\s+-Root\s+'HKCU:'")
+    Write-Result -Test "First-login: Pass 2 applies tweaks to mounted Default User hive" `
+        -Pass ($fc -match 'Apply-Tweak\s+-Root\s+"HKLM:\\\$mountKey"')
+    Write-Result -Test "First-login: Default User hive path is the standard NTUSER.DAT location" `
+        -Pass ($fc -match 'Users\\Default\\NTUSER\.DAT')
+    Write-Result -Test "First-login: reg.exe load present (mounts Default User hive)" `
+        -Pass ($fc -match 'reg\.exe\s+load\b')
+    Write-Result -Test "First-login: reg.exe unload present (releases Default User hive)" `
+        -Pass ($fc -match 'reg\.exe\s+unload\b')
+    Write-Result -Test "First-login: [gc]::Collect() before unload (releases registry handles)" `
+        -Pass ($fc -match '\[gc\]::Collect\(\)')
+}
 
 # Summary
 Write-Host "`n=== Results ===" -ForegroundColor Cyan
