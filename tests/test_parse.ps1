@@ -218,14 +218,25 @@ if ($refreshOk) {
     # dropped, operators eat 20 min of prepare_wim runtime before boot.wim
     # rebuild fails.
     Write-Result -Test "Refresh: copype pre-flight present" -Pass ($rc -match 'Get-Command\s+copype')
+    # Window is deliberately generous: other pre-flight checks (e.g. the
+    # -BootUsbDrive format/accessibility guards) legitimately sit between
+    # the branch open and the copype probe. What matters is that copype is
+    # inside the branch, not how many siblings precede it.
     Write-Result -Test "Refresh: copype pre-flight gated by -RebuildBootWim Yes" `
-        -Pass ($rc -match "RebuildBootWim\s+-eq\s+'Yes'[\s\S]{0,300}?Get-Command\s+copype")
+        -Pass ($rc -match "RebuildBootWim\s+-eq\s+'Yes'[\s\S]{0,900}?Get-Command\s+copype")
 
-    # prepare_wim.ps1's $LASTEXITCODE must be checked after invocation.
-    # Dropping the check would let the wrapper claim success on a failed
-    # image build and go on to rebuild boot.wim against a half-baked WIM.
-    Write-Result -Test 'Refresh: prepare_wim.ps1 $LASTEXITCODE checked' `
-        -Pass ($rc -match '&\s+\$prepScript[\s\S]{0,200}?\$LASTEXITCODE\s+-ne\s+0')
+    # prepare_wim.ps1 must NOT be gated on $LASTEXITCODE. It sets
+    # $ErrorActionPreference = 'Stop' and throws on real failures, so a
+    # genuine error already propagates out of the '& $prepScript' call.
+    # $LASTEXITCODE, by contrast, reflects only the last *native* command
+    # prepare_wim ran - typically 'reg.exe unload', which returns non-zero
+    # on benign "handles still open" warnings. Gating on it produced false
+    # failures on successful preps. Pin the explanatory comment so the
+    # check doesn't get "helpfully" reintroduced.
+    Write-Result -Test 'Refresh: prepare_wim.ps1 not gated on $LASTEXITCODE' `
+        -Pass ($rc -notmatch '&\s+\$prepScript[\s\S]{0,200}?\$LASTEXITCODE\s+-ne\s+0')
+    Write-Result -Test 'Refresh: $LASTEXITCODE-is-unreliable rationale documented' `
+        -Pass ($rc -match 'NOT gate on \$LASTEXITCODE')
 
     # -DisableExtraBloat forwarded to prepare_wim.ps1. The gate that stages
     # first-login.ps1 into the image lives inside prepare_wim; if the wrapper
