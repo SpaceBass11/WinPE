@@ -9,6 +9,17 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`Test-SystemMemory` now surfaces the underlying exception in its
+  warning log.** The catch block previously logged only
+  `Could not determine system memory - continuing anyway` and swallowed
+  `$_.Exception.Message`, making a WMI failure invisible in the deploy
+  log even though every other catch in the script logs the exception
+  message. Now includes `: $($_.Exception.Message)` so a WMI hiccup
+  (permission denied, provider missing, timeout) surfaces at the same
+  fidelity as `Get-SystemDisks`, `Get-WimImageInfo`, `Invoke-Diskpart`,
+  `Apply-WindowsImage`, and every other diagnostic catch. Control flow
+  unchanged — memory check still returns `$true` and the deploy still
+  continues.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

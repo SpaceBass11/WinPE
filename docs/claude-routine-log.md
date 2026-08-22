@@ -5,6 +5,71 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-22 — `Test-SystemMemory` catch block now logs the exception
+
+**Investigated:** the 30 open PRs against `main` (#273–#303) and the
+three candidates PR #303's triage entry called out as NOT already
+carried by an open PR. Confirmed via `mcp__github__list_pull_requests
+state=open` that none of the three had been picked up in the hours
+since #303 was written. Picked the smallest, most self-contained one:
+`Test-SystemMemory`'s silent-swallow catch (`unified_winpe_deploy.ps1`
+line 569-571).
+
+**Found:** `Test-SystemMemory`'s catch was the sole outlier in the
+file — every other catch in `unified_winpe_deploy.ps1` interpolates
+`$($_.Exception.Message)` into its `Write-Log` line (verified with
+`grep -n Exception\.Message` — hits at lines 191, 367, 419, 671, 853,
+1027, 1112, 1206, 1262, 1310, and more). Only line 570 dropped it,
+logging just `Could not determine system memory - continuing anyway`
+and returning `$true`. A WMI failure (permission denied, provider
+missing, timeout) would be invisible in the deploy log even though
+the operator's downstream DISM apply might well fail because of the
+same underlying condition. This asymmetry was flagged by PR #303's
+"NOT in any open PR as of this run" list.
+
+**Changed:**
+- `unified_winpe_deploy.ps1` line 570 — appended
+  `: $($_.Exception.Message)` to the warning, matching the pattern
+  used in every other catch in the file. Control flow unchanged
+  (still `return $true`); no destructive path touched.
+- `CHANGELOG.md` — added a `### Changed` bullet at the top of the
+  existing `## Unreleased` section describing the log-fidelity
+  improvement.
+
+**Verification:**
+- `pwsh` installed per the CLAUDE.md snippet (v7.4.6 tarball into
+  `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` →
+  48 passed / 0 failed.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` →
+  48 passed / 0 failed. Same count — the change is a string
+  interpolation inside an existing catch, so no function count,
+  brace count, or region count moves.
+- Sanity: `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` →
+  16 / 0 unchanged.
+- Sanity: `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1`
+  → 34 / 0 unchanged.
+- `grep -n Exception\.Message unified_winpe_deploy.ps1` confirms the
+  new line (570) now sits alongside the existing 10+ sites using the
+  identical pattern.
+
+**Risks / follow-ups:**
+- Minimal. Diagnostic-only change inside an existing catch block. No
+  destructive code touched (diskpart, DISM, BCDBoot, BitLocker,
+  CCTK). No control-flow change. No new dependencies. No test file
+  edited (a log-message wording change is not worth a fixture).
+- Two of PR #303's three uncovered candidates remain, in decreasing
+  urgency:
+  - `Resolve-BitLockerKeyPath` accepts `-BitLockerKeyPath` verbatim
+    — no leading/trailing whitespace check parallel to the PIN
+    whitespace fix landing in PRs #273/#282. Small; worth a pass
+    once those merge and the PR count drops.
+  - No fixture test for `prepare_wim.ps1`'s `-SourceWim` /
+    `-SourceIso` parameter-set validation (flagged 2026-05-16;
+    still open).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

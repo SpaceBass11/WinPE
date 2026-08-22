@@ -567,7 +567,7 @@ function Test-SystemMemory {
 
         return $true
     } catch {
-        Write-Log "Could not determine system memory - continuing anyway" -Level Warning
+        Write-Log "Could not determine system memory - continuing anyway: $($_.Exception.Message)" -Level Warning
         return $true
     }
 }
