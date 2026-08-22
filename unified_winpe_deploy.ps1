@@ -28,9 +28,10 @@
     using small lab images.
 .PARAMETER Force
     Skip the typed "ERASE" confirmation when -TargetDisk is set. Also skips
-    the "WIPE ALL" confirmation when -WipeDisks is set. Does NOT bypass the
-    "DESTROY SYSTEM" confirmation when targeting the running system disk —
-    that always requires the typed string.
+    the "WIPE ALL" confirmation when -WipeDisks is set, and the "WIPE DATA"
+    confirmation when -DataDiskNumber is set. Does NOT bypass the "DESTROY
+    SYSTEM" confirmation when targeting the running system disk — that
+    always requires the typed string.
 .PARAMETER Silent
     Unattended mode for automation. For deployment runs (not -ListOnly), it
     requires -WimFile, -TargetDisk, and -Force, and a single-index image.
