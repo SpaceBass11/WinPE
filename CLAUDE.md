@@ -71,6 +71,8 @@ USB Drive Layout:
 | `docs/CCTK.md` | Dell CCTK pre-apply BIOS configuration |
 | `docs/BITLOCKER.md` | Opt-in BitLocker + data-disk staging |
 | `docs/DEPLOY_ARGS.md` | Per-USB `deploy.args` file consumed by startnet.cmd |
+| `docs/UNATTEND.md` | Unattend.xml authoring, encoding, and pre-deploy sanity checks (the deploy script points at §6 in its `-UnattendFile` well-formedness error) |
+| `docs/RELEASE_VALIDATION.md` | Pre-distribution manual hardware/runtime checklist — the gate CI can't cover (linked from the Release Validation section below) |
 | `configs/deploy.args.example` | Template for the per-USB args file |
 | `docs/SIGNING.md` | Enterprise code-signing for the deploy script |
 | `.claude/MASTERIZE.md` | Internal release-audit playbook (greps + read pass) |
