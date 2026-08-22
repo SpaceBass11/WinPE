@@ -1839,19 +1839,20 @@ function Start-Deployment {
             Write-Log "Silent mode requires -TargetDisk to avoid interactive disk selection" -Level Error
             return $false
         }
+        # Silent + data-disk wipe must be explicit. The interactive 'WIPE DATA'
+        # prompt cannot run silently, so a typo'd disk number would otherwise
+        # silently wipe the wrong disk. Checked before the generic -Force gate
+        # below so the operator sees the specific reason.
+        if ($Script:Config.DataDiskNumber -ge 0 -and -not $Force) {
+            Write-Log "Silent mode with -DataDiskNumber requires -Force (typed 'WIPE DATA' prompt cannot run silently)" -Level Error
+            return $false
+        }
         if (-not $Force) {
             Write-Log "Silent mode requires -Force to avoid interactive final confirmation" -Level Error
             return $false
         }
         if ($WipeDisks -and $WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
             Write-Log "-WipeDisks must be comma-separated disk numbers (e.g. '1,2') - got '$WipeDisks'" -Level Error
-            return $false
-        }
-        # Silent + data-disk wipe must be explicit. The interactive 'WIPE DATA'
-        # prompt cannot run silently, so a typo'd disk number would otherwise
-        # silently wipe the wrong disk.
-        if ($Script:Config.DataDiskNumber -ge 0 -and -not $Force) {
-            Write-Log "Silent mode with -DataDiskNumber requires -Force (typed 'WIPE DATA' prompt cannot run silently)" -Level Error
             return $false
         }
     }
