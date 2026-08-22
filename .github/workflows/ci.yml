@@ -335,10 +335,18 @@ jobs:
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: exit-code chain broken"; fail=1; fi
 
           echo ""
-          echo "=== 19. Safety confirmation strings present (DELETE ALL DATA, DESTROY SYSTEM) ==="
+          echo "=== 19. Safety confirmation strings present (ERASE, DELETE ALL DATA, DESTROY SYSTEM, WIPE ALL, CONTINUE ANYWAY) ==="
+          # The deploy script uses five typed-confirmation strings that gate
+          # destructive or environment-override paths. WIPE DATA is verified
+          # separately by check #22. Removing any of the five below would
+          # weaken the corresponding gate (target-disk wipe, system-disk
+          # wipe, additional-wipe group, non-WinPE override) without
+          # producing a parse error, PSSA warning, or Pester failure - the
+          # Pester coverage for Test-FinalWipeConfirmation (PR #174) exercises
+          # the parser, not the prompt string itself.
           ok=1
-          for s in 'DELETE ALL DATA' 'DESTROY SYSTEM'; do
-            grep -qF "$s" $script || { echo "  missing: '$s'"; ok=0; }
+          for s in 'ERASE' 'DELETE ALL DATA' 'DESTROY SYSTEM' 'WIPE ALL' 'CONTINUE ANYWAY'; do
+            grep -qF "'$s'" $script || { echo "  missing: '$s'"; ok=0; }
           done
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: confirmation strings drifted"; fail=1; fi
 
