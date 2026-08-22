@@ -107,11 +107,12 @@ deploy on any non-zero exit.
 ### Changing Existing Passwords
 
 If the BIOS already has a setup or system password set, CCTK needs
-the current one to authenticate:
+the current one to authenticate. One `--valsetuppwd` (or
+`--valsyspwd`) per config authenticates the entire batch — you don't
+repeat it for each `--*pwd=` line:
 
 ```ini
 --setuppwd=NewSetup123!
---valsetuppwd=OldSetup123!
 --syspwd=NewSystem123!
 --valsetuppwd=OldSetup123!
 ```
