@@ -70,7 +70,11 @@ I:\  (IMAGES data partition)
 
 The deploy script picks **one** config, in this order:
 
-1. `<SERVICETAG>.ini` — reads `Win32_BIOS.SerialNumber`
+1. `<SERVICETAG>.ini` — reads `Win32_BIOS.SerialNumber`, strips non-alnum
+   (real Dell service tags are 7-char alphanumeric, so this is a no-op
+   for supported hardware; the strip guards against BIOS placeholders
+   like `To Be Filled By O.E.M.` or unusual whitebox serials being used
+   verbatim as a filename)
 2. `<MODEL>.ini` — reads `Win32_ComputerSystem.Model`, strips non-alnum
    (so "OptiPlex 7090" becomes `OptiPlex7090.ini`)
 3. `default.ini`

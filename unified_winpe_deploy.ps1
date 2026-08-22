@@ -1348,10 +1348,16 @@ function Invoke-CctkConfig {
     # single USB can drive a multi-machine fleet without rebuilding the image.
     #
     # Selection precedence for the config file:
-    #   1. <SERVICETAG>.ini (per-machine, matches Win32_BIOS.SerialNumber)
-    #   2. <MODEL>.ini      (per-model, alnum-normalized Win32_ComputerSystem.Model)
+    #   1. <SERVICETAG>.ini (per-machine, Win32_BIOS.SerialNumber, alnum-normalized)
+    #   2. <MODEL>.ini      (per-model, Win32_ComputerSystem.Model, alnum-normalized)
     #   3. default.ini      (catch-all)
     #   4. none             -> skip CCTK entirely and continue to deploy
+    #
+    # Both identifiers are stripped to A-Z / a-z / 0-9 so a BIOS value
+    # containing path separators, '..', or embedded whitespace can't
+    # escape $cctkDir via Join-Path (which does not reject '..'). Real
+    # Dell service tags are 7-char alphanumeric so this is a no-op for
+    # supported hardware.
     #
     # Any non-zero exit from cctk.exe aborts the deploy - running DISM on a
     # half-configured BIOS is worse than failing loud.
@@ -1375,12 +1381,14 @@ function Invoke-CctkConfig {
         return $true
     }
 
-    # Resolve per-machine identifiers
+    # Resolve per-machine identifiers. Strip both to alnum so a BIOS value
+    # containing path separators or '..' can't traverse out of $cctkDir via
+    # Join-Path (see selection-precedence note above).
     $serviceTag = $null
     $model = $null
     try {
-        $serviceTag = (Get-WmiObject -Class Win32_BIOS -ErrorAction Stop).SerialNumber
-        if ($serviceTag) { $serviceTag = $serviceTag.Trim() }
+        $rawServiceTag = (Get-WmiObject -Class Win32_BIOS -ErrorAction Stop).SerialNumber
+        if ($rawServiceTag) { $serviceTag = ($rawServiceTag -replace '[^A-Za-z0-9]', '').Trim() }
     } catch {
         Write-Log "Could not read BIOS serial/service tag: $($_.Exception.Message)" -Level Warning
     }
