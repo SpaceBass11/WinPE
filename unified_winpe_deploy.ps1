@@ -609,7 +609,17 @@ function Test-SystemMemory {
 
         return $true
     } catch {
-        Write-Log "Could not determine system memory - continuing anyway" -Level Warning
+        Write-Log "Could not determine system memory: $($_.Exception.Message)" -Level Warning
+        # Silent mode is unattended: proceeding with unknown memory state means a
+        # low-memory host may reach DISM and OOM mid-apply, after the target disk
+        # has already been wiped. Hard-fail here so unattended runs surface the
+        # WMI failure loudly instead of turning it into a half-deployed disk.
+        # This matches the "abort on ambiguity" pattern used by Test-WinPEEnvironment.
+        if ($Silent) {
+            Write-Log "Aborting - cannot verify memory in silent mode" -Level Error
+            return $false
+        }
+        Write-Log "Continuing anyway (interactive mode)" -Level Warning
         return $true
     }
 }
