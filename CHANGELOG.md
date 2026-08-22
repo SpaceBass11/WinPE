@@ -9,6 +9,15 @@ tagged GitHub releases are published.
 ## Unreleased
 
 ### Changed
+- **`docs/SCRIPT_REFERENCE.md` now covers `build_iso.ps1` and
+  `first-login.ps1`.** The reference doc had sections for the deploy
+  script plus the three earlier pipeline scripts (`build_boot_wim.ps1`,
+  `prepare_wim.ps1`, `refresh_usb.ps1`), but the v4.7.0 end-user ISO
+  packager and the first-boot Copilot/Store-app scrubber were both
+  missing. The new sections enumerate every parameter, the
+  silent-destructive-acknowledgement gate, and cross-link the related
+  docs (`END_USER_DEPLOY.md`, `DEPLOY_ARGS.md`, `UNATTEND.md`,
+  `BITLOCKER.md`). Docs-only; no runtime or CI code touched.
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
   predicate (8 cases: USB, USB-SATA enclosure, SD reader, CD-ROM by

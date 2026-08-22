@@ -5,6 +5,85 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-22 — `docs/SCRIPT_REFERENCE.md` sections for `build_iso.ps1` + `first-login.ps1`
+
+**Investigated:** open PRs against `main` (30 in flight, unchanged from
+the earlier 2026-08-22 backlog-triage passes recorded in PRs #303 /
+#305), the follow-up list on PR #290's body, and the current section
+inventory of `docs/SCRIPT_REFERENCE.md`. Cross-referenced against every
+`.ps1` shipped in the deploy pipeline.
+
+**Found:** `SCRIPT_REFERENCE.md` covers four scripts —
+`unified_winpe_deploy.ps1`, `build_boot_wim.ps1`, `prepare_wim.ps1`,
+`refresh_usb.ps1` — but has nothing for `build_iso.ps1` (the v4.7.0
+end-user ISO packager introduced in PR #35) or `first-login.ps1` (the
+first-boot Copilot/Store-app scrubber staged into images by
+`prepare_wim.ps1 -DisableExtraBloat`). PR #290's "Next recommended
+improvement" list called this out as still-open backlog. PR #253 is the
+only open PR touching `SCRIPT_REFERENCE.md`, and it only edits the
+`-UnattendFile` block at the top of the main-script section, so
+appending two new file-level sections at the very end doesn't collide.
+
+Practical impact: CLAUDE.md's Key Files table names
+`SCRIPT_REFERENCE.md` as the "Full parameter and function reference"
+that operators are pointed at, but a reader trying to understand what
+`-ConfirmSilentDestructiveIso` does — or why `first-login.ps1` even
+exists in `scripts/` — has to open the `.ps1` files themselves.
+
+**Changed:**
+
+- `docs/SCRIPT_REFERENCE.md` — appended two file-level sections at the
+  end:
+  - `# build_iso.ps1` — full parameter block (every param from the
+    script's `param()` block), Safety Behavior list (silent-destructive
+    gate, WIM extension check, missing-media diagnostics, oscdimg
+    pointer), three usage examples covering silent-destructive,
+    unattend+BitLocker, and interactive.
+  - `# first-login.ps1` — short section flagging that this is
+    image-embedded data (not an operator-invoked script), what it
+    removes, and that it has no parameters.
+- `CHANGELOG.md` — `## Unreleased / ### Changed` bullet at the top
+  describing the coverage extension. No version bump — docs-only.
+
+**Cross-checked against unmerged work:** the Safety Behavior list only
+names gates that are actually on `main` today. Two adjacent-topic PRs
+(#282 BitLocker PIN whitespace, #291 multi-index rejection for silent
+mode) are still open; those safety gates were deliberately omitted from
+this doc so it doesn't describe unmerged features. When either PR
+lands, a follow-up bullet in the same Safety Behavior list is the fix.
+
+**Verification:**
+
+- `pwsh` installed per the CLAUDE.md container recipe
+  (PowerShell/Releases v7.4.6 tarball into `/opt/pwsh/`).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` — post-edit run
+  passes with the same count as pre-edit. This is a `.md`-only change;
+  the parser tests don't touch documentation, so a matching count
+  confirms no accidental script edit.
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` — unchanged
+  post-edit (no cross-contamination).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` —
+  unchanged post-edit.
+- Cross-checked every parameter name and default in the new section
+  against the `param()` block in `scripts/build_iso.ps1`.
+- Every doc cross-link (`END_USER_DEPLOY.md`, `DEPLOY_ARGS.md`,
+  `UNATTEND.md`, `BITLOCKER.md`) points at a file that exists.
+
+**Risks:** Minimal. Docs-only. No PowerShell logic, CI file, test
+file, or version-fence literal is touched.
+
+**Next recommended improvement:**
+
+- Once PR #282 (BitLocker PIN whitespace) lands, add a matching bullet
+  to the `build_iso.ps1` Safety Behavior list.
+- Once PR #291 (multi-index rejection for silent mode) lands, same.
+- Two candidates from PR #303's list remain untaken: `Resolve-BitLockerKeyPath`
+  whitespace guard (coupled to PR #273 — hold until it lands), and a
+  `prepare_wim.ps1` parameter-set fixture test (coupled to PRs
+  #275 / #279).
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
