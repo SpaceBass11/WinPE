@@ -658,6 +658,20 @@ function Get-SystemDisks {
         foreach ($skippedDisk in $nonTargetableMedia) {
             Write-Log "Skipping non-targetable media disk $($skippedDisk.Index): $($skippedDisk.Model) ($($skippedDisk.MediaType))" -Level Info
         }
+        # Log zero-size disks for the same reason as USB / non-targetable media:
+        # an empty card-reader slot or an offline HBA lun otherwise disappears
+        # silently from the disk menu with no hint why. Filter matches the
+        # eligibility Where-Object below so the two stay in sync.
+        $zeroSizeDisks = $allWmiDisks | Where-Object {
+            $_.InterfaceType -ne 'USB' -and
+            $_.MediaType -notlike "*removable*" -and
+            $_.MediaType -notlike "*cd*" -and
+            $_.Model -notlike "*cd*" -and
+            ([double]$_.Size -le 0)
+        }
+        foreach ($skippedDisk in $zeroSizeDisks) {
+            Write-Log "Skipping zero-size disk $($skippedDisk.Index): $($skippedDisk.Model) (empty slot, offline, or unreadable)" -Level Info
+        }
         $wmiDisks = $allWmiDisks | Where-Object {
             $_.InterfaceType -ne 'USB' -and
             $_.MediaType -notlike "*removable*" -and
