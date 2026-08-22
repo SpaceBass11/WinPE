@@ -5,6 +5,64 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-22 (later) — backlog-triage pass (no code change)
+
+**Investigated:** open PRs against `main` (30 as of this run, unchanged
+from PR #303's earlier count today), the three "candidates NOT in any
+open PR" that PR #303 listed as would-surface-on-a-clean-pass items,
+and the state of the parent PRs those candidates would parallel.
+
+**State of the three fresh-finder candidates PR #303 named:**
+
+| Candidate | Status |
+|---|---|
+| `Test-SystemMemory` catch swallows exceptions (`unified_winpe_deploy.ps1:569-571`) | **Claimed today** by an earlier autonomous session — open as PR #304 (`diag(memory): surface underlying exception in Test-SystemMemory catch`, opened 06:35 UTC). |
+| `Resolve-BitLockerKeyPath` accepts `-BitLockerKeyPath` verbatim — no leading/trailing whitespace check | Still uncovered. Direct parallel to PR #273's PIN whitespace fix, which is itself still open (part of the 30-deep queue). |
+| No fixture test for `prepare_wim.ps1`'s `-SourceWim` / `-SourceIso` parameter-set validation | Still uncovered. Flagged as far back as the 2026-05-16 log entry. |
+
+**Decision:** log-only pass, no code PR.
+
+The two still-uncovered candidates are both real, but each is coupled
+to in-flight work in a way that argues against opening today:
+
+- **BitLockerKeyPath whitespace** is a direct copy of PR #273's PIN
+  whitespace gate applied to a different parameter. PR #273 is still
+  open. If it merges first, the KeyPath variant rebases trivially; if
+  it changes shape in review, the KeyPath variant needs to change with
+  it. Opening a second PR that duplicates the pattern before the first
+  one lands multiplies review effort on the maintainer without
+  compressing wall-clock — the two are more efficiently landed as one
+  follow-up commit after #273 clears.
+- **prepare_wim.ps1 parameter-set fixture test** touches a script
+  that PRs #275 (reject non-`.iso` `-SourceIso`) and #279 (OneDrive
+  hang) are already open against. Adding a third test-only PR to the
+  same file cluster risks two-way conflict resolution when the
+  earlier PRs land.
+
+PR #304 taking `Test-SystemMemory` today confirms an autonomous
+session can still convert one of the three candidates per pass, but
+the practical ceiling is one, not three — and it went to the
+lowest-coupling candidate (an isolated `catch` block), which is the
+right heuristic. Piling on today would push #305 into a queue that
+PR #303 explicitly identified as merge-side-bottlenecked.
+
+**Recommended maintainer action (unchanged from PR #303):**
+
+- Triage the 30 open PRs against `main`. The queue is the governing
+  constraint, not the finder. Once it drains below ~50 branches / ~10
+  open PRs, the coupled candidates above become safe to open in
+  sequence:
+  1. After PR #273 lands → open the KeyPath whitespace parallel.
+  2. After PRs #275 / #279 land → open the parameter-set fixture test.
+
+**Verification:** log-only change. Diff is one new heading + one table
++ prose in `docs/claude-routine-log.md`. No `.ps1` or CI file touched.
+Version-consistency check #1 unchanged (no version bump).
+
+**Risks:** zero. Pure log entry, no runtime behavior or CI change.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
