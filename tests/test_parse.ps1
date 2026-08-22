@@ -146,9 +146,48 @@ Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
 Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
 
-# Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
+# Test 12: build_iso.ps1 — syntax + key behavioral invariants
+# Mirrors the build_boot_wim block above (PR #52). Tests that the safety-
+# critical shapes can't drift silently — each invariant maps to a documented
+# behavior the deploy pipeline depends on:
+#   - The destructive-intent gate (-ConfirmSilentDestructiveIso) must throw
+#     when neither flag is set, so a default invocation can't produce a
+#     silent disk-wiping ISO.
+#   - The volume label must default to 'IMAGES' so the boot.wim startnet.cmd
+#     drive-letter scan finds the data partition by `vol`-and-`find /i`.
+#   - The WIM extension allowlist (.wim/.esd) must reject wrong file types
+#     up front rather than failing inside oscdimg.
+#   - The -WipeDisks regex must validate format so an injected token can't
+#     land in deploy.args verbatim.
+#   - oscdimg's -bootdata must include BOTH BIOS (etfsboot.com) and UEFI
+#     (efisys.bin) bootloaders so the ISO boots on either firmware.
+#   - The {DRIVE} placeholder must be embedded in generated deploy.args
+#     paths so startnet.cmd's substitution finds it at boot time.
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
+$buildIsoOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($buildIsoOk) {
+    $ic = Get-Content $buildIsoPath -Raw
+
+    Write-Result -Test "ISO builder: -ConfirmSilentDestructiveIso gate present" `
+        -Pass ($ic -match 'if\s*\(\s*-not\s+\$Interactive\s+-and\s+-not\s+\$ConfirmSilentDestructiveIso\s*\)')
+
+    Write-Result -Test "ISO builder: VolumeLabel defaults to 'IMAGES'" `
+        -Pass ($ic -match "\[string\]\`$VolumeLabel\s*=\s*'IMAGES'")
+
+    Write-Result -Test "ISO builder: WIM extension allowlist (.wim/.esd) present" `
+        -Pass ($ic -match "GetExtension\(\`$WimFile\)\s+-notin\s+'\.wim','\.esd'")
+
+    Write-Result -Test "ISO builder: -WipeDisks regex validation present" `
+        -Pass ($ic -match '\$WipeDisks\s+-notmatch\s+''\^\\s\*\\d\+')
+
+    Write-Result -Test "ISO builder: oscdimg -bootdata references etfsboot.com (BIOS)" `
+        -Pass ($ic -match 'etfsboot\.com')
+    Write-Result -Test "ISO builder: oscdimg -bootdata references efisys.bin (UEFI)" `
+        -Pass ($ic -match 'efisys\.bin')
+
+    Write-Result -Test "ISO builder: deploy.args paths use {DRIVE} placeholder" `
+        -Pass ($ic -match '\{DRIVE\}\\images')
+}
 
 # Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan
