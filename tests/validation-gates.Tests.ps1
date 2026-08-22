@@ -290,6 +290,52 @@ Describe "Resolve-BitLockerKeyPath escrow precedence" {
     }
 }
 
+Describe "Find-ImageFiles -WimFile path resolution" {
+
+    # Regression guard: a relative -WimFile must be returned as an absolute
+    # path. The downstream Start-Deployment call does
+    # `Split-Path -Qualifier $selectedImage.Path` to derive the WIM source
+    # drive that New-DiskpartScript must refuse to unmount. A relative path
+    # makes Split-Path -Qualifier emit a runtime error and return $null,
+    # silently disabling that source-drive protection - so a -WimFile +
+    # -DataDiskNumber combo could unmount the USB mid-deploy and DISM apply
+    # would fail. The fix lives in Find-ImageFiles, which must store
+    # $item.FullName rather than the raw $WimFile parameter.
+
+    BeforeEach {
+        & $script:DeployModule {
+            $WimFile  = $null
+            $ImagePath = $null
+        }
+    }
+
+    It "Returns an absolute Path even when -WimFile is given as a relative path" {
+        $wimDir = Join-Path $TestDrive 'images'
+        New-Item -ItemType Directory -Path $wimDir -Force | Out-Null
+        $wimAbs = Join-Path $wimDir 'fixture.wim'
+        Set-Content -LiteralPath $wimAbs -Value 'dummy' -NoNewline
+
+        Push-Location $TestDrive
+        try {
+            # Forward slashes work on PSv5.1+ and on both Windows and POSIX
+            $relPath = 'images/fixture.wim'
+            $result  = @(& $script:DeployModule {
+                param($wf)
+                $WimFile = $wf
+                Find-ImageFiles
+            } $relPath)
+
+            $result.Count | Should -Be 1
+            [System.IO.Path]::IsPathRooted($result[0].Path) | Should -BeTrue
+            $result[0].Path | Should -Be $wimAbs
+            $result[0].Name | Should -Be 'fixture.wim'
+        } finally {
+            Pop-Location
+        }
+    }
+
+}
+
 Describe "New-DiskpartScript source-drive protection" {
 
     BeforeEach {
