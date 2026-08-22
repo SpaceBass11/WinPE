@@ -1744,7 +1744,7 @@ function Start-Deployment {
             Write-Log "UnattendFile is not well-formed XML: $UnattendFile" -Level Error
             Write-Log "  Parse error: $($_.Exception.Message)" -Level Error
             Write-Log "  Windows Setup silently ignores a malformed unattend.xml and falls through to manual OOBE." -Level Error
-            Write-Log "  Sanity-check manually: [xml](Get-Content '$UnattendFile')  (see docs/UNATTEND.md section 6)" -Level Info
+            Write-Log "  Sanity-check manually: [xml](Get-Content -Path '$UnattendFile' -Raw)  (see docs/UNATTEND.md section 6)" -Level Info
             return $false
         }
         Write-Log "Unattend file: $UnattendFile" -Level Info
