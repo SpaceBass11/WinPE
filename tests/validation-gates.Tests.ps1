@@ -104,6 +104,91 @@ Describe "v4.7.0 default configuration (must stay opt-in)" {
 
 }
 
+Describe "Test-FinalWipeConfirmation typed-confirmation parser" {
+
+    # Guards the shared parser for the final "ERASE" prompt in both the
+    # -TargetDisk-preselected path (Select-TargetDisk ~line 762) and the
+    # interactive-menu path (~line 808). A regression here would either:
+    #   - accept an unrelated string (e.g. "DESTROY SYSTEM" from a prior
+    #     prompt), skipping the last-mile confirmation, or
+    #   - reject a valid confirmation and force the operator to retype,
+    #     eroding trust in the prompt.
+    # Pure function, no I/O — trivially testable.
+
+    It "Accepts exact 'ERASE'" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE' }
+        $r | Should -BeTrue
+    }
+
+    It "Accepts exact 'DELETE ALL DATA'" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE ALL DATA' }
+        $r | Should -BeTrue
+    }
+
+    It "Accepts lowercase 'erase' (ToUpperInvariant)" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'erase' }
+        $r | Should -BeTrue
+    }
+
+    It "Accepts mixed-case 'Delete All Data'" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'Delete All Data' }
+        $r | Should -BeTrue
+    }
+
+    It "Accepts padded ' ERASE ' (Trim)" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '  ERASE  ' }
+        $r | Should -BeTrue
+    }
+
+    It "Rejects empty string" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText '' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects whitespace-only string" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText "   `t  " }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects `$null" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText $null }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects partial 'DELETE' (must be full 'DELETE ALL DATA')" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DELETE' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects extended 'ERASE ME'" {
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'ERASE ME' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects 'DESTROY SYSTEM' (adjacent confirmation string must not cross-accept)" {
+        # DESTROY SYSTEM is the *system disk* pre-confirmation typed one prompt
+        # earlier (Select-TargetDisk lines 741 / 755 / 796). It must not
+        # satisfy the ERASE prompt that follows — the two barriers are
+        # deliberately separate.
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'DESTROY SYSTEM' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects 'WIPE ALL' (additional-wipe confirmation must not cross-accept)" {
+        # WIPE ALL confirms the extra-wipe set in Select-AdditionalWipeDisks
+        # (line 1460). Also must not slip through here.
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'WIPE ALL' }
+        $r | Should -BeFalse
+    }
+
+    It "Rejects 'WIPE DATA' (data-disk confirmation must not cross-accept)" {
+        # WIPE DATA confirms the -DataDiskNumber format (line 1812). Same
+        # cross-accept guard.
+        $r = & $script:DeployModule { Test-FinalWipeConfirmation -InputText 'WIPE DATA' }
+        $r | Should -BeFalse
+    }
+}
+
 Describe "Resolve-BitLockerKeyPath escrow precedence" {
 
     AfterEach {
