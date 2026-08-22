@@ -244,8 +244,11 @@ jobs:
           # check. If it drifts (unclosed tag, bad attribute, encoding
           # slip), a naive copy silently falls through to manual OOBE at
           # first boot after the target is already wiped.
+          # Parsed with python3 (always present on ubuntu-latest) rather than
+          # xmllint, which is NOT installed on the runner and made this check
+          # fail with "xmllint: command not found" regardless of the file.
           xml=configs/unattend.example.xml
-          if xmllint --noout "$xml" 2>/tmp/xml-err; then
+          if python3 -c "import sys,xml.dom.minidom as m; m.parse(sys.argv[1])" "$xml" 2>/tmp/xml-err; then
             echo "OK"
           else
             echo "FAIL: $xml is not well-formed XML"
