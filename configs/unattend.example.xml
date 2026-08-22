@@ -193,15 +193,16 @@
            use that flag, comment this block out or the SynchronousCommand
            will fail (non-blocking, but noisy in setupact.log).
 
-           Runs as whoever AutoLogon logs in — applies HKCU tweaks to
-           that account's profile. To make non-admin accounts (TechL0/1/2)
-           inherit the same tweaks, the script would need to also edit
-           the Default User hive (C:\Users\Default\NTUSER.DAT); ask if
-           you want that added. -->
+           The script makes two passes in one run:
+             1. Live HKCU of whoever AutoLogon just signed in (LocalAdmin)
+             2. The Default User hive (C:\Users\Default\NTUSER.DAT)
+           so that non-admin accounts (TechL0/1/2) and any future user
+           inherit the same tweaks when their profile is first created,
+           without needing this command to re-run per user. -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Description>Apply per-user (HKCU) debloat tweaks</Description>
+          <Description>Apply HKCU + Default User debloat tweaks</Description>
           <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\first-login.ps1</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
