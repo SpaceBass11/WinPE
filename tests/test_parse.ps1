@@ -181,6 +181,13 @@ if ($builderOk) {
     Write-Result -Test 'Builder: startnet.cmd runs wpeinit' -Pass ($bc -match '(?m)^\s*wpeinit\s*$')
     Write-Result -Test 'Builder: startnet.cmd enables delayed expansion' -Pass ($bc -match 'setlocal\s+enabledelayedexpansion')
     Write-Result -Test 'Builder: startnet.cmd substitutes {DRIVE} placeholder' -Pass ($bc -match '\{DRIVE\}=%DEPLOY_IMAGE_DRIVE%')
+
+    # -UsbDrive must refuse the running system drive. Without this guard, a
+    # typo like `-UsbDrive C:` (or omitting the intended letter) would xcopy
+    # the WinPE media tree into %SystemDrive%\ root and, with -ReleaseUsbLetter,
+    # attempt `mountvol %SystemDrive% /d` against the live OS.
+    Write-Result -Test 'Builder: rejects -UsbDrive equal to $env:SystemDrive' `
+        -Pass ($bc -match '\$UsbDrive\s+-ieq\s+\$env:SystemDrive')
 }
 
 # Test 10: prepare_wim.ps1 — syntax + key behavioral invariants

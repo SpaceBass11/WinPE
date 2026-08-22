@@ -136,6 +136,14 @@ if ($UsbDrive) {
     if ($UsbDrive -notmatch '^[A-Za-z]:$') {
         throw "-UsbDrive must be a drive letter like 'P:' (got '$UsbDrive')"
     }
+    # Refuse the running system drive - xcopy would dump the WinPE media
+    # tree into %SystemDrive%\ root (boot\, sources\boot.wim, efi\, ...)
+    # and -ReleaseUsbLetter would attempt `mountvol %SystemDrive% /d`
+    # against the live OS. `-ieq` is case-insensitive so a lowercase 'c:'
+    # typo is caught as well.
+    if ($UsbDrive -ieq $env:SystemDrive) {
+        throw "-UsbDrive $UsbDrive is the current system drive ($env:SystemDrive) - refusing. Pick the FAT32 boot partition on the USB (typically P:), not the workstation's OS drive."
+    }
     if (-not (Test-Path "$UsbDrive\")) {
         throw "USB drive $UsbDrive is not accessible - partition and assign the letter per docs/USB_SETUP.md Step 4 first."
     }
@@ -167,6 +175,15 @@ if ($CctkSource) {
     if ($missingDlls) {
         throw "DCH API DLLs missing from $cctkDir`: $($missingDlls -join ', ') — ensure -CctkSource points at the full Dell Command | Configure X86_64 directory."
     }
+}
+
+# Refuse -Clean against a drive or UNC share root. The destructive block
+# below runs Remove-Item $WorkDir -Recurse -Force; a typo like -WorkDir C:
+# combined with -Clean would attempt to wipe the entire drive. Caught
+# before any work, matching the deploy script's $env:SystemDrive guard
+# pattern on mountvol /d.
+if ($Clean -and ($WorkDir -match '^[A-Za-z]:[\\/]?$' -or $WorkDir -match '^\\\\[^\\]+\\[^\\]+\\?$')) {
+    throw "-WorkDir '$WorkDir' is a drive or UNC share root - refuse to -Clean (Remove-Item would wipe the entire drive/share)."
 }
 
 # Fresh build if requested
@@ -272,11 +289,17 @@ try {
     }
 
     # Step 5: embed the deploy script
+    # Rename at destination to unified_winpe_deploy.ps1 so a -DeployScript with
+    # any other filename still lines up with the hardcoded path in
+    # startnet.cmd (X:\scripts\unified_winpe_deploy.ps1). Otherwise the boot
+    # partition ships fine but startnet fails at run time with
+    # "The argument to -File does not exist."
     Write-Step "Embedding deploy script"
     $scriptsDir = Join-Path $mountDir 'scripts'
     New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
-    Copy-Item -Path $DeployScript -Destination $scriptsDir -Force
-    Write-Ok "Copied $(Split-Path -Leaf $DeployScript) to X:\scripts\"
+    $deployDest = Join-Path $scriptsDir 'unified_winpe_deploy.ps1'
+    Copy-Item -Path $DeployScript -Destination $deployDest -Force
+    Write-Ok "Copied $(Split-Path -Leaf $DeployScript) to X:\scripts\unified_winpe_deploy.ps1"
 
     # Step 5b: embed CCTK (optional)
     if ($cctkExe) {

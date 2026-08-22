@@ -342,6 +342,15 @@ if ($VolumeLabel -ne 'IMAGES') {
     Write-Warn "  Rebuild boot.wim with a matching startnet.cmd, or keep the default 'IMAGES'."
 }
 
+# Refuse -Clean against a drive or UNC share root. The destructive block
+# below runs Remove-Item $WorkDir -Recurse -Force; a typo like -WorkDir C:
+# combined with -Clean would attempt to wipe the entire drive. Caught
+# before any work, matching the deploy script's $env:SystemDrive guard
+# pattern on mountvol /d.
+if ($Clean -and ($WorkDir -match '^[A-Za-z]:[\\/]?$' -or $WorkDir -match '^\\\\[^\\]+\\[^\\]+\\?$')) {
+    throw "-WorkDir '$WorkDir' is a drive or UNC share root - refuse to -Clean (Remove-Item would wipe the entire drive/share)."
+}
+
 # Resolve output directory
 $outputDir = Split-Path -Parent $OutputIso
 if ($outputDir -and -not (Test-Path $outputDir)) {
