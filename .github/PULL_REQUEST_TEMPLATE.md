@@ -32,8 +32,8 @@ or the diskpart / DISM / BCDBoot path, confirm the following:
 
 ## Test plan
 
-- [ ] `pwsh -NoProfile -File ./tests/test_parse.ps1` passes locally
-- [ ] CI is green (syntax, PSSA, lychee, actionlint, masterize)
+- [ ] Local `pwsh` tests pass (`test_parse.ps1`, `test_wim_parser.ps1`, `test_disk_enumeration.ps1`)
+- [ ] CI is green (syntax, pester, PSSA, lychee, actionlint, masterize)
 - [ ] Manually tested the affected code path in WinPE (describe below)
 
 ### Manual test notes
