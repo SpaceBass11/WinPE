@@ -153,16 +153,28 @@ boot files"), then a diagnostics block with:
 
 - whether `C:\Windows\Boot\EFI\bootmgfw.efi` exists (bcdboot's source file)
 - whether `S:` is mounted and how much free space it has
-- the three common-cause reminders below
+- **Most likely cause based on diagnostics above:** a single verdict line
+  that picks between the symptoms below using the evidence collected —
+  so you get one next step instead of scanning a menu
 
-**Common causes:**
+**Exit code arms** (bcdboot mostly returns 0/1; the extras below are Win32
+error codes it passes through from underlying APIs):
 
-| Symptom | Likely cause |
-|---------|--------------|
-| `C:\Windows\Boot\EFI\bootmgfw.efi` not found | WIM is non-bootable / capture-only, or wrong CPU architecture (x86 vs x64 vs ARM64) |
-| `S:` not mounted | EFI partition lost its letter; re-assign in diskpart |
-| `S:` very low on free space | EFI partition was reformatted as too-small or non-FAT32 |
-| `/f UEFI` rejected | Firmware is in Legacy/CSM mode — switch to UEFI, or use BIOS-mode tooling instead (this script is UEFI-only) |
+| Exit | Meaning | What the script surfaces |
+|------|---------|--------------------------|
+| 0 | Success | `Boot configuration completed` and returns |
+| 1 | Generic failure | Evidence-based verdict — see the symptom table below |
+| 5 | Access denied | `S:` not writable, or another process has the BCD store locked |
+| 87 | Invalid parameter | Script passed bad args to bcdboot (script bug) — capture console output for triage |
+
+**Symptom table (used to pick the exit-1 verdict):**
+
+| Symptom | Verdict the script picks |
+|---------|--------------------------|
+| `bootmgfw.efi` not found | Non-bootable / capture-only WIM, or wrong CPU architecture (x86 vs x64 vs ARM64) |
+| `S:` not mounted | EFI partition lost its letter between diskpart and bcdboot — re-assign in diskpart and retry |
+| `S:` free space < 30 MB | EFI partition was reformatted smaller (script provisions 300 MB) |
+| All evidence looks healthy | Firmware in Legacy/CSM mode (script targets `/f UEFI`), architecture mismatch, or BCD template on the WIM is corrupt — see bcdboot stderr above for the exact failure point |
 
 **Fix:**
 1. Verify the EFI partition was created and assigned letter S:
