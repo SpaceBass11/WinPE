@@ -228,14 +228,20 @@ if ($RebuildBootWim -eq 'Yes') {
     Write-Ok "WinPE boot.wim refreshed on $BootUsbDrive"
 }
 
-# Summary so the operator sees the final state
+# Summary so the operator sees the final state.
+# List both .wim and .esd files - the deploy script's Find-ImageFiles
+# accepts both ($Script:Config.ImageExtensions), so an .esd dropped on the
+# IMAGES partition manually (e.g. install.esd lifted from a Windows ISO)
+# is just as deployable as a .wim. Showing only .wim here would mislead
+# the operator about which images are actually available at boot time.
 Write-Host ""
 Write-Ok "USB refresh complete."
-$wims = Get-ChildItem $ImagesPath -Filter '*.wim' -ErrorAction SilentlyContinue
-if ($wims) {
+$images = Get-ChildItem $ImagesPath -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -in '.wim', '.esd' }
+if ($images) {
     Write-Host "Images now on $ImagesPath :"
-    foreach ($w in ($wims | Sort-Object Name)) {
-        $sizeGB = [math]::Round($w.Length / 1GB, 1)
-        Write-Host ("  {0,-50} {1,6} GB" -f $w.Name, $sizeGB)
+    foreach ($img in ($images | Sort-Object Name)) {
+        $sizeGB = [math]::Round($img.Length / 1GB, 1)
+        Write-Host ("  {0,-50} {1,6} GB" -f $img.Name, $sizeGB)
     }
 }
