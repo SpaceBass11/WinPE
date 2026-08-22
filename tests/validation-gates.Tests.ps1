@@ -835,4 +835,95 @@ Describe "Start-Deployment -UnattendFile validation" {
         ($Global:CapturedLogs | Where-Object { $_.Message -match 'UnattendFile not found' }) |
             Should -BeNullOrEmpty
     }
+
+    It "Rejects -TargetDisk that hosts the WIM source drive" {
+        # WIM source drive resolves to the same physical disk as the target.
+        # Without this guard, diskpart 'clean' would wipe the WIM source before
+        # DISM could read it - the target would end up partitioned but empty.
+        Mock -ModuleName DeployUnderTest -CommandName Get-DiskNumberForDriveLetter -MockWith { 0 }
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0   # same physical disk as I:\ per the mock
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match 'hosts the WIM source drive' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName New-DiskpartScript -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Apply-WindowsImage -Times 0
+    }
+
+    It "Rejects -DataDiskNumber that hosts the WIM source drive" {
+        Mock -ModuleName DeployUnderTest -CommandName Get-DiskNumberForDriveLetter -MockWith { 1 }
+        $result = & $script:DeployModule {
+            $WimFile        = 'I:\images\Win.wim'
+            $TargetDisk     =  0
+            $DataDiskNumber =  1   # same physical disk as I:\ per the mock
+            $Force          = $true
+            $Silent         = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match '-DataDiskNumber .* hosts the WIM source drive' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName New-DiskpartScript -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+    }
+
+    It "Rejects -WipeDisks entry that hosts the WIM source drive" {
+        Mock -ModuleName DeployUnderTest -CommandName Get-DiskNumberForDriveLetter -MockWith { 1 }
+        # Select-AdditionalWipeDisks normally returns disks chosen via -WipeDisks;
+        # mock it to return the disk that also hosts the WIM source.
+        Mock -ModuleName DeployUnderTest -CommandName Select-AdditionalWipeDisks -MockWith {
+            ,@([PSCustomObject]@{ Number=1; Size=500; Model='Data NVMe'; InterfaceType='SCSI'; HasPartitions=$true; PartitionInfo='Part1:500GB'; IsSystemDisk=$false })
+        }
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $WipeDisks  = '1'
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeFalse
+        $logs = $Global:CapturedLogs
+        ($logs | Where-Object { $_.Message -match '-WipeDisks contains disk .* hosts the WIM source drive' }) | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName DeployUnderTest -CommandName New-DiskpartScript -Times 0
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart    -Times 0
+    }
+
+    It "Proceeds when WIM source maps to a disk outside the wipe set (USB case)" {
+        # The common case: WIM on a USB stick that Get-SystemDisks filtered out.
+        # Get-DiskNumberForDriveLetter returns a number that's not the target,
+        # not the data disk, and not in the extra-wipe set. Validation passes.
+        Mock -ModuleName DeployUnderTest -CommandName Get-DiskNumberForDriveLetter -MockWith { 9 }
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 1
+    }
+
+    It "Proceeds when WIM source drive doesn't resolve to any physical disk (X: RAM disk)" {
+        # WinPE's X: backs onto a RAM disk that has no Win32_DiskDrive, so
+        # Get-DiskNumberForDriveLetter returns $null. The guard must skip
+        # cleanly and let the deploy continue.
+        Mock -ModuleName DeployUnderTest -CommandName Get-DiskNumberForDriveLetter -MockWith { $null }
+        $result = & $script:DeployModule {
+            $WimFile    = 'I:\images\Win.wim'
+            $TargetDisk =  0
+            $Force      = $true
+            $Silent     = $true
+            Start-Deployment
+        }
+        $result | Should -BeTrue
+        Should -Invoke -ModuleName DeployUnderTest -CommandName Invoke-Diskpart -Times 1
+    }
 }
