@@ -1548,14 +1548,28 @@ function Select-AdditionalWipeDisks {
     )
 
     # Candidates: every enumerated disk other than the primary target.
-    # Get-SystemDisks already excludes USB and removable media.
-    $candidates = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number })
+    # Get-SystemDisks already excludes USB and removable media; also drop
+    # any disk flagged IsSystemDisk so a single 'WIPE ALL' confirmation
+    # can never clean the running system disk without the DESTROY SYSTEM
+    # typed confirmation that Select-TargetDisk gates. In WinPE the flag
+    # is always $false (Get-SystemDisks short-circuits when $env:SystemDrive
+    # is X:), so this is defense-in-depth for non-WinPE runs.
+    $systemDisks = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number -and $_.IsSystemDisk })
+    foreach ($sysd in $systemDisks) {
+        Write-Log "Excluding disk $($sysd.Number) ($($sysd.Model)) from additional-wipe candidates - system disk" -Level Info
+    }
+    $candidates = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number -and -not $_.IsSystemDisk })
     if ($candidates.Count -eq 0) { return @() }
 
     # Silent path: resolve -WipeDisks without prompting
     if ($Silent) {
         if (-not $WipeDisks) { return @() }
         $nums = @($WipeDisks -split ',' | ForEach-Object { [int]($_.Trim()) })
+        $systemRequested = $systemDisks | Where-Object { $_.Number -in $nums } | ForEach-Object Number
+        if ($systemRequested) {
+            Write-Log "Requested extra wipe disks $($systemRequested -join ',') are system disks - refusing (use -TargetDisk with DESTROY SYSTEM to wipe the system disk)" -Level Error
+            return $null
+        }
         $picked = @($candidates | Where-Object { $_.Number -in $nums })
         $missing = $nums | Where-Object { $_ -notin ($picked | ForEach-Object Number) }
         if ($missing) {
@@ -1599,6 +1613,12 @@ function Select-AdditionalWipeDisks {
         $num = [int]$tok
         $match = $candidates | Where-Object { $_.Number -eq $num } | Select-Object -First 1
         if (-not $match) {
+            # Distinguish "system disk excluded" from other rejections so the
+            # operator knows why - use -TargetDisk with DESTROY SYSTEM to wipe it.
+            if ($systemDisks | Where-Object { $_.Number -eq $num }) {
+                Write-Log "Disk $num is a system disk - excluded (re-run with -TargetDisk $num to wipe it with DESTROY SYSTEM confirmation)" -Level Warning
+                continue
+            }
             Write-Log "Disk $num is not a valid additional-wipe target (either the primary target, USB, or unknown) - skipping" -Level Warning
             continue
         }
