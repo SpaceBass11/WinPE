@@ -512,4 +512,21 @@ jobs:
             fail=1
           fi
 
+          echo ""
+          echo "=== 27. All Start-Process invocations use -NoNewWindow ==="
+          # Silent stderr loss: -WindowStyle Hidden (or no window flag) makes an
+          # external process's stderr disappear into the void, so a diskpart /
+          # dism / bcdboot failure logs only "exit code N" with no explanation.
+          # An earlier fix corrected exactly this on bcdboot; catch a
+          # re-regression on any of the three destructive binaries (diskpart,
+          # dism, bcdboot) or a new call added later.
+          bad_sp=$(grep -n 'Start-Process' $script | grep -v -- '-NoNewWindow' || true)
+          if [ -z "$bad_sp" ]; then
+            echo "OK"
+          else
+            echo "FAIL: Start-Process without -NoNewWindow (stderr silently lost):"
+            echo "$bad_sp"
+            fail=1
+          fi
+
           exit $fail
