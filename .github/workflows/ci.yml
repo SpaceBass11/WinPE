@@ -216,6 +216,23 @@ jobs:
           bad=$(grep -A 10 '\.EXAMPLE' unified_winpe_deploy.ps1 scripts/prepare_wim.ps1 scripts/build_boot_wim.ps1 | grep 'images\\' | grep -v 'I:\\images\\' || true)
           if [ -n "$bad" ]; then echo "FAIL:"; echo "$bad"; fail=1; else echo "OK"; fi
 
+          echo ""
+          echo "=== 27. configs/unattend.example.xml is well-formed ==="
+          # The deploy script validates the operator's -UnattendFile at
+          # runtime (see docs/UNATTEND.md section 6), but the *example*
+          # file that README / UNATTEND.md tell users to copy has no such
+          # check. If it drifts (unclosed tag, bad attribute, encoding
+          # slip), a naive copy silently falls through to manual OOBE at
+          # first boot after the target is already wiped.
+          xml=configs/unattend.example.xml
+          if xmllint --noout "$xml" 2>/tmp/xml-err; then
+            echo "OK"
+          else
+            echo "FAIL: $xml is not well-formed XML"
+            cat /tmp/xml-err
+            fail=1
+          fi
+
           exit $fail
 
       - name: Phase 1B — Code safety invariants
