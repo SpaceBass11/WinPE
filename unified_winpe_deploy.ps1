@@ -17,10 +17,13 @@
     confirmation unless combined with -Force. Use 'diskpart > list disk' to
     find the right number. -1 (default) means "ask interactively".
 .PARAMETER WipeDisks
-    Comma-separated additional disk numbers to clean (no repartitioning)
-    alongside the primary target. Example: "1,2". Validated against the
-    pattern '^\s*\d+(\s*,\s*\d+)*\s*$' in silent mode. Requires -Force when
-    combined with -Silent.
+    Silent-mode only. Comma-separated additional disk numbers to clean
+    (no repartitioning) alongside the primary target. Example: "1,2".
+    Validated against the pattern '^\s*\d+(\s*,\s*\d+)*\s*$'. Requires
+    -Force (the interactive 'WIPE ALL' typed confirmation cannot run
+    unattended). In interactive mode this parameter is IGNORED - the
+    extra-wipe menu prompts for disk numbers regardless of what was
+    passed on the command line.
 .PARAMETER MinImageSizeMB
     Minimum image file size in MB during auto-discovery. Files smaller than
     this are skipped to avoid picking up boot/system artifacts that happen
