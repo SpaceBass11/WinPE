@@ -410,4 +410,20 @@ jobs:
           fi
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: BitLocker TUI PIN prompt drifted"; fail=1; fi
 
+          echo "=== 27. build_boot_wim.ps1 startnet.cmd substitutes {DRIVE} placeholder ==="
+          # build_iso.ps1 emits deploy.args with paths like "{DRIVE}\images\..."
+          # so the same ISO works regardless of which letter WinPE assigns
+          # the USB at boot. startnet.cmd substitutes the placeholder with
+          # %DEPLOY_IMAGE_DRIVE% before launching the deploy script. A
+          # refactor that drops the substitution would silently break every
+          # ISO built by build_iso.ps1 - PowerShell would receive the
+          # literal "{DRIVE}\images\..." and fail to find the image.
+          builder=scripts/build_boot_wim.ps1
+          if grep -qE 'DEPLOYARGS:\{DRIVE\}=%DEPLOY_IMAGE_DRIVE%' $builder; then
+            echo "OK"
+          else
+            echo "FAIL: startnet.cmd no longer substitutes {DRIVE} - build_iso.ps1 ISOs will fail at runtime"
+            fail=1
+          fi
+
           exit $fail
