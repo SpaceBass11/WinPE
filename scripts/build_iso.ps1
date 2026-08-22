@@ -361,6 +361,29 @@ if ($Interactive) {
     Write-Step "Generating interactive deploy.args (TUI mode)"
 } else {
     # Fully silent: boot -> deploy -> done, no prompts
+
+    # Cross-parameter overlap checks. The deploy script's silent path aborts
+    # on these at runtime (unified_winpe_deploy.ps1 rejects same-disk
+    # -DataDiskNumber/-TargetDisk and same-disk overlap between -WipeDisks
+    # and either of them). Catch them here so the operator doesn't build,
+    # burn, and boot an ISO only to see it fail before the first apply.
+    $wipeList = @()
+    if ($WipeDisks) {
+        if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
+            throw "-WipeDisks must be comma-separated disk numbers (e.g. '1,2'). Got: '$WipeDisks'"
+        }
+        $wipeList = $WipeDisks -split '\s*,\s*' | ForEach-Object { [int]$_.Trim() }
+    }
+    if ($DataDiskNumber -ge 0 -and $DataDiskNumber -eq $TargetDisk) {
+        throw "-DataDiskNumber ($DataDiskNumber) cannot equal -TargetDisk ($TargetDisk). The deploy script aborts on this at runtime."
+    }
+    if ($wipeList -contains $TargetDisk) {
+        throw "-WipeDisks ($WipeDisks) contains -TargetDisk ($TargetDisk). Extra-wipe disks are cleaned in addition to the target, not the target itself."
+    }
+    if ($DataDiskNumber -ge 0 -and $wipeList -contains $DataDiskNumber) {
+        throw "-WipeDisks ($WipeDisks) contains -DataDiskNumber ($DataDiskNumber). Drop one - the deploy script rejects the overlap at runtime."
+    }
+
     $argsLine = "-WimFile `"{DRIVE}\images\$wimBaseName`" -TargetDisk $TargetDisk -Force -Silent"
 
     if ($unattendInIso) {
@@ -368,10 +391,6 @@ if ($Interactive) {
     }
 
     if ($WipeDisks) {
-        # Validate format before embedding
-        if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
-            throw "-WipeDisks must be comma-separated disk numbers (e.g. '1,2'). Got: '$WipeDisks'"
-        }
         $argsLine += " -WipeDisks `"$WipeDisks`""
     }
 
