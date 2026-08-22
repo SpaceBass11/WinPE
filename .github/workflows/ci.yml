@@ -513,7 +513,7 @@ jobs:
           fi
 
           echo ""
-          echo "=== 27. All Start-Process invocations use -NoNewWindow ==="
+          echo "=== 28. All Start-Process invocations use -NoNewWindow ==="
           # Silent stderr loss: -WindowStyle Hidden (or no window flag) makes an
           # external process's stderr disappear into the void, so a diskpart /
           # dism / bcdboot failure logs only "exit code N" with no explanation.

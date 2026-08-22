@@ -90,6 +90,17 @@
     USB is unplugged or the label doesn't match, escrow falls back
     to C:\Windows\Setup\BitLockerKeys with a log warning.
 .VERSION
+    4.8.0 - Consolidation release. Absorbs the backlog of unattended
+            maintenance changes into one reviewed branch. Highlights:
+            system disks excluded from the additional-wipe candidate
+            pool; deploy aborts when the WIM source disk is in the wipe
+            set; diskpart-script and BitLocker-staging writes now fail
+            loudly instead of silently; BitLocker PIN edge-whitespace
+            and non-absolute -BitLockerKeyPath rejected pre-flight;
+            builders refuse -UsbDrive equal to the system drive and
+            -Clean against a drive/UNC root; four new fixture suites
+            (CCTK selection, disk-size math, DISM exit codes, whitelist
+            loader) and a masterize check pinning -NoNewWindow.
     4.7.1 - BitLocker recovery-key escrow now resolves the IMAGES
             partition by volume label at first-boot time instead of
             baking the WinPE-time drive letter into the staged script.
@@ -145,7 +156,7 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.7.1'
+    ScriptVersion = '4.8.0'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')

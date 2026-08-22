@@ -465,4 +465,4 @@ Pull requests welcome, especially hardware-compatibility fixes. Before opening o
 
 [MIT](LICENSE) — © 2026 spacebass11. You use this tool at your own risk; see the license for the full disclaimer of warranty.
 
-Current version: **v4.7.1** — see [CHANGELOG.md](CHANGELOG.md) for full history.
+Current version: **v4.8.0** — see [CHANGELOG.md](CHANGELOG.md) for full history.
