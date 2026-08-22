@@ -366,11 +366,16 @@ jobs:
           # The per-USB deploy.args mechanism: operator can retarget a USB
           # without rebuilding boot.wim. A refactor that removes the
           # startnet.cmd lookup would silently regress every operator's
-          # config without surfacing a build-time error.
+          # config without surfacing a build-time error. Accept either
+          # `set /p DEPLOYARGS` (original single-line read) or
+          # `for /f ... deploy.args` (the comment-skipping form). Binding to
+          # one CMD construct made this check fail any time the implementation
+          # detail changed, even when the semantic invariant ("the file is
+          # actually read") still held.
           builder=scripts/build_boot_wim.ps1
           ok=1
           grep -qF 'deploy.args' $builder || { echo "  startnet.cmd no longer references deploy.args"; ok=0; }
-          grep -qF 'set /p DEPLOYARGS' $builder || { echo "  startnet.cmd no longer reads deploy.args via set /p"; ok=0; }
+          grep -qE 'set /p DEPLOYARGS|for /f.*deploy\.args' $builder || { echo "  startnet.cmd no longer reads deploy.args (neither 'set /p DEPLOYARGS' nor 'for /f ... deploy.args' found)"; ok=0; }
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: deploy.args wiring drifted"; fail=1; fi
 
           echo "=== 25. build_boot_wim.ps1 startnet.cmd does not echo raw deploy.args ==="
