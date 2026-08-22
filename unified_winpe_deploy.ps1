@@ -58,9 +58,10 @@
     Stage a SetupComplete.cmd script that enables BitLocker on first
     boot: TPM + Enhanced PIN on C:, recovery key + auto-unlock on D:
     (D: only if -DataDiskNumber was also given). Requires -BitLockerPin.
-    Recovery keys are escrowed to the IMAGES partition under
-    BitLockerKeys\<servicetag-or-timestamp>\ so they remain reachable
-    even if the encrypted volumes don't mount.
+    Recovery keys are escrowed to the IMAGES partition at
+    <IMAGES>\BitLockerKeys\ (one .BEK file per volume, GUID-named by
+    Add-BitLockerKeyProtector) so they remain reachable even if the
+    encrypted volumes don't mount. Override with -BitLockerKeyPath.
 .PARAMETER BitLockerPin
     Startup PIN for the TPM+PIN protector on C:. Required when
     -EnableBitLocker is set. Enhanced PIN policy is enabled, so 6-20
