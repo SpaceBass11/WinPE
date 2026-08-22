@@ -8,6 +8,19 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **Docs drift on `-EnableBitLocker` escrow-path shape.**
+  The `.PARAMETER EnableBitLocker` block in `unified_winpe_deploy.ps1`
+  described recovery-key escrow as `<IMAGES>\BitLockerKeys\<servicetag-or-timestamp>\`,
+  implying a per-machine subfolder. The code never wrote a subfolder —
+  `Resolve-BitLockerKeyPath` and the staged first-boot script join the
+  IMAGES drive letter with the flat `BitLockerKeys` dir and let
+  `Add-BitLockerKeyProtector` emit GUID-named `.BEK` files there
+  directly. README §Parameters and `docs/BITLOCKER.md` already
+  described the actual flat layout; only the deploy-script parameter
+  docstring drifted. Updated to match the real behavior (flat dir,
+  GUID-named `.BEK` per volume, `-BitLockerKeyPath` as the override).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

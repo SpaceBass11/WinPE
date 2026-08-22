@@ -5,6 +5,88 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-22 — `-EnableBitLocker` docstring escrow-path drift
+
+**Investigated:** open PRs (#221-#300) to avoid duplicating in-flight
+work. BitLocker-adjacent PRs are already dense — #250 (docs drift on
+placeholder-PIN rejection), #245 (`-BitLockerPin` length pre-validation),
+#282 (whitespace PIN reject), #224 (`!` PIN reject), #236 (PIN redaction
+in build_iso), and #251 (VolumeLabel warning) all touch BitLocker
+messaging or safety. None touch the `.PARAMETER EnableBitLocker`
+docstring in `unified_winpe_deploy.ps1`. Cross-checked by grepping for
+the string `servicetag-or-timestamp` across the whole tree.
+
+**Found:** exactly one source referenced a per-machine escrow subfolder:
+
+- `unified_winpe_deploy.ps1:57-59` — `.PARAMETER EnableBitLocker`
+  described recovery-key escrow as
+  `BitLockerKeys\<servicetag-or-timestamp>\`, implying a per-machine
+  subfolder that the operator would look under to find a given
+  machine's `.BEK`.
+
+The code does not create such a subfolder. `Resolve-BitLockerKeyPath`
+(`unified_winpe_deploy.ps1:1489`) joins the IMAGES drive letter with
+`$Script:Config.BitLockerKeyDir` (line 145: `= 'BitLockerKeys'`) and
+that flat path is what the staged first-boot script's `$recoveryDir`
+resolves to (lines 1546-1548 for the ImagesLabel lookup, line 1556
+for the literal path). `Add-BitLockerKeyProtector -RecoveryKeyPath
+$recoveryDir` and `Enable-BitLocker … -RecoveryKeyProtector
+-RecoveryKeyPath $recoveryDir` both accept a directory and emit
+GUID-named `.BEK` files into it — no per-machine subfolder is created
+anywhere in the code path.
+
+Every other doc already described the actual flat layout correctly:
+- `README.md:209` — "keys escrow to `<IMAGES>\BitLockerKeys`" (no subfolder)
+- `README.md:300` — USB layout diagram shows a bare `BitLockerKeys/`
+- `README.md:360` — parameters table default: `<IMAGES>\BitLockerKeys`
+- `docs/BITLOCKER.md:36,71,76` — flat `<letter>:\BitLockerKeys`
+So this was drift in one place only, and an operator reading the
+in-script help (`Get-Help ./unified_winpe_deploy.ps1 -Full`) would
+be looking for a subfolder that never gets created.
+
+No open PR touches these lines (verified by searching the open list
+for both the parameter name and the drift phrase).
+
+**Changed:**
+- `unified_winpe_deploy.ps1` — `.PARAMETER EnableBitLocker` rewritten
+  to describe the actual behavior: flat `<IMAGES>\BitLockerKeys\` with
+  one GUID-named `.BEK` per volume from `Add-BitLockerKeyProtector`,
+  and to name `-BitLockerKeyPath` as the override. Wording matches
+  what `README.md` and `docs/BITLOCKER.md` already say.
+- `CHANGELOG.md` — new `### Fixed` bullet at the top of `## Unreleased`
+  describing the drift and pointing at the actual escrow shape.
+- `docs/claude-routine-log.md` — this entry.
+
+**Verification:**
+- `pwsh` 7.4.6 installed per the CLAUDE.md recipe (GitHub Releases
+  tarball into `/opt/pwsh/`).
+- Baseline: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0.
+- Post-edit: `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48/0
+  (unchanged; docs-only edit doesn't move the parser or the required-
+  functions list).
+- `pwsh -NoProfile -File ./tests/test_wim_parser.ps1` → 16/0 (unchanged).
+- `pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1` → 34/0
+  (unchanged).
+- Pester (`tests/validation-gates.Tests.ps1`) is CI-only per CLAUDE.md
+  and does not assert on the docstring — not exercised here.
+- Grep confirms `servicetag-or-timestamp` is now absent from the tree
+  (was the single hit at `unified_winpe_deploy.ps1:58`).
+
+**Risks / follow-ups:**
+- **Minimal.** Docs-only. No parameter, function, safety gate, or
+  test touched. No destructive path exercised. Version fence
+  untouched (docstring content is not part of masterize CI check #1).
+- No new dependencies.
+
+**Next recommended improvement:** the same class of drift — an in-
+script `.PARAMETER` block claiming a path shape that the code
+doesn't produce — could exist for other params. A targeted grep of
+`.PARAMETER ` blocks against actual path literals used by the
+functions those params drive would surface any similar drift with
+low mock cost.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),
