@@ -21,7 +21,7 @@ If this PR touches `unified_winpe_deploy.ps1`, `scripts/build_boot_wim.ps1`,
 or the diskpart / DISM / BCDBoot path, confirm the following:
 
 - [ ] The typed-confirmation chain (`ERASE`, `DESTROY SYSTEM`,
-      `CONTINUE ANYWAY`) is preserved.
+      `WIPE ALL`, `WIPE DATA`, `CONTINUE ANYWAY`) is preserved.
 - [ ] `-Force` still does **not** bypass system-disk `DESTROY SYSTEM`.
 - [ ] `-Silent` still fails fast when required inputs are missing.
 - [ ] Drive-letter manipulation (`mountvol /d`) still refuses to unmount
