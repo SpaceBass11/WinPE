@@ -97,8 +97,10 @@ the location picked in this precedence:
 - `bitlocker-setup.ps1` — runs `Enable-BitLocker` for `C:` (TPM+PIN)
   and, if `-DataDiskNumber` was used, also for `D:` (recovery-key +
   auto-unlock). Logs to `C:\Windows\Setup\Scripts\bitlocker-setup.log`.
-  At the end, self-deletes itself and `SetupComplete.cmd` so the
-  plaintext PIN doesn't linger on disk.
+  The body runs inside a `try { ... } finally { ... }`, and the
+  `finally` always self-deletes both this script and `SetupComplete.cmd`
+  — even if `Enable-BitLocker` throws on C: — so the plaintext PIN never
+  lingers on disk. The log file persists either way for diagnosis.
 - `SetupComplete.cmd` — Windows runs this once, after OOBE completes,
   with `SYSTEM` privileges. It just launches the `.ps1` above and
   redirects output to `setupcomplete.log`.
@@ -119,16 +121,23 @@ After the encryption initializes, the script reboots the machine
   `manage-bde -protectors -add C: -RecoveryPassword` and save the
   output to your real escrow location.
 - **TPM not present / not provisioned:** `Enable-BitLocker
-  -TpmAndPinProtector` will fail. The script logs the exception and
-  exits non-zero; check `bitlocker-setup.log`. Typical fix:
-  `manage-bde -tpm -takeownership` or enable TPM in BIOS (CCTK can
-  automate this — see [CCTK.md](CCTK.md)).
+  -TpmAndPinProtector` will fail. The script logs the exception, wipes
+  the PIN-bearing staging scripts (see below), and exits non-zero
+  without rebooting. Check `bitlocker-setup.log` for the failure.
+  Typical fix: `manage-bde -tpm -takeownership` or enable TPM in BIOS
+  (CCTK can automate this — see [CCTK.md](CCTK.md)). Re-running
+  `unified_winpe_deploy.ps1` (full reinstall) is the cleanest retry
+  path; in-place re-enrolment after BIOS fixes can also be done with
+  `manage-bde -on C: -tp <PIN> -RecoveryPassword`.
 - **Plaintext PIN on disk:** between deploy and first boot, the PIN
-  exists in `C:\Windows\Setup\Scripts\bitlocker-setup.ps1`. The
-  script self-deletes after use, but if the deploy fails between WIM
-  apply and OOBE completion the file lingers. Treat the image like a
-  pre-shared credential and don't ship `C:` images across an org with
-  this staging in place.
+  exists in `C:\Windows\Setup\Scripts\bitlocker-setup.ps1`. The script
+  self-deletes after use *on every code path* (success or
+  Enable-BitLocker failure) via a `try/finally`, so a TPM fault on C:
+  no longer leaves the PIN file behind. The only window where the file
+  can linger is between WIM-apply and the first `SetupComplete.cmd`
+  run — i.e. the operator powers down between deploy and OOBE. Treat
+  the staged image as a pre-shared credential and don't ship `C:`
+  images across an org with this staging in place.
 
 ## Example invocations
 
