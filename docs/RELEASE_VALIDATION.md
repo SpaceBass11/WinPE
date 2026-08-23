@@ -62,10 +62,13 @@ can drift as logging gets refined.
 | 6 | CCTK present + valid config | `boot.wim` built with `-CctkSource`; matching config file under `<IMAGES>\cctk\` | `cctk --infile=` runs, exits 0, BIOS setting applied | Deploy log shows the CCTK invocation; on real Dell hardware, BIOS reflects the change post-reboot (e.g. RAID→AHCI) |
 
 Edge cases worth noting but not separate matrix rows (the script
-handles all three gracefully — verify behavior by inspecting the log):
+handles all four gracefully — verify behavior by inspecting the log):
 
 - CCTK embedded but `DEPLOY_IMAGE_DRIVE` unset → warning + skip
 - CCTK embedded but no `<IMAGES>\cctk\` directory → info-level log + skip
+- `<IMAGES>\cctk\` present but no matching `<SERVICETAG>.ini`,
+  `<MODEL>.ini`, or `default.ini` → info-level log + skip (operator
+  set up the directory but forgot a catch-all; deploy continues)
 - CCTK runs but exits non-zero → deploy aborts (loud failure)
 
 ### Unattend

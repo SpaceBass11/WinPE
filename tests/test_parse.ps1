@@ -122,6 +122,35 @@ Write-Result -Test "CmdletBinding attribute present" -Pass $hasCmdletBinding
 $hasRequires = $content -match '#Requires\s+-RunAsAdministrator'
 Write-Result -Test "#Requires -RunAsAdministrator present" -Pass $hasRequires
 
+# Test 8b: Unattend copy is guarded against silent Copy-Item failures.
+# The staging block runs AFTER DISM apply succeeds, so the disk is already
+# written and the operator is committed. A bare `Copy-Item -Force` uses the
+# default -ErrorAction Continue: a failure prints a red line but the next
+# `Write-Log "Unattend file staged"` still runs, giving a false success
+# summary. Windows Setup then silently ignores the missing unattend.xml and
+# first boot lands in manual OOBE — the exact failure mode the pre-flight
+# XML well-formedness check was added to prevent. Pin -ErrorAction Stop on
+# the copy and a recovery-guidance line in the catch.
+$unattendCopyGuarded = $content -match "Copy-Item\s+-Path\s+\`$UnattendFile[^\r\n]*-ErrorAction\s+Stop"
+Write-Result -Test 'Unattend copy uses -ErrorAction Stop' -Pass $unattendCopyGuarded
+$unattendRecoveryLogged = $content -match 'First boot will land in manual OOBE'
+Write-Result -Test 'Unattend copy failure logs recovery guidance' -Pass $unattendRecoveryLogged
+
+# Test 8c: Initialize-BitLockerSetup guards its staging I/O against silent failures.
+# The pre-Set-Content New-Item used to sit outside the try/catch so a directory
+# creation failure at C:\Windows\Setup\Scripts was a non-terminating error the
+# catch never saw. Both Set-Content calls also default to -ErrorAction Continue.
+# Combined, a fully-silent failure could return $true from Initialize-BitLockerSetup
+# with no first-boot script staged, and the deployed OS would come up unencrypted
+# with no signal. Pin -ErrorAction Stop on the New-Item + both Set-Content calls
+# so any I/O miss surfaces as "Failed to stage BitLocker setup" instead.
+$blNewItemGuarded = $content -match "New-Item\s+-ItemType\s+Directory\s+-Path\s+\`$scriptsDir[^\r\n]*-ErrorAction\s+Stop"
+Write-Result -Test 'BitLocker New-Item uses -ErrorAction Stop' -Pass $blNewItemGuarded
+$blSetContentGuarded = ([regex]::Matches($content, "Set-Content\s+-Path\s+`"\`$scriptsDir[^\r\n]*-ErrorAction\s+Stop")).Count -ge 2
+Write-Result -Test 'BitLocker staging Set-Content calls use -ErrorAction Stop' -Pass $blSetContentGuarded
+$blRecoveryLogged = $content -match 'First boot will come up UNENCRYPTED'
+Write-Result -Test 'BitLocker staging failure logs recovery guidance' -Pass $blRecoveryLogged
+
 # Test 9: build_boot_wim.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/build_boot_wim.ps1 ---" -ForegroundColor Cyan
 $builderOk = Test-ScriptSyntax -Path $builderPath -Label "Builder"
@@ -136,23 +165,221 @@ if ($builderOk) {
 
     # Copy block must use $cctkDir (the validated path), not a separately recomputed variable
     Write-Result -Test 'Builder: copy block uses $cctkDir' -Pass ($bc -match 'Copy-Item.*\$cctkDir|Join-Path\s+\$cctkDir')
+
+    # startnet.cmd invariants — the embedded here-string is silently critical:
+    # a regression doesn't fail the build_boot_wim.ps1 run, it just produces
+    # a boot.wim that misbehaves at deploy time. Guard the three brittle bits.
+    #  - wpeinit: without it, WinPE never brings up the network stack, so any
+    #    later remote-help / driver-fetch step fails with no obvious cause.
+    #  - setlocal enabledelayedexpansion: required so the final
+    #      powershell.exe ... !DEPLOYARGS!
+    #    line and the {DRIVE} substitution actually expand — without it,
+    #    deploy.args silently loses all its parameters.
+    #  - {DRIVE}=%DEPLOY_IMAGE_DRIVE% substitution: the single-ISO end-user
+    #    workflow relies on this to rewrite {DRIVE}\images\... paths at
+    #    boot; dropping it breaks every build_iso.ps1 output.
+    Write-Result -Test 'Builder: startnet.cmd runs wpeinit' -Pass ($bc -match '(?m)^\s*wpeinit\s*$')
+    Write-Result -Test 'Builder: startnet.cmd enables delayed expansion' -Pass ($bc -match 'setlocal\s+enabledelayedexpansion')
+    Write-Result -Test 'Builder: startnet.cmd substitutes {DRIVE} placeholder' -Pass ($bc -match '\{DRIVE\}=%DEPLOY_IMAGE_DRIVE%')
+
+    # -UsbDrive must refuse the running system drive. Without this guard, a
+    # typo like `-UsbDrive C:` (or omitting the intended letter) would xcopy
+    # the WinPE media tree into %SystemDrive%\ root and, with -ReleaseUsbLetter,
+    # attempt `mountvol %SystemDrive% /d` against the live OS.
+    Write-Result -Test 'Builder: rejects -UsbDrive equal to $env:SystemDrive' `
+        -Pass ($bc -match '\$UsbDrive\s+-ieq\s+\$env:SystemDrive')
 }
 
-# Test 10: prepare_wim.ps1 (syntax only - companion WIM prep script)
+# Test 10: prepare_wim.ps1 — syntax + key behavioral invariants
 Write-Host "`n--- scripts/prepare_wim.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $prepPath -Label "WIM prep" | Out-Null
+$prepOk = Test-ScriptSyntax -Path $prepPath -Label "WIM prep"
+if ($prepOk) {
+    $pc = Get-Content $prepPath -Raw
 
-# Test 11: refresh_usb.ps1 (syntax only - workflow wrapper)
+    # Output WIM destination name must derive from $target.ImageName, not a
+    # hardcoded $Edition. Regressing to the literal "$Edition (Custom)" mis-
+    # labels every captured WIM as 'Windows 11 Enterprise (Custom)' regardless
+    # of source (the 2026-05-16 fix in CHANGELOG / routine log).
+    Write-Result -Test 'WIM prep: destination name uses $target.ImageName' `
+        -Pass ($pc -match '\$target\.ImageName' -and $pc -match '\$sourceName\s*=\s*if\s*\(\s*\$target\.ImageName')
+    Write-Result -Test 'WIM prep: destination name not hardcoded "$Edition (Custom)"' `
+        -Pass ($pc -notmatch '"\$Edition\s*\(Custom\)"' -and $pc -notmatch "'\`$Edition\s*\(Custom\)'")
+
+    # Re-export must use max compression + integrity check. Either dropping
+    # silently inflates output size or lets WIM corruption escape into
+    # production deployments.
+    Write-Result -Test 'WIM prep: re-export uses -CompressionType Max' `
+        -Pass ($pc -match '-CompressionType\s+Max')
+    Write-Result -Test 'WIM prep: re-export uses -CheckIntegrity' `
+        -Pass ($pc -match 'Export-WindowsImage[\s\S]+?-CheckIntegrity')
+
+    # -DriverPath must reject a folder with no .inf files; a silent regression
+    # would let operators build with no drivers and not know until deploy.
+    Write-Result -Test 'WIM prep: -DriverPath rejects empty .inf folder' `
+        -Pass ($pc -match 'contains no \.inf files')
+
+    # first-login.ps1 staging must stay gated on -DisableExtraBloat. Ungating
+    # would silently change the staged image for plain -DisableCopilot runs.
+    Write-Result -Test 'WIM prep: first-login.ps1 staging gated on $DisableExtraBloat' `
+        -Pass ($pc -match 'if\s*\(\s*\$DisableExtraBloat\s*\)\s*\{[\s\S]{0,400}?first-login\.ps1')
+}
+
+# Test 11: refresh_usb.ps1 — syntax + key behavioral invariants
+# refresh_usb.ps1 is a thin wrapper that must delegate correctly to
+# prepare_wim.ps1 (and optionally build_boot_wim.ps1). A silent regression
+# in the pass-through wiring wastes 20 min of prepare_wim runtime before the
+# operator learns the wrapper misrouted a flag or missed an error.
 Write-Host "`n--- scripts/refresh_usb.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $refreshPath -Label "USB refresh" | Out-Null
+$refreshOk = Test-ScriptSyntax -Path $refreshPath -Label "USB refresh"
+if ($refreshOk) {
+    $rc = Get-Content $refreshPath -Raw
 
-# Test 12: build_iso.ps1 (syntax only - distribution packager for end-user ISOs)
+    # copype pre-flight must exist AND must sit inside the -RebuildBootWim Yes
+    # branch. If the copype check runs unconditionally, image-only refreshes on
+    # a plain PowerShell (no ADK env) fail unnecessarily. If the check is
+    # dropped, operators eat 20 min of prepare_wim runtime before boot.wim
+    # rebuild fails.
+    Write-Result -Test "Refresh: copype pre-flight present" -Pass ($rc -match 'Get-Command\s+copype')
+    # Window is deliberately generous: other pre-flight checks (e.g. the
+    # -BootUsbDrive format/accessibility guards) legitimately sit between
+    # the branch open and the copype probe. What matters is that copype is
+    # inside the branch, not how many siblings precede it.
+    Write-Result -Test "Refresh: copype pre-flight gated by -RebuildBootWim Yes" `
+        -Pass ($rc -match "RebuildBootWim\s+-eq\s+'Yes'[\s\S]{0,900}?Get-Command\s+copype")
+
+    # prepare_wim.ps1 must NOT be gated on $LASTEXITCODE. It sets
+    # $ErrorActionPreference = 'Stop' and throws on real failures, so a
+    # genuine error already propagates out of the '& $prepScript' call.
+    # $LASTEXITCODE, by contrast, reflects only the last *native* command
+    # prepare_wim ran - typically 'reg.exe unload', which returns non-zero
+    # on benign "handles still open" warnings. Gating on it produced false
+    # failures on successful preps. Pin the explanatory comment so the
+    # check doesn't get "helpfully" reintroduced.
+    Write-Result -Test 'Refresh: prepare_wim.ps1 not gated on $LASTEXITCODE' `
+        -Pass ($rc -notmatch '&\s+\$prepScript[\s\S]{0,200}?\$LASTEXITCODE\s+-ne\s+0')
+    Write-Result -Test 'Refresh: $LASTEXITCODE-is-unreliable rationale documented' `
+        -Pass ($rc -match 'NOT gate on \$LASTEXITCODE')
+
+    # -DisableExtraBloat forwarded to prepare_wim.ps1. The gate that stages
+    # first-login.ps1 into the image lives inside prepare_wim; if the wrapper
+    # drops the passthrough, first-login.ps1 silently stops being staged.
+    Write-Result -Test 'Refresh: -DisableExtraBloat forwarded to prepare_wim' `
+        -Pass ($rc -match '\$prepArgs\.DisableExtraBloat')
+
+    # -Index / -Edition are passed through only when explicitly bound by the
+    # caller, so prepare_wim's own defaults ("Windows 11 Enterprise" for
+    # Edition) survive when the wrapper's caller doesn't supply them.
+    # A refactor to `if ($Index)` would drop `-Index 0` at binding time
+    # (0 is falsy) and silently clobber prepare_wim's default Edition
+    # by forwarding an empty string.
+    Write-Result -Test 'Refresh: -Index passed via PSBoundParameters.ContainsKey' `
+        -Pass ($rc -match "PSBoundParameters\.ContainsKey\(\s*'Index'\s*\)")
+    Write-Result -Test 'Refresh: -Edition passed via PSBoundParameters.ContainsKey' `
+        -Pass ($rc -match "PSBoundParameters\.ContainsKey\(\s*'Edition'\s*\)")
+}
+
+# Test 12: build_iso.ps1 — syntax + key behavioral invariants
+# Mirrors the build_boot_wim block above (PR #52). Tests that the safety-
+# critical shapes can't drift silently — each invariant maps to a documented
+# behavior the deploy pipeline depends on:
+#   - The destructive-intent gate (-ConfirmSilentDestructiveIso) must throw
+#     when neither flag is set, so a default invocation can't produce a
+#     silent disk-wiping ISO.
+#   - The volume label must default to 'IMAGES' so the boot.wim startnet.cmd
+#     drive-letter scan finds the data partition by `vol`-and-`find /i`.
+#   - The WIM extension allowlist (.wim/.esd) must reject wrong file types
+#     up front rather than failing inside oscdimg.
+#   - The -WipeDisks regex must validate format so an injected token can't
+#     land in deploy.args verbatim.
+#   - oscdimg's -bootdata must include BOTH BIOS (etfsboot.com) and UEFI
+#     (efisys.bin) bootloaders so the ISO boots on either firmware.
+#   - The {DRIVE} placeholder must be embedded in generated deploy.args
+#     paths so startnet.cmd's substitution finds it at boot time.
 Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder" | Out-Null
+$buildIsoOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($buildIsoOk) {
+    $ic = Get-Content $buildIsoPath -Raw
 
-# Test 13: first-login.ps1 (syntax only - first-boot per-user tweaks staged into the image)
+Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
+$isoBuilderOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($isoBuilderOk) {
+    $ibc = Get-Content $buildIsoPath -Raw
+
+    # BitLockerPin edge-whitespace must be rejected at build time so a bad
+    # PIN fails before ISO staging and distribution instead of at WinPE
+    # pre-flight on the target. Matches the parity gate in
+    # unified_winpe_deploy.ps1 Start-Deployment (BitLockerPin.Length -ne
+    # BitLockerPin.Trim().Length). Without this, TPM+PIN would unlock with
+    # a PIN the operator cannot type at the invisible first-boot prompt.
+    $pinWhitespaceGate = $ibc -match '\$BitLockerPin\.Length\s+-ne\s+\$BitLockerPin\.Trim\(\)\.Length'
+    Write-Result -Test "ISO builder: -BitLockerPin edge-whitespace rejected" -Pass $pinWhitespaceGate
+}
+
+    Write-Result -Test "ISO builder: -ConfirmSilentDestructiveIso gate present" `
+        -Pass ($ic -match 'if\s*\(\s*-not\s+\$Interactive\s+-and\s+-not\s+\$ConfirmSilentDestructiveIso\s*\)')
+
+    Write-Result -Test "ISO builder: VolumeLabel defaults to 'IMAGES'" `
+        -Pass ($ic -match "\[string\]\`$VolumeLabel\s*=\s*'IMAGES'")
+
+    Write-Result -Test "ISO builder: WIM extension allowlist (.wim/.esd) present" `
+        -Pass ($ic -match "GetExtension\(\`$WimFile\)\s+-notin\s+'\.wim','\.esd'")
+
+    Write-Result -Test "ISO builder: -WipeDisks regex validation present" `
+        -Pass ($ic -match '\$WipeDisks\s+-notmatch\s+''\^\\s\*\\d\+')
+
+# Test 12: build_iso.ps1 — syntax + key behavioral invariants
+Write-Host "`n--- scripts/build_iso.ps1 ---" -ForegroundColor Cyan
+$isoBuilderOk = Test-ScriptSyntax -Path $buildIsoPath -Label "ISO builder"
+if ($isoBuilderOk) {
+    $ibc = Get-Content $buildIsoPath -Raw
+
+    # BitLockerPin length must be validated at build time so a malformed
+    # PIN fails before ISO staging rather than being baked into deploy.args
+    # and only surfacing at WinPE pre-flight on the target hardware.
+    $pinLenLower = $ibc -match '\$BitLockerPin\.Length\s+-lt\s+6'
+    $pinLenUpper = $ibc -match '\$BitLockerPin\.Length\s+-gt\s+20'
+    Write-Result -Test "ISO builder: -BitLockerPin length pre-validated (6-20)" -Pass ($pinLenLower -and $pinLenUpper)
+}
+
+    Write-Result -Test "ISO builder: oscdimg -bootdata references etfsboot.com (BIOS)" `
+        -Pass ($ic -match 'etfsboot\.com')
+    Write-Result -Test "ISO builder: oscdimg -bootdata references efisys.bin (UEFI)" `
+        -Pass ($ic -match 'efisys\.bin')
+
+    Write-Result -Test "ISO builder: deploy.args paths use {DRIVE} placeholder" `
+        -Pass ($ic -match '\{DRIVE\}\\images')
+}
+
+# Test 13: first-login.ps1 — syntax + key behavioral invariants
+# The script does TWO things that silently regress in obvious ways:
+#   1. Dual-hive apply (Pass 1 = HKCU live, Pass 2 = Default User template).
+#      If Pass 2 is dropped in a refactor, the current user gets the tweaks
+#      but every future user provisioned from C:\Users\Default\NTUSER.DAT
+#      (TechL0/1/2, etc.) silently doesn't — and the regression only
+#      manifests months later when those accounts first log in.
+#   2. [gc]::Collect() before reg.exe unload. PowerShell holds onto registry
+#      handles past the last property access; without the forced collect
+#      the unload call fails and leaves the Default User hive loaded,
+#      blocking the NTUSER.DAT file from flushing until reboot.
 Write-Host "`n--- scripts/first-login.ps1 ---" -ForegroundColor Cyan
-Test-ScriptSyntax -Path $firstLoginPath -Label "First-login tweaks" | Out-Null
+$firstLoginOk = Test-ScriptSyntax -Path $firstLoginPath -Label "First-login tweaks"
+if ($firstLoginOk) {
+    $fc = Get-Content $firstLoginPath -Raw
+
+    Write-Result -Test "First-login: Apply-Tweak helper present" -Pass ($fc -match 'function\s+Apply-Tweak\b')
+    Write-Result -Test "First-login: Pass 1 applies tweaks to HKCU (current user)" `
+        -Pass ($fc -match "Apply-Tweak\s+-Root\s+'HKCU:'")
+    Write-Result -Test "First-login: Pass 2 applies tweaks to mounted Default User hive" `
+        -Pass ($fc -match 'Apply-Tweak\s+-Root\s+"HKLM:\\\$mountKey"')
+    Write-Result -Test "First-login: Default User hive path is the standard NTUSER.DAT location" `
+        -Pass ($fc -match 'Users\\Default\\NTUSER\.DAT')
+    Write-Result -Test "First-login: reg.exe load present (mounts Default User hive)" `
+        -Pass ($fc -match 'reg\.exe\s+load\b')
+    Write-Result -Test "First-login: reg.exe unload present (releases Default User hive)" `
+        -Pass ($fc -match 'reg\.exe\s+unload\b')
+    Write-Result -Test "First-login: [gc]::Collect() before unload (releases registry handles)" `
+        -Pass ($fc -match '\[gc\]::Collect\(\)')
+}
 
 # Summary
 Write-Host "`n=== Results ===" -ForegroundColor Cyan

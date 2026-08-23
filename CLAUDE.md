@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a **PowerShell-based WinPE image deployment tool** (v4.7.1) that automates
+This is a **PowerShell-based WinPE image deployment tool** (v4.8.0) that automates
 Windows installation from `.wim`/`.esd` files in a WinPE boot environment. The tool
 is designed to run from a USB drive with a dual-partition layout: a small WinPE boot
 partition and a larger data partition holding Windows images.
@@ -71,6 +71,8 @@ USB Drive Layout:
 | `docs/CCTK.md` | Dell CCTK pre-apply BIOS configuration |
 | `docs/BITLOCKER.md` | Opt-in BitLocker + data-disk staging |
 | `docs/DEPLOY_ARGS.md` | Per-USB `deploy.args` file consumed by startnet.cmd |
+| `docs/UNATTEND.md` | Unattend.xml authoring, encoding, and pre-deploy sanity checks (the deploy script points at §6 in its `-UnattendFile` well-formedness error) |
+| `docs/RELEASE_VALIDATION.md` | Pre-distribution manual hardware/runtime checklist — the gate CI can't cover (linked from the Release Validation section below) |
 | `configs/deploy.args.example` | Template for the per-USB args file |
 | `docs/SIGNING.md` | Enterprise code-signing for the deploy script |
 | `.claude/MASTERIZE.md` | Internal release-audit playbook (greps + read pass) |
@@ -108,23 +110,36 @@ Use `/review` to run a comprehensive check of the deployment script covering:
 
 ### Running Checks
 
-The repo has three test files; know which is which before changing one:
+The repo has these test files; know which is which before changing one:
 
 | File | What it covers | Where it runs |
 |------|----------------|---------------|
 | `tests/test_parse.ps1` | PowerShell syntax + function presence + version consistency across every shipped pipeline script (`unified_winpe_deploy.ps1` + the five under `scripts/`) | Anywhere with `pwsh` (also CI) |
 | `tests/test_wim_parser.ps1` | Fixture test for the DISM `/Get-WimInfo` regex parser used by `Get-WimImageInfo` — guards against silent edition mis-attribution | Anywhere with `pwsh` (also CI) |
+| `tests/test_bitlocker_setup.ps1` | Fixture test for `Initialize-BitLockerSetup`'s generated `bitlocker-setup.ps1` — parses each branch (IMAGES-label / Literal, with and without DataDisk) and checks PIN apostrophe doubling so a malformed first-boot script can't ship to disk | Anywhere with `pwsh` (also CI) |
+| `tests/test_disk_enumeration.ps1` | Fixture test for `Get-SystemDisks` — pins USB/removable/CD exclusion and the Linux/LVM-disk-shown-as-empty mitigation | Anywhere with `pwsh` (also CI) |
+| `tests/test_cctk_selection.ps1` | Fixture test for `Invoke-CctkConfig` config-file precedence (`<SERVICETAG>.ini` → `<MODEL>.ini` → `default.ini` → skip) and the model-string alnum normalization — guards against pushing the wrong BIOS config onto a machine | Anywhere with `pwsh` (also CI) |
+| `tests/test_disk_size_check.ps1` | Fixture test for the disk-size-vs-image-size validation math in `Start-Deployment` | Anywhere with `pwsh` (also CI) |
+| `tests/test_dism_exitcodes.ps1` | Fixture test for `Apply-WindowsImage`'s DISM exit-code → recovery-guidance table | Anywhere with `pwsh` (also CI) |
+| `tests/test_whitelist_loader.ps1` | Fixture test for `prepare_wim.ps1`'s `-WhitelistFile` loader — guards the effectively-empty-whitelist rejection that would otherwise strip every provisioned AppX package | Anywhere with `pwsh` (also CI) |
 | `tests/validation-gates.Tests.ps1` | **Pester suite.** v4.7.0 BitLocker default-config invariants, `Resolve-BitLockerKeyPath` precedence, `New-DiskpartScript` source-drive protection, `Start-Deployment` validation gates | **CI only** — see Pester note below |
 
 ```bash
 # Syntax + parser fixtures - runs anywhere with pwsh installed
 pwsh -NoProfile -File ./tests/test_parse.ps1
 pwsh -NoProfile -File ./tests/test_wim_parser.ps1
+pwsh -NoProfile -File ./tests/test_bitlocker_setup.ps1
+pwsh -NoProfile -File ./tests/test_disk_enumeration.ps1
+pwsh -NoProfile -File ./tests/test_cctk_selection.ps1
+pwsh -NoProfile -File ./tests/test_disk_size_check.ps1
+pwsh -NoProfile -File ./tests/test_dism_exitcodes.ps1
+pwsh -NoProfile -File ./tests/test_whitelist_loader.ps1
 ```
 
 The deeper safety/diskpart/BCDBoot greps that used to live in
-`validate_script.ps1` are now in the masterize CI job (Phase 1B,
-checks 8-19). They run on every push — no local replica needed.
+`validate_script.ps1` are now in the masterize CI job (Phase 1B —
+code-safety invariants). They run on every push — no local replica
+needed.
 
 **Pester (`tests/validation-gates.Tests.ps1`) runs in CI only.** The
 Claude Code on the Web container's network policy typically blocks
@@ -165,7 +180,7 @@ handling, and deploy.args parsing — none of which CI exercises.
 2. **Never let -Force bypass system disk protection** - DESTROY SYSTEM must always be typed
 3. **Test syntax after every edit** - run `pwsh -c "[System.Management.Automation.PSParser]::Tokenize((Get-Content unified_winpe_deploy.ps1 -Raw), [ref]$null)"`
 4. **Keep WinPE compatibility** - no modules that aren't available in WinPE (no Az, no ImportExcel, etc.)
-5. **Version field** lives in **four** places that must all match — masterize CI check #1 enforces this:
+5. **Version field** lives in **five** places that must all match — masterize CI check #1 enforces the four file-level ones (the `.VERSION` block is currently a convention, not CI-enforced):
    - `$Script:Config.ScriptVersion` in `unified_winpe_deploy.ps1` (~line 39)
    - The `.VERSION` block in the script's header comment
    - CLAUDE.md line 5 (`(v4.X.Y)` in the Project Overview paragraph)

@@ -17,7 +17,7 @@
 
       1. The currently logged-in user (HKCU live hive). This is whoever
          was named in unattend's <AutoLogon> — typically the maintenance
-         admin (e.g. DERP_Admin). Their profile gets the tweaks now.
+         admin (e.g. LocalAdmin). Their profile gets the tweaks now.
 
       2. The Default User hive (C:\Users\Default\NTUSER.DAT). This is
          the template Windows clones when ANY new user logs in for the
@@ -121,7 +121,10 @@ $mountPath   = "HKLM\$mountKey"
 
 if (Test-Path $defaultHive) {
     Log "Mounting Default User hive ($defaultHive)..."
-    & reg.exe load $mountPath $defaultHive 2>&1 | Out-Null
+    # Capture reg.exe stderr so a failure carries the actual diagnostic
+    # (file locked, access denied, hive corrupt) alongside the opaque
+    # exit code. reg.exe's exit codes are undocumented.
+    $loadOutput = & reg.exe load $mountPath $defaultHive 2>&1
     if ($LASTEXITCODE -eq 0) {
         try {
             Log "Applying tweaks to Default User hive..."
@@ -133,15 +136,25 @@ if (Test-Path $defaultHive) {
             # access — force a collect before unload or reg.exe complains.
             [gc]::Collect()
             [gc]::WaitForPendingFinalizers()
-            & reg.exe unload $mountPath 2>&1 | Out-Null
+            $unloadOutput = & reg.exe unload $mountPath 2>&1
             if ($LASTEXITCODE -eq 0) {
                 Log "Default User hive unmounted cleanly."
             } else {
-                Log "  WARN Default User hive unload returned $LASTEXITCODE (handles still open). Tweaks were applied but the hive file may not flush until reboot."
+                $unloadMsg = ($unloadOutput | Out-String).Trim()
+                if ($unloadMsg) {
+                    Log "  WARN Default User hive unload returned $LASTEXITCODE (handles still open). Tweaks were applied but the hive file may not flush until reboot. reg.exe: $unloadMsg"
+                } else {
+                    Log "  WARN Default User hive unload returned $LASTEXITCODE (handles still open). Tweaks were applied but the hive file may not flush until reboot."
+                }
             }
         }
     } else {
-        Log "  ERR Default User hive load failed (exit $LASTEXITCODE) — future users won't inherit tweaks"
+        $loadMsg = ($loadOutput | Out-String).Trim()
+        if ($loadMsg) {
+            Log "  ERR Default User hive load failed (exit $LASTEXITCODE) — future users won't inherit tweaks. reg.exe: $loadMsg"
+        } else {
+            Log "  ERR Default User hive load failed (exit $LASTEXITCODE) — future users won't inherit tweaks"
+        }
     }
 } else {
     Log "  WARN Default User hive not found at $defaultHive — skipping Default User pass"
@@ -156,10 +169,19 @@ if (-not (Test-Path $oneDriveUninstaller)) {
     $oneDriveUninstaller = "$env:SystemRoot\System32\OneDriveSetup.exe"
 }
 if (Test-Path $oneDriveUninstaller) {
+    # Bounded wait: OneDriveSetup /uninstall has been observed to hang on
+    # some SKUs. Without a timeout, that would block Windows' first-logon
+    # SynchronousCommand chain indefinitely — the user sees a stuck OOBE.
+    $oneDriveTimeoutSeconds = 120
     try {
         Stop-Process -Name 'OneDrive' -Force -ErrorAction SilentlyContinue
-        Start-Process -FilePath $oneDriveUninstaller -ArgumentList '/uninstall' -Wait -NoNewWindow
-        Log "  OK  OneDrive uninstalled (per-user)"
+        $proc = Start-Process -FilePath $oneDriveUninstaller -ArgumentList '/uninstall' -PassThru -NoNewWindow
+        if ($proc.WaitForExit($oneDriveTimeoutSeconds * 1000)) {
+            Log "  OK  OneDrive uninstalled (per-user)"
+        } else {
+            try { $proc.Kill() } catch { }
+            Log "  WARN OneDrive uninstall did not exit within ${oneDriveTimeoutSeconds}s - killed. Uninstall may be incomplete; re-run '$oneDriveUninstaller /uninstall' manually if OneDrive is still present."
+        }
     } catch {
         Log "  ERR OneDrive uninstall - $($_.Exception.Message)"
     }

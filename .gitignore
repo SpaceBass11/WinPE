@@ -9,6 +9,13 @@ mount/
 /vendor/
 /cctk-source/
 cctk.exe
+# DCC 4.0+ DCH API DLLs that ship alongside cctk.exe (build_boot_wim.ps1
+# refuses to embed a CCTK tree missing these — they're equally non-
+# redistributable Dell binaries).
+dchapi64.dll
+dchbas64.dll
+BIOSIntf.dll
+# Legacy HAPI driver (pre-DCC 4.0 only; kept for older trees).
 hapint*.sys
 hapint*.inf
 *.wim

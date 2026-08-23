@@ -33,6 +33,26 @@ jobs:
         shell: pwsh
         run: ./tests/test_disk_enumeration.ps1
 
+      - name: Run BitLocker setup script tests
+        shell: pwsh
+        run: ./tests/test_bitlocker_setup.ps1
+
+      - name: Run CCTK config-selection tests
+        shell: pwsh
+        run: ./tests/test_cctk_selection.ps1
+
+      - name: Run disk-size validation tests
+        shell: pwsh
+        run: ./tests/test_disk_size_check.ps1
+
+      - name: Run DISM exit-code guidance tests
+        shell: pwsh
+        run: ./tests/test_dism_exitcodes.ps1
+
+      - name: Run whitelist loader tests
+        shell: pwsh
+        run: ./tests/test_whitelist_loader.ps1
+
   pester:
     name: Pester validation-gate smoke tests
     runs-on: windows-latest
@@ -144,6 +164,21 @@ jobs:
           for f in CHANGELOG.md CLAUDE.md README.md; do
             if grep -q "$ver" "$f"; then echo "OK: $f"; else echo "FAIL: $f missing $ver"; fail=1; fi
           done
+          # Independently verify the .VERSION block's top entry (in the
+          # script's own header comment) matches $Script:Config.ScriptVersion.
+          # CLAUDE.md lists the .VERSION block as one of four places that
+          # must match; a stale top entry would otherwise drift silently
+          # because grep -q above only scans CHANGELOG / CLAUDE / README.
+          hdr_ver=$(awk '/^\.VERSION/{flag=1; next} flag && /^[[:space:]]+[0-9]+\.[0-9]+/{match($0, /[0-9]+\.[0-9]+\.[0-9]+/); print substr($0, RSTART, RLENGTH); exit}' unified_winpe_deploy.ps1)
+          if [ -z "$hdr_ver" ]; then
+            echo "FAIL: could not extract version from .VERSION block in script header"
+            fail=1
+          elif [ "$hdr_ver" = "$ver" ]; then
+            echo "OK: .VERSION block top entry matches ($hdr_ver)"
+          else
+            echo "FAIL: .VERSION block top entry ($hdr_ver) != ScriptVersion ($ver)"
+            fail=1
+          fi
 
           echo ""
           echo "=== 2. Cross-doc script coverage ==="
@@ -200,6 +235,26 @@ jobs:
           echo "=== 7. .EXAMPLE paths use I:\\images\\ ==="
           bad=$(grep -A 10 '\.EXAMPLE' unified_winpe_deploy.ps1 scripts/prepare_wim.ps1 scripts/build_boot_wim.ps1 | grep 'images\\' | grep -v 'I:\\images\\' || true)
           if [ -n "$bad" ]; then echo "FAIL:"; echo "$bad"; fail=1; else echo "OK"; fi
+
+          echo ""
+          echo "=== 27. configs/unattend.example.xml is well-formed ==="
+          # The deploy script validates the operator's -UnattendFile at
+          # runtime (see docs/UNATTEND.md section 6), but the *example*
+          # file that README / UNATTEND.md tell users to copy has no such
+          # check. If it drifts (unclosed tag, bad attribute, encoding
+          # slip), a naive copy silently falls through to manual OOBE at
+          # first boot after the target is already wiped.
+          # Parsed with python3 (always present on ubuntu-latest) rather than
+          # xmllint, which is NOT installed on the runner and made this check
+          # fail with "xmllint: command not found" regardless of the file.
+          xml=configs/unattend.example.xml
+          if python3 -c "import sys,xml.dom.minidom as m; m.parse(sys.argv[1])" "$xml" 2>/tmp/xml-err; then
+            echo "OK"
+          else
+            echo "FAIL: $xml is not well-formed XML"
+            cat /tmp/xml-err
+            fail=1
+          fi
 
           exit $fail
 
@@ -320,10 +375,18 @@ jobs:
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: exit-code chain broken"; fail=1; fi
 
           echo ""
-          echo "=== 19. Safety confirmation strings present (DELETE ALL DATA, DESTROY SYSTEM) ==="
+          echo "=== 19. Safety confirmation strings present (ERASE, DELETE ALL DATA, DESTROY SYSTEM, WIPE ALL, CONTINUE ANYWAY) ==="
+          # The deploy script uses five typed-confirmation strings that gate
+          # destructive or environment-override paths. WIPE DATA is verified
+          # separately by check #22. Removing any of the five below would
+          # weaken the corresponding gate (target-disk wipe, system-disk
+          # wipe, additional-wipe group, non-WinPE override) without
+          # producing a parse error, PSSA warning, or Pester failure - the
+          # Pester coverage for Test-FinalWipeConfirmation (PR #174) exercises
+          # the parser, not the prompt string itself.
           ok=1
-          for s in 'DELETE ALL DATA' 'DESTROY SYSTEM'; do
-            grep -qF "$s" $script || { echo "  missing: '$s'"; ok=0; }
+          for s in 'ERASE' 'DELETE ALL DATA' 'DESTROY SYSTEM' 'WIPE ALL' 'CONTINUE ANYWAY'; do
+            grep -qF "'$s'" $script || { echo "  missing: '$s'"; ok=0; }
           done
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: confirmation strings drifted"; fail=1; fi
 
@@ -338,6 +401,12 @@ jobs:
           grep -qE 'BitLockerPin\s*=\s*\$null' $script || { echo "  BitLockerPin default is not \$null"; ok=0; }
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: BitLocker / data-disk defaults drifted on"; fail=1; fi
 
+          # NOTE: check #21 (ForbiddenBitLockerPins list) was intentionally
+          # removed in PR #49 along with the forbidden-list itself; PIN
+          # content policy is the admin's call, only the Windows 6-20 char
+          # window is enforced. Numbering is preserved (no renumber) so
+          # historical CHANGELOG and PR references to specific check
+          # numbers stay unambiguous.
           echo ""
           echo "=== 22. WIPE DATA typed confirmation present, gated by -Force only ==="
           # The data-disk format MUST go through a typed prompt; -Force may
@@ -366,11 +435,16 @@ jobs:
           # The per-USB deploy.args mechanism: operator can retarget a USB
           # without rebuilding boot.wim. A refactor that removes the
           # startnet.cmd lookup would silently regress every operator's
-          # config without surfacing a build-time error.
+          # config without surfacing a build-time error. Accept either
+          # `set /p DEPLOYARGS` (original single-line read) or
+          # `for /f ... deploy.args` (the comment-skipping form). Binding to
+          # one CMD construct made this check fail any time the implementation
+          # detail changed, even when the semantic invariant ("the file is
+          # actually read") still held.
           builder=scripts/build_boot_wim.ps1
           ok=1
           grep -qF 'deploy.args' $builder || { echo "  startnet.cmd no longer references deploy.args"; ok=0; }
-          grep -qF 'set /p DEPLOYARGS' $builder || { echo "  startnet.cmd no longer reads deploy.args via set /p"; ok=0; }
+          grep -qE 'set /p DEPLOYARGS|for /f.*deploy\.args' $builder || { echo "  startnet.cmd no longer reads deploy.args (neither 'set /p DEPLOYARGS' nor 'for /f ... deploy.args' found)"; ok=0; }
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: deploy.args wiring drifted"; fail=1; fi
 
           echo "=== 25. build_boot_wim.ps1 startnet.cmd does not echo raw deploy.args ==="
@@ -386,6 +460,26 @@ jobs:
           else
             echo "OK"
           fi
+
+          echo "=== 27. build_iso.ps1 redacts BitLockerPin from console echo ==="
+          # Same principle as check 25 (startnet.cmd redaction, PR #42):
+          # the build_iso.ps1 console echo of the generated deploy.args
+          # line must redact -BitLockerPin so an admin building an ISO
+          # in a shared terminal, screencast, or CI-captured build log
+          # does not leak the embedded PIN. The file on disk still has
+          # the real PIN (deploy needs it) - it is only the stdout echo
+          # that gets the substitution.
+          iso=scripts/build_iso.ps1
+          ok=1
+          # Must apply a redaction substitution on the args line before echoing
+          grep -qE '\$argsDisplay\s*=\s*\$argsLine\s*-replace' $iso || { echo "  PIN redaction substitution missing"; ok=0; }
+          grep -qF '<redacted>' $iso || { echo "  redaction marker missing"; ok=0; }
+          # Must not Write-Host the unredacted $argsLine directly
+          if grep -qE 'Write-Host\s+"[^"]*\$argsLine' $iso; then
+            echo "  Write-Host echoes raw \$argsLine (would leak PIN)"
+            ok=0
+          fi
+          if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: build_iso.ps1 PIN redaction drifted"; fail=1; fi
 
           echo "=== 26. BitLocker PIN prompt exists and is silent-gated ==="
           # The TUI PIN prompt (-EnableBitLocker without -BitLockerPin in
@@ -404,5 +498,38 @@ jobs:
             ok=0
           fi
           if [ "$ok" -eq 1 ]; then echo "OK"; else echo "FAIL: BitLocker TUI PIN prompt drifted"; fail=1; fi
+
+          echo "=== 27. build_boot_wim.ps1 startnet.cmd substitutes {DRIVE} placeholder ==="
+          # build_iso.ps1 emits deploy.args with paths like "{DRIVE}\images\..."
+          # so the same ISO works regardless of which letter WinPE assigns
+          # the USB at boot. startnet.cmd substitutes the placeholder with
+          # %DEPLOY_IMAGE_DRIVE% before launching the deploy script. A
+          # refactor that drops the substitution would silently break every
+          # ISO built by build_iso.ps1 - PowerShell would receive the
+          # literal "{DRIVE}\images\..." and fail to find the image.
+          builder=scripts/build_boot_wim.ps1
+          if grep -qE 'DEPLOYARGS:\{DRIVE\}=%DEPLOY_IMAGE_DRIVE%' $builder; then
+            echo "OK"
+          else
+            echo "FAIL: startnet.cmd no longer substitutes {DRIVE} - build_iso.ps1 ISOs will fail at runtime"
+            fail=1
+          fi
+
+          echo ""
+          echo "=== 28. All Start-Process invocations use -NoNewWindow ==="
+          # Silent stderr loss: -WindowStyle Hidden (or no window flag) makes an
+          # external process's stderr disappear into the void, so a diskpart /
+          # dism / bcdboot failure logs only "exit code N" with no explanation.
+          # An earlier fix corrected exactly this on bcdboot; catch a
+          # re-regression on any of the three destructive binaries (diskpart,
+          # dism, bcdboot) or a new call added later.
+          bad_sp=$(grep -n 'Start-Process' $script | grep -v -- '-NoNewWindow' || true)
+          if [ -z "$bad_sp" ]; then
+            echo "OK"
+          else
+            echo "FAIL: Start-Process without -NoNewWindow (stderr silently lost):"
+            echo "$bad_sp"
+            fail=1
+          fi
 
           exit $fail

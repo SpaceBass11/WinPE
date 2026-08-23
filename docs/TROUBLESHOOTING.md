@@ -153,16 +153,28 @@ boot files"), then a diagnostics block with:
 
 - whether `C:\Windows\Boot\EFI\bootmgfw.efi` exists (bcdboot's source file)
 - whether `S:` is mounted and how much free space it has
-- the three common-cause reminders below
+- **Most likely cause based on diagnostics above:** a single verdict line
+  that picks between the symptoms below using the evidence collected —
+  so you get one next step instead of scanning a menu
 
-**Common causes:**
+**Exit code arms** (bcdboot mostly returns 0/1; the extras below are Win32
+error codes it passes through from underlying APIs):
 
-| Symptom | Likely cause |
-|---------|--------------|
-| `C:\Windows\Boot\EFI\bootmgfw.efi` not found | WIM is non-bootable / capture-only, or wrong CPU architecture (x86 vs x64 vs ARM64) |
-| `S:` not mounted | EFI partition lost its letter; re-assign in diskpart |
-| `S:` very low on free space | EFI partition was reformatted as too-small or non-FAT32 |
-| `/f UEFI` rejected | Firmware is in Legacy/CSM mode — switch to UEFI, or use BIOS-mode tooling instead (this script is UEFI-only) |
+| Exit | Meaning | What the script surfaces |
+|------|---------|--------------------------|
+| 0 | Success | `Boot configuration completed` and returns |
+| 1 | Generic failure | Evidence-based verdict — see the symptom table below |
+| 5 | Access denied | `S:` not writable, or another process has the BCD store locked |
+| 87 | Invalid parameter | Script passed bad args to bcdboot (script bug) — capture console output for triage |
+
+**Symptom table (used to pick the exit-1 verdict):**
+
+| Symptom | Verdict the script picks |
+|---------|--------------------------|
+| `bootmgfw.efi` not found | Non-bootable / capture-only WIM, or wrong CPU architecture (x86 vs x64 vs ARM64) |
+| `S:` not mounted | EFI partition lost its letter between diskpart and bcdboot — re-assign in diskpart and retry |
+| `S:` free space < 30 MB | EFI partition was reformatted smaller (script provisions 300 MB) |
+| All evidence looks healthy | Firmware in Legacy/CSM mode (script targets `/f UEFI`), architecture mismatch, or BCD template on the WIM is corrupt — see bcdboot stderr above for the exact failure point |
 
 **Fix:**
 1. Verify the EFI partition was created and assigned letter S:
@@ -257,8 +269,10 @@ If CCTK silently skips (`No CCTK config matched`), check that:
 - The directory contains at least one of `<SERVICETAG>.ini`,
   `<MODEL>.ini`, or `default.ini`
 - `Win32_BIOS.SerialNumber` (your service tag) and `Win32_ComputerSystem.Model`
-  match what you expect — run `wmic bios get serialnumber` and
-  `wmic computersystem get model` from a WinPE shell to verify.
+  match what you expect — from a WinPE PowerShell prompt, run
+  `(Get-WmiObject Win32_BIOS).SerialNumber` and
+  `(Get-WmiObject Win32_ComputerSystem).Model` to verify. (`wmic` was
+  deprecated in Windows 10 21H1 and is not shipped in WinPE.)
 
 See `docs/CCTK.md` for full configuration details.
 
@@ -326,6 +340,21 @@ list partition
 detail disk
 ```
 
+### Reading the deploy log after reboot
+
+The session log is written to `X:\Windows\Temp\deploy_YYYYMMDD_HHMMSS.log`
+during the deploy. `X:` is the WinPE RAM disk and disappears on reboot,
+so once DISM has applied the image the script also copies the log to
+`C:\Windows\Panther\WinPE-Deploy\deploy_YYYYMMDD_HHMMSS.log` on the
+target. That copy survives into the deployed OS and can be inspected
+post-first-boot as a provenance artifact (same folder Windows Setup
+uses for its own logs and where the unattend.xml lands).
+
+If `C:\Windows\Panther\WinPE-Deploy\` is empty after a deploy, the
+failure happened before DISM apply — check `X:\Windows\Temp\` in the
+still-running WinPE session (or re-boot to WinPE and inspect the
+target disk directly with a live tool).
+
 ## Known Caveats
 
 These are intentional design choices or environmental constraints, not
@@ -333,8 +362,13 @@ bugs. For a list of what's recently changed, see
 [CHANGELOG.md](../CHANGELOG.md).
 
 ### PowerShell runtime required for validation
-`tests/test_parse.ps1` requires `pwsh` on PATH. Run it from
-WinPE/Windows or any runner with PowerShell installed.
+The four repo test files (`tests/test_parse.ps1`,
+`tests/test_wim_parser.ps1`, `tests/test_disk_enumeration.ps1`, and
+the Pester `tests/validation-gates.Tests.ps1`) all require `pwsh` on
+PATH. Run them from WinPE/Windows or any runner with PowerShell
+installed. The Pester suite additionally needs Pester v5+ (bundled
+with `windows-latest` GitHub runners; see `CLAUDE.md` for the local
+install caveat).
 
 ### USB disks are excluded from target selection
 External USB SSDs/HDDs are filtered out of the target-disk list and the

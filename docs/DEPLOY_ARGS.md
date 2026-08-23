@@ -35,6 +35,11 @@ if defined DEPLOY_IMAGE_DRIVE (
         echo   Parameters loaded. Secrets, if present, are not displayed.
     )
 )
+if defined DEPLOY_IMAGE_DRIVE (
+    if defined DEPLOYARGS (
+        set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"
+    )
+)
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
 ```
 
@@ -44,8 +49,47 @@ PIN or other secret in the file does not appear on the WinPE
 console, KVM, or any over-the-shoulder view. To inspect the args,
 read the file from the IMAGES partition directly.
 
+## Drive-letter placeholder — `{DRIVE}`
+
+The literal token `{DRIVE}` anywhere in `deploy.args` is substituted
+with the IMAGES partition's drive letter (`%DEPLOY_IMAGE_DRIVE%`,
+including the trailing colon — e.g. `I:`) before the args are
+handed to PowerShell. So:
+
+```text
+-WimFile "{DRIVE}\images\Win11_Pro.wim" -UnattendFile "{DRIVE}\configs\unattend.xml" -Force -Silent
+```
+
+becomes, at boot:
+
+```text
+-WimFile "I:\images\Win11_Pro.wim" -UnattendFile "I:\configs\unattend.xml" -Force -Silent
+```
+
+Use `{DRIVE}` when you don't know — or don't want to hardcode —
+which letter WinPE will assign the USB. That is the normal case
+for the single-ISO workflow: `build_iso.ps1` generates its
+`deploy.args` with `{DRIVE}\...` paths for exactly this reason,
+so the same ISO works on any host regardless of how WinPE lays
+out drive letters. The two-partition USB workflow can hardcode
+letters if the operator has verified them on the target hardware,
+but `{DRIVE}` works there too.
+
+Substitution is a literal text replace — the token must be
+capitalized exactly (`{DRIVE}`, not `{drive}`), and no other
+placeholders are recognized.
+
 ## Constraints
 
+- **Line 1 is the only line that matters.** `set /p` reads exactly
+  the first line of the file. Anything on subsequent lines — even
+  `::` comments or blank lines — is inert data, not a fallback.
+  In particular, if line 1 is a `::` comment, the deploy will
+  fail at boot: PowerShell rejects `::` as a positional argument
+  before touching disk. The shipped `configs/deploy.args.example`
+  is structured so a verbatim copy puts a valid interactive-TUI
+  args line on line 1; alternative profiles live in commented
+  reference blocks below that you swap onto line 1 to activate.
 - **Single line.** `set /p` reads only the first line of the file.
   If you need more parameters than fit on one line, stop using
   `deploy.args` and rebuild `boot.wim` with a customized
@@ -54,9 +98,24 @@ read the file from the IMAGES partition directly.
   double quotes. PowerShell re-parses the args on its end so the
   normal `-Param "value"` pattern works.
 - **No environment-variable expansion** beyond what cmd.exe and
-  startnet.cmd already set (notably `%DEPLOY_IMAGE_DRIVE%` is
-  available, but the example uses absolute drive letters because
-  those are stable on the IMAGES USB).
+  startnet.cmd already set. The path-portability tool is the
+  `{DRIVE}` token described above; `%DEPLOY_IMAGE_DRIVE%` is used by
+  `startnet.cmd` itself to perform that substitution and is not
+  expanded a second time inside `deploy.args`.
+- **Save as ASCII (or UTF-8 without BOM).** `set /p` reads the file
+  byte-for-byte and passes the result straight to PowerShell. A
+  UTF-8 BOM at the top of the file (Windows PowerShell 5.1's
+  `Set-Content -Encoding UTF8` default, older Notepad, VS Code's
+  "UTF-8 with BOM") ends up glued to the first `-` character, and
+  PowerShell aborts with an opaque `A parameter cannot be found that
+  matches parameter name` error against something that reads
+  correctly on screen. `scripts/build_iso.ps1` writes its generated
+  `deploy.args` as ASCII already; hand-authored files should match.
+  Safe recipes:
+  - PowerShell 5.1: `Set-Content -Path deploy.args -Encoding ASCII -Value '...'`
+  - PowerShell 7+:  `Set-Content -Path deploy.args -Encoding utf8NoBOM -Value '...'`
+  - Notepad (Win 10 1903+): the default "UTF-8" saves without BOM.
+    "UTF-8 with BOM" is the wrong menu entry.
 
 ## Security caveat — same as CCTK
 
@@ -107,3 +166,8 @@ files for `-TargetDisk 0` (production single-disk) vs `-TargetDisk
 - **File missing or empty.** `startnet.cmd` falls back to launching
   the script without args (interactive TUI). Not a failure — that's
   the documented default.
+- **Both `-WimFile` and `-ImagePath` in the same args line.** The
+  deploy script uses single-file mode and ignores `-ImagePath`. It
+  logs a warning at start so the drop isn't silent, but the safer
+  fix is to pick one: `-WimFile` for a specific image, `-ImagePath`
+  to scan a directory for candidates.

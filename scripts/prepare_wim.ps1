@@ -43,10 +43,12 @@
     to see available names. Ignored if -Index is given.
 
 .PARAMETER Index
-    Numeric index to pick from the source WIM (overrides -Edition).
+    Numeric index to pick from the source (overrides -Edition).
     Useful for captured WIMs that don't use standard edition names, or
-    when you want to be explicit. If neither -Edition nor -Index is
-    given and the source is a captured WIM, defaults to index 1.
+    when you want to be explicit. Honored for ISOs containing either
+    install.wim or install.esd, and for -SourceWim. If neither -Edition
+    nor -Index is given and the source is a captured WIM, defaults to
+    index 1.
 
 .PARAMETER WorkDir
     Temporary working directory for ISO mount, WIM mount, and scratch.
@@ -193,6 +195,14 @@ if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
         throw "SourceIso not found: $SourceIso"
     }
     $SourceIso = (Resolve-Path $SourceIso).Path
+    # Mount-DiskImage accepts .iso / .img / .vhd(x); Windows install media
+    # ships as .iso. Reject anything else up front so a mistyped -SourceIso
+    # (e.g. a .wim passed to the wrong parameter) fails with a clear error
+    # instead of a confusing "The disk image file is corrupted" from
+    # Mount-DiskImage. Mirrors the -SourceWim extension check below.
+    if ([IO.Path]::GetExtension($SourceIso) -notin '.iso') {
+        throw "SourceIso must have a .iso extension (got: $SourceIso). Did you mean -SourceWim?"
+    }
 } else {
     if (-not (Test-Path $SourceWim -PathType Leaf)) {
         throw "SourceWim not found: $SourceWim"
@@ -200,6 +210,20 @@ if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
     $SourceWim = (Resolve-Path $SourceWim).Path
     if ([IO.Path]::GetExtension($SourceWim) -notin '.wim','.esd') {
         throw "SourceWim must have a .wim or .esd extension (got: $SourceWim)"
+    }
+    # Guard against -OutputWim resolving to the same file as -SourceWim.
+    # The export step below deletes $OutputWim before writing the customized
+    # copy (Remove-Item + Export-WindowsImage), so an in-place refresh would
+    # lose the original if the export fails between the two calls. Reject
+    # up front instead of destructively re-using the source path.
+    $fsCwd = (Get-Location -PSProvider FileSystem).ProviderPath
+    $normalizedOut = if ([IO.Path]::IsPathRooted($OutputWim)) {
+        [IO.Path]::GetFullPath($OutputWim)
+    } else {
+        [IO.Path]::GetFullPath([IO.Path]::Combine($fsCwd, $OutputWim))
+    }
+    if ($normalizedOut -ieq $SourceWim) {
+        throw "OutputWim resolves to the same path as SourceWim ($SourceWim). Refreshing a WIM in place is not supported - the destination is deleted before the customized copy is written, so an aborted run would lose the source. Point -OutputWim at a different path."
     }
 }
 
@@ -215,19 +239,43 @@ if ($DriverPath) {
     Write-Step "Driver injection: found $infCount .inf file(s) under $DriverPath"
 }
 
+# Reject output extensions the deploy script wouldn't recognize.
+# unified_winpe_deploy.ps1's Find-ImageFiles filters by *.wim/*.esd and
+# its -WimFile gate rejects anything else, so a stray -OutputWim foo.txt
+# here would produce a file no downstream step can pick up.
+if ([IO.Path]::GetExtension($OutputWim) -notin '.wim','.esd') {
+    throw "OutputWim must have a .wim or .esd extension (got: $OutputWim)"
+}
+
 $outputDir = Split-Path -Parent $OutputWim
 if ($outputDir -and -not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 
-# Load whitelist from file if given
+# Load whitelist from file if given.
+# Trim first, then filter — a whitespace-only line ('   ') is truthy in
+# PowerShell and passes '$_ -and', so trimming before filtering is what
+# actually drops it. Wrap in @() so a single-entry file becomes an array,
+# not a bare string (matters for .Count / -contains downstream).
 if ($WhitelistFile) {
     if (-not (Test-Path $WhitelistFile -PathType Leaf)) {
         throw "WhitelistFile not found: $WhitelistFile"
     }
-    $Whitelist = Get-Content $WhitelistFile |
-        Where-Object { $_ -and $_ -notmatch '^\s*#' } |
-        ForEach-Object { $_.Trim() }
+    $Whitelist = @(Get-Content $WhitelistFile |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and $_ -notmatch '^#' })
+    # Reject an effectively-empty whitelist. Otherwise -contains on the
+    # empty array below matches nothing and the debloat loop removes EVERY
+    # provisioned AppX package (Store, Terminal, Photos, Camera, Notepad,
+    # security health, ...) - a silent "fail open to worst case".
+    if ($Whitelist.Count -eq 0) {
+        throw @"
+WhitelistFile '$WhitelistFile' has no usable entries - only blank lines and/or '#' comments.
+An empty whitelist would remove EVERY provisioned AppX package (Store, Terminal, Photos,
+Camera, Notepad, security health, codecs). Add at least one DisplayName to the file, or
+omit -WhitelistFile to fall back to the built-in default whitelist.
+"@
+    }
     Write-Step "Loaded $($Whitelist.Count) whitelist entries from $WhitelistFile"
 }
 
@@ -276,18 +324,37 @@ if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
             Copy-Item -Path $isoWim -Destination $baseWim -Force
             Write-Ok "Copied install.wim to $baseWim"
         } elseif (Test-Path $isoEsd) {
-            # Some retail ISOs ship an ESD - export the requested edition out
+            # Some retail ISOs ship an ESD - export the requested edition out.
+            # ESDs collapse to one image per Export-WindowsImage call, so the
+            # caller's -Index/-Edition gets honored HERE rather than in step 2
+            # (after export there's only one image to pick from, and its index
+            # would no longer match the caller's intent).
             Write-Step "ISO has install.esd (not .wim) - converting via Export-WindowsImage"
             $esdImages = Get-WindowsImage -ImagePath $isoEsd
-            $esdMatch = $esdImages | Where-Object { $_.ImageName -eq $Edition } | Select-Object -First 1
-            if (-not $esdMatch) {
-                $available = ($esdImages.ImageName -join ', ')
-                throw "Edition '$Edition' not found in install.esd. Available: $available"
+            if ($PSBoundParameters.ContainsKey('Index')) {
+                # -Index overrides -Edition per the .PARAMETER Index docstring.
+                $esdMatch = $esdImages | Where-Object { $_.ImageIndex -eq $Index } | Select-Object -First 1
+                if (-not $esdMatch) {
+                    $available = ($esdImages | ForEach-Object { "  $($_.ImageIndex): $($_.ImageName)" }) -join "`n"
+                    throw "Index $Index not found in install.esd. Available:`n$available"
+                }
+            } else {
+                $esdMatch = $esdImages | Where-Object { $_.ImageName -eq $Edition } | Select-Object -First 1
+                if (-not $esdMatch) {
+                    $available = ($esdImages.ImageName -join ', ')
+                    throw "Edition '$Edition' not found in install.esd. Available: $available"
+                }
             }
+            # Label the exported WIM by its actual image name so an -Index 3
+            # export of 'Windows 11 Pro' isn't mislabeled as the $Edition default.
             Export-WindowsImage -SourceImagePath $isoEsd -SourceIndex $esdMatch.ImageIndex `
-                -DestinationImagePath $baseWim -DestinationName $Edition `
+                -DestinationImagePath $baseWim -DestinationName $esdMatch.ImageName `
                 -ScratchDirectory $scratchDir -CheckIntegrity | Out-Null
-            Write-Ok "Exported $Edition from install.esd"
+            Write-Ok "Exported '$($esdMatch.ImageName)' (ESD index $($esdMatch.ImageIndex)) from install.esd"
+            # The exported WIM has exactly one image at index 1. Tell step 2 to
+            # use it directly rather than re-resolving via -Index/-Edition - the
+            # caller's -Index N referred to the ESD, not the resulting baseWim.
+            $esdPreselected = $true
         } else {
             throw "Neither sources\install.wim nor install.esd found on ISO"
         }
@@ -312,15 +379,22 @@ if ($PSCmdlet.ParameterSetName -eq 'FromIso') {
 }
 
 # Step 2: identify which index in the base WIM to customize. Precedence:
-#   1. -Index, if given (overrides everything else)
-#   2. -Edition name match, if explicit or the source is an ISO
-#   3. For captured WIMs without explicit selection: default to index 1
+#   1. ESD source already pinned a single image at step 1 - use it
+#   2. -Index, if given (overrides everything else)
+#   3. -Edition name match, if explicit or the source is an ISO
+#   4. For captured WIMs without explicit selection: default to index 1
 Write-Step "Inspecting $baseWim"
 $baseImages = Get-WindowsImage -ImagePath $baseWim
 $indexGiven   = $PSBoundParameters.ContainsKey('Index')
 $editionGiven = $PSBoundParameters.ContainsKey('Edition')
 
-if ($indexGiven) {
+if ($esdPreselected) {
+    # The ESD branch in step 1 already picked the right image and
+    # collapsed the export down to it; re-resolving here would mismatch
+    # because $Index referred to the ESD, not the resulting baseWim.
+    $target = $baseImages | Select-Object -First 1
+    Write-Ok "Using '$($target.ImageName)' (single image extracted from ESD)"
+} elseif ($indexGiven) {
     $target = $baseImages | Where-Object { $_.ImageIndex -eq $Index } | Select-Object -First 1
     if (-not $target) {
         $available = ($baseImages | ForEach-Object { "  $($_.ImageIndex): $($_.ImageName)" }) -join "`n"
@@ -382,8 +456,19 @@ try {
             throw "Offline SOFTWARE hive not found at $softwareHive"
         }
         $hiveKey = 'HKLM\WimPrepSoftware'
-        & reg.exe load $hiveKey $softwareHive | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "reg load failed (exit $LASTEXITCODE)" }
+        # Capture reg.exe output so a non-zero exit code can be paired with
+        # the actual diagnostic (file locked, access denied, hive corrupt,
+        # wrong format). reg.exe's exit codes are undocumented — the bare
+        # integer alone is opaque. Matches the pattern in first-login.ps1.
+        $loadOutput = & reg.exe load $hiveKey $softwareHive 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $loadMsg = ($loadOutput | Out-String).Trim()
+            if ($loadMsg) {
+                throw "reg load failed (exit $LASTEXITCODE): $loadMsg"
+            } else {
+                throw "reg load failed (exit $LASTEXITCODE)"
+            }
+        }
         try {
             # Each entry: <subkey under hiveKey>, <value name>, <DWORD>, <human label>
             $tweaks = @()
@@ -414,15 +499,29 @@ try {
                 $subkey, $name, $value, $label = $t
                 $full = "$hiveKey\$subkey"
                 & reg.exe add $full /f | Out-Null
-                & reg.exe add $full /v $name /t REG_DWORD /d $value /f | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "reg add $name failed (exit $LASTEXITCODE)" }
+                $addOutput = & reg.exe add $full /v $name /t REG_DWORD /d $value /f 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    $addMsg = ($addOutput | Out-String).Trim()
+                    if ($addMsg) {
+                        throw "reg add $name failed (exit $LASTEXITCODE): $addMsg"
+                    } else {
+                        throw "reg add $name failed (exit $LASTEXITCODE)"
+                    }
+                }
                 Write-Ok "  $label"
             }
         } finally {
             [gc]::Collect()
             [gc]::WaitForPendingFinalizers()
-            & reg.exe unload $hiveKey | Out-Null
-            if ($LASTEXITCODE -ne 0) { Write-Warn "reg unload returned $LASTEXITCODE - may need a reboot" }
+            $unloadOutput = & reg.exe unload $hiveKey 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                $unloadMsg = ($unloadOutput | Out-String).Trim()
+                if ($unloadMsg) {
+                    Write-Warn "reg unload returned $LASTEXITCODE - may need a reboot: $unloadMsg"
+                } else {
+                    Write-Warn "reg unload returned $LASTEXITCODE - may need a reboot"
+                }
+            }
         }
     }
 

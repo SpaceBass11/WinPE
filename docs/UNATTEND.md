@@ -38,10 +38,10 @@ function Get-UnattendPassword {
 }
 
 # Examples — replace with your real passwords
-Get-UnattendPassword -Plaintext 'L0-Tech-P@ss!'      # Level 0
-Get-UnattendPassword -Plaintext 'L1-Tech-P@ss!'      # Level 1
-Get-UnattendPassword -Plaintext 'L2-Tech-P@ss!'      # Level 2
-Get-UnattendPassword -Plaintext 'Admin-P@ss-2025!'   # DERP_Admin
+Get-UnattendPassword -Plaintext 'L0-Tech-P@ss!'      # TechL0
+Get-UnattendPassword -Plaintext 'L1-Tech-P@ss!'      # TechL1
+Get-UnattendPassword -Plaintext 'L2-Tech-P@ss!'      # TechL2
+Get-UnattendPassword -Plaintext 'Admin-P@ss-2025!'   # LocalAdmin
 ```
 
 Each call prints one base64 string. Copy each output into the matching
@@ -61,9 +61,9 @@ Edit `<Name>` and `<DisplayName>` to match your fleet:
 
 ```xml
 <LocalAccount wcm:action="add">
-  <Name>DERP_Admin</Name>
+  <Name>LocalAdmin</Name>
   <Group>Administrators</Group>
-  <DisplayName>DERP Admin</DisplayName>
+  <DisplayName>Local Admin</DisplayName>
   <Password>
     <Value>PASTE_BASE64_HERE</Value>
     <PlainText>false</PlainText>
@@ -88,7 +88,7 @@ FirstLogonCommands can run, then reverts to normal lock-screen prompts.
 
 ```xml
 <AutoLogon>
-  <Username>DERP_Admin</Username>
+  <Username>LocalAdmin</Username>
   <Password>
     <Value>SAME_BASE64_AS_THE_ACCOUNT_ABOVE</Value>
     <PlainText>false</PlainText>
@@ -127,7 +127,7 @@ Common values: `Eastern Standard Time`, `Mountain Standard Time`,
 Quick sanity-check before deploying:
 
 ```powershell
-[xml](Get-Content I:\configs\unattend.xml)
+[xml](Get-Content -Path I:\configs\unattend.xml -Raw)
 ```
 
 If that throws, you have a syntax error (usually an unclosed tag or a

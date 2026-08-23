@@ -8,6 +8,75 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Added
+- **v4.8.0 — backlog consolidation.** Between 2026-05-24 and 2026-08-22 an
+  unattended maintenance routine opened 251 pull requests that were never
+  merged. Every one of them also appended to `CHANGELOG.md` and
+  `docs/claude-routine-log.md` at the same anchor, so merging any single PR
+  conflicted the other 250 and the queue deadlocked. Those 251 PRs
+  de-duplicate to ~115 distinct topics (roughly 2.3x repetition — eight PRs
+  fixed the same stale `unattend.example.xml` comment, eight added the same
+  `Test-FinalWipeConfirmation` test). This release re-lands the substantive
+  ones as reviewed commits and drops the duplicates, the 22 no-op
+  routine-log entries, and the per-PR log churn that caused the deadlock.
+
+  New fixture suites: `tests/test_cctk_selection.ps1`,
+  `tests/test_disk_size_check.ps1`, `tests/test_dism_exitcodes.ps1`,
+  `tests/test_whitelist_loader.ps1` — all wired into the CI `syntax` job,
+  bringing the local-runnable suite count to eight (266 assertions).
+
+### Fixed
+- **`Select-AdditionalWipeDisks` excluded system disks from the extra-wipe
+  pool.** A single `WIPE ALL` confirmation could clean the running system
+  disk without the `DESTROY SYSTEM` typed prompt that `Select-TargetDisk`
+  enforces for the primary target. No-op inside WinPE (`IsSystemDisk` is
+  always `$false` there); closes the non-WinPE `CONTINUE ANYWAY` path.
+- **Deploy now aborts when the WIM source disk is in the wipe set.**
+  `New-DiskpartScript` already protected the source *drive letter* from
+  `mountvol /d`, but diskpart `clean` on the underlying physical disk would
+  still destroy the WIM before DISM could read it, leaving a partitioned but
+  empty target. New `Get-DiskNumberForDriveLetter` resolves the hosting disk
+  via WMI associators; USB-hosted WIMs and unresolvable letters (WinPE's X:
+  RAM disk) skip the guard.
+- **Silent write failures in two destructive paths.** `Set-Content` without
+  `-ErrorAction Stop` is non-terminating: a truncated diskpart script could
+  execute `select disk 0; clean` without ever reaching `create partition`,
+  and `Initialize-BitLockerSetup` could return `$true` having staged nothing,
+  leaving the machine to boot unencrypted with no signal. Both now fail loudly.
+- **`first-login.ps1` OneDrive uninstall could hang OOBE indefinitely.**
+  `Start-Process -Wait` had no timeout; bounded to 120 s with a kill and a
+  warning naming the manual re-run.
+- **CI link-check had been red on every push since the pinned lychee action
+  auto-updated.** `.lychee.toml` used `include_fragments`, which lychee ≥ 0.24
+  rejects as a config-file key, failing the job at config-load time before
+  examining a single link. Not checking fragments is the default, so the key
+  is simply gone.
+
+### Changed
+- **BitLocker input validation tightened.** PINs with leading/trailing
+  whitespace are rejected in both the deploy script and `build_iso.ps1` — the
+  pre-Windows PIN prompt is a hidden field, so an edge space produces a disk
+  the operator cannot unlock by PIN. `-BitLockerKeyPath` must now be
+  drive-qualified or UNC (it is embedded verbatim into the first-boot script,
+  where a relative path resolves against the first-boot CWD).
+  `build_iso.ps1` gained the 6-20 length pre-check so a malformed PIN fails
+  on the admin's machine rather than after the ISO ships.
+- **Builder guards.** `build_boot_wim.ps1` refuses `-UsbDrive` equal to
+  `$env:SystemDrive`, and both builders refuse `-Clean` against a drive or
+  UNC share root. The deploy script is now copied to a fixed destination name
+  so a `-DeployScript` with any other filename still matches the hardcoded
+  path in `startnet.cmd`.
+- **`build_iso.ps1` rejects a multi-index WIM for silent-destructive ISOs** —
+  `-Silent` refuses to guess an edition and would abort at the end user's boot.
+- **New masterize check #27** pins `-NoNewWindow` on every `Start-Process`,
+  so a diskpart/dism/bcdboot failure can never lose its stderr again.
+- **Two contradictory automation changes reconciled.** One PR removed the
+  `$LASTEXITCODE` gate after `& $prepScript` in `refresh_usb.ps1` (correctly:
+  `prepare_wim.ps1` sets `$ErrorActionPreference='Stop'` and throws, while
+  `$LASTEXITCODE` reflects `reg.exe unload`, which returns non-zero on benign
+  handle warnings); another added a test asserting that gate must exist. The
+  removal is kept and the assertion inverted.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

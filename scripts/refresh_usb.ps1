@@ -40,9 +40,12 @@
     script is 'Windows 11 Enterprise'.
 
 .PARAMETER OutputName
-    Basename for the resulting WIM (no extension, no path). Defaults
-    to the source filename minus its extension, e.g.
-    'Win11_24H2_English_x64.iso' becomes 'Win11_24H2_English_x64.wim'.
+    Basename for the resulting WIM. Must be a bare filename: no path
+    separators, no invalid Windows filename characters, and no trailing
+    `.wim`/`.esd` (the extension is appended). Dotted version tokens
+    like `Win11.24H2` are fine. Defaults to the source filename minus
+    its extension, e.g. `Win11_24H2_English_x64.iso` becomes
+    `Win11_24H2_English_x64.wim`.
 
 .PARAMETER ImagesPath
     Directory where the resulting WIM is placed. Default: 'I:\images'.
@@ -143,18 +146,33 @@ $fromIso    = $PSCmdlet.ParameterSetName -eq 'FromIso'
 $sourcePath = if ($fromIso) { $SourceIso } else { $SourceWim }
 $sourceKind = if ($fromIso) { 'ISO' } else { 'WIM' }
 
-# Inputs
-if (-not (Test-Path $sourcePath)) {
-    throw "$sourceKind not found: $sourcePath"
+# Inputs. Match the -PathType Leaf / Container pattern used by the
+# sibling scripts (prepare_wim.ps1, build_iso.ps1, build_boot_wim.ps1)
+# so a swapped file/directory argument fails fast here with a clear
+# message instead of producing a bogus derived OutputName and then
+# bombing further down in prepare_wim.ps1 or Get-ChildItem.
+if (-not (Test-Path $sourcePath -PathType Leaf)) {
+    throw "$sourceKind not found (or is a directory, not a file): $sourcePath"
 }
-if (-not (Test-Path $ImagesPath)) {
-    throw "ImagesPath not found: $ImagesPath (is the USB IMAGES partition mounted as $ImagesPath ?)"
+if (-not (Test-Path $ImagesPath -PathType Container)) {
+    throw "ImagesPath not found (or is a file, not a directory): $ImagesPath (is the USB IMAGES partition mounted as $ImagesPath ?)"
 }
 
 # Derive output name from the source filename if not given
 if (-not $OutputName) {
     $OutputName = [System.IO.Path]::GetFileNameWithoutExtension($sourcePath)
     Write-Step "Output name derived from $sourceKind`: $OutputName"
+}
+# Reject anything that isn't a bare filename basename. The doc calls this
+# out ("no extension, no path"), but silent Join-Path concatenation lets
+# 'foo/bar' land inside a nested subdir and lets 'name.wim' produce
+# 'name.wim.wim'; both surface as "WIM not found on IMAGES partition" at
+# deploy time. Catch it here where the operator can retype it.
+if ($OutputName -match '[\\/:*?"<>|]') {
+    throw "-OutputName must be a bare filename (no path, no invalid Windows filename characters). Got: '$OutputName'"
+}
+if ([IO.Path]::GetExtension($OutputName) -in '.wim', '.esd') {
+    throw "-OutputName must not include the .wim/.esd extension (it is appended). Got: '$OutputName'"
 }
 $outputWim = Join-Path $ImagesPath "$OutputName.wim"
 Write-Step "Output WIM: $outputWim"
@@ -170,9 +188,27 @@ if ($RebuildBootWim -eq 'Ask') {
     $RebuildBootWim = if ($resp -match '^y') { 'Yes' } else { 'No' }
 }
 
-# Pre-flight the ADK env for the boot rebuild now, so we don't run
-# prepare_wim for 20 minutes and then fail.
+# Warn on rebuild-only params passed alongside -RebuildBootWim No.
+# -CctkSource is only consumed by build_boot_wim.ps1 below; if the user
+# passed it but we're not rebuilding, they'd otherwise get no signal that
+# the file was silently dropped. Same pattern as `-BitLockerKeyPath
+# without -EnableBitLocker` in unified_winpe_deploy.ps1.
+if ($RebuildBootWim -eq 'No' -and $PSBoundParameters.ContainsKey('CctkSource')) {
+    Write-Warn "-CctkSource is ignored when -RebuildBootWim is No (CCTK is embedded into boot.wim, not the image)."
+}
+
+# Pre-flight the ADK env and the boot-USB drive letter for the boot
+# rebuild now, so we don't run prepare_wim for 20 minutes and then fail
+# on something the operator could have fixed in one second. Format +
+# accessibility checks mirror build_boot_wim.ps1's own validation of
+# -UsbDrive so we surface the identical error message one stage earlier.
 if ($RebuildBootWim -eq 'Yes') {
+    if ($BootUsbDrive -notmatch '^[A-Za-z]:$') {
+        throw "-BootUsbDrive must be a drive letter like 'P:' (got '$BootUsbDrive')"
+    }
+    if (-not (Test-Path "$BootUsbDrive\")) {
+        throw "Boot USB drive $BootUsbDrive is not accessible - partition and assign the letter per docs/USB_SETUP.md Step 4 first."
+    }
     if (-not (Get-Command copype -ErrorAction SilentlyContinue)) {
         throw "-RebuildBootWim requires the ADK 'Deployment and Imaging Tools Environment' (copype not on PATH). Open that as Admin and re-run, or pass -RebuildBootWim No."
     }
@@ -192,10 +228,12 @@ if ($DisableExtraBloat) { $prepArgs.DisableExtraBloat = $true }
 
 Write-Step "Invoking prepare_wim.ps1..."
 $prepScript = Join-Path $PSScriptRoot 'prepare_wim.ps1'
+# prepare_wim.ps1 signals failure by `throw` under $ErrorActionPreference=Stop,
+# which propagates through `& $script` to our own EAP=Stop and terminates. Do
+# NOT gate on $LASTEXITCODE here: prepare_wim runs native commands (reg.exe
+# unload in particular) whose non-fatal warning paths can leak a non-zero
+# $LASTEXITCODE into us after a successful prep, producing a false "failed".
 & $prepScript @prepArgs
-if ($LASTEXITCODE -ne 0) {
-    throw "prepare_wim.ps1 failed (exit $LASTEXITCODE)"
-}
 Write-Ok "Image ready at $outputWim"
 
 # Step 2 (optional): WinPE boot.wim rebuild
@@ -208,21 +246,27 @@ if ($RebuildBootWim -eq 'Yes') {
     }
     if ($CctkSource) { $buildArgs.CctkSource = $CctkSource }
     $buildScript = Join-Path $PSScriptRoot 'build_boot_wim.ps1'
+    # Same rationale as the prepare_wim call above: throw propagates;
+    # checking $LASTEXITCODE would false-fail on benign native warnings
+    # (reg unload, mountvol /d) that leak a non-zero code post-success.
     & $buildScript @buildArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "build_boot_wim.ps1 failed (exit $LASTEXITCODE)"
-    }
     Write-Ok "WinPE boot.wim refreshed on $BootUsbDrive"
 }
 
-# Summary so the operator sees the final state
+# Summary so the operator sees the final state.
+# List both .wim and .esd files - the deploy script's Find-ImageFiles
+# accepts both ($Script:Config.ImageExtensions), so an .esd dropped on the
+# IMAGES partition manually (e.g. install.esd lifted from a Windows ISO)
+# is just as deployable as a .wim. Showing only .wim here would mislead
+# the operator about which images are actually available at boot time.
 Write-Host ""
 Write-Ok "USB refresh complete."
-$wims = Get-ChildItem $ImagesPath -Filter '*.wim' -ErrorAction SilentlyContinue
-if ($wims) {
+$images = Get-ChildItem $ImagesPath -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -in '.wim', '.esd' }
+if ($images) {
     Write-Host "Images now on $ImagesPath :"
-    foreach ($w in ($wims | Sort-Object Name)) {
-        $sizeGB = [math]::Round($w.Length / 1GB, 1)
-        Write-Host ("  {0,-50} {1,6} GB" -f $w.Name, $sizeGB)
+    foreach ($img in ($images | Sort-Object Name)) {
+        $sizeGB = [math]::Round($img.Length / 1GB, 1)
+        Write-Host ("  {0,-50} {1,6} GB" -f $img.Name, $sizeGB)
     }
 }

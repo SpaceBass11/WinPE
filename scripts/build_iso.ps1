@@ -33,6 +33,9 @@
     Optional path to an unattend.xml answer file. When given, it is staged at
     configs\unattend.xml inside the ISO and referenced in the generated
     deploy.args so Windows Setup processes it on first boot.
+    Ignored when -Interactive is set - the file is still staged to the ISO
+    but the interactive deploy.args does not reference it, so first boot
+    lands on manual OOBE. Drop -Interactive to make -UnattendFile effective.
 
 .PARAMETER TargetDisk
     Disk number the deploy script will target on the end-user machine.
@@ -45,6 +48,8 @@
     char window at runtime. Security note: the PIN is stored in
     plaintext in the ISO/on the USB - the USB is the trust boundary.
     Use a unique PIN per USB.
+    Ignored when -Interactive is set - a warning is printed at build
+    time so the drop is not silent.
 
 .PARAMETER DataDiskNumber
     Disk number of a secondary data drive to wipe and format as D:.
@@ -57,12 +62,15 @@
     -Interactive is not set.
 
 .PARAMETER Interactive
-    When set, the generated deploy.args only pre-sets -ImagePath so the
-    deploy script auto-discovers the WIM but still prompts the user for
+    When set, the generated deploy.args pre-sets -ImagePath (and
+    -UnattendFile when one is staged) so the deploy script auto-discovers
+    the WIM and picks up the answer file, but still prompts the user for
     edition, target disk, and confirmations. Useful for lab/testing USBs
-    where you want the TUI. When not set, a fully silent destructive
-    deploy.args is generated and -ConfirmSilentDestructiveIso must be
-    passed to acknowledge that.
+    where you want the TUI. Other silent-mode-only parameters
+    (-TargetDisk, -WipeDisks, -DataDiskNumber, -BitLockerPin) are dropped
+    because their interactive equivalents live in the TUI itself. When
+    not set, a fully silent destructive deploy.args is generated and
+    -ConfirmSilentDestructiveIso must be passed to acknowledge that.
 
 .PARAMETER ConfirmSilentDestructiveIso
     Required acknowledgement when neither -Interactive is set. The
@@ -182,6 +190,46 @@ if ([IO.Path]::GetExtension($WimFile) -notin '.wim','.esd') {
 }
 $WimFile = (Resolve-Path $WimFile).Path
 
+# Reject output extensions Rufus and Windows' file pickers won't filter
+# in by default. oscdimg writes the byte stream regardless of name, but a
+# stray -OutputIso foo.txt produces a perfectly bootable file the
+# end-user can't find in their Rufus drop-down. Same gate as -WimFile,
+# same error shape.
+if ([IO.Path]::GetExtension($OutputIso) -ne '.iso') {
+    throw "OutputIso must have a .iso extension (got: $OutputIso)"
+}
+
+# Silent-destructive ISOs must embed a single-index WIM. At runtime,
+# unified_winpe_deploy.ps1's -Silent gate refuses to guess an edition
+# when the WIM has multiple indexes and aborts (see Select-ImageIndex).
+# Catching that here means the admin fixes the WIM on their own machine
+# instead of the end-user discovering it at boot with no recourse.
+if (-not $Interactive) {
+    $dismOutput = & dism.exe /Get-WimInfo /WimFile:$WimFile /English 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "dism /Get-WimInfo failed on $WimFile (exit $LASTEXITCODE). Cannot verify single-index requirement for silent ISO.`n$dismOutput"
+    }
+    $indexCount = @($dismOutput | Select-String -Pattern '^Index\s*:\s*\d+').Count
+    if ($indexCount -gt 1) {
+        throw @"
+$WimFile contains $indexCount indexes. A silent-destructive ISO must
+embed a single-index WIM — unified_winpe_deploy.ps1 -Silent refuses to
+guess an edition and would abort at boot. Fix on the admin machine:
+
+  # Export just the edition you want to a fresh single-index WIM
+  .\scripts\prepare_wim.ps1 -SourceWim '$WimFile' -Index <N> `
+      -OutputWim '<path>\Custom_SingleIndex.wim'
+
+Then re-run build_iso.ps1 with -WimFile pointing at the new WIM. Or
+pass -Interactive to keep the multi-index WIM and let the operator
+pick an edition from the TUI at boot.
+"@
+    }
+    if ($indexCount -eq 0) {
+        throw "dism /Get-WimInfo returned no indexes for $WimFile. The WIM may be corrupt.`n$dismOutput"
+    }
+}
+
 if (-not (Test-Path $MediaDir -PathType Container)) {
     throw "MediaDir not found: $MediaDir`nRun build_boot_wim.ps1 first (default output: C:\WinPE_Build\media)."
 }
@@ -200,12 +248,126 @@ if ($UnattendFile) {
         throw "UnattendFile not found: $UnattendFile"
     }
     $UnattendFile = (Resolve-Path $UnattendFile).Path
+    # Well-formedness check mirrors the pre-flight in unified_winpe_deploy.ps1
+    # (Start-Deployment). Windows Setup silently ignores a malformed unattend.xml
+    # and falls through to manual OOBE, so catching it at build time saves every
+    # end-user who boots the ISO from a wipe-and-redeploy discovering it at OOBE.
+    try {
+        [xml](Get-Content -Path $UnattendFile -Raw) | Out-Null
+    } catch {
+        throw @"
+UnattendFile is not well-formed XML: $UnattendFile
+  Parse error: $($_.Exception.Message)
+  Windows Setup silently ignores a malformed unattend.xml and falls through
+  to manual OOBE, so the ISO would silently drop unattend on first boot.
+  Sanity-check manually: [xml](Get-Content '$UnattendFile')  (see docs/UNATTEND.md section 6)
+"@
+    }
 }
 
 if ($BitLockerPin) {
+    # Fail fast on a PIN outside the Windows Enhanced-PIN 6-20 window.
+    # Without this, a malformed PIN is baked into deploy.args on the ISO,
+    # distributed, and only rejected by unified_winpe_deploy.ps1 at
+    # pre-flight on the target. The length is echoed but the PIN itself is
+    # not, mirroring the redaction of the console echo.
+    if ($BitLockerPin.Length -lt 6 -or $BitLockerPin.Length -gt 20) {
+        throw "BitLockerPin must be 6-20 characters (Windows Enhanced PIN policy). Got: $($BitLockerPin.Length) character(s)."
+    }
+    # Reject leading/trailing whitespace before it lands in deploy.args and
+    # gets baked into bitlocker-setup.ps1 verbatim at deploy time. TPM+PIN
+    # unlocks against the space-prefixed PIN, but the pre-Windows PIN prompt
+    # is a hidden field: the operator cannot see or type an invisible edge
+    # space, so the disk comes up unrecoverable-with-typed-PIN and only the
+    # recovery key works. Length is deliberately not echoed here (the PIN
+    # has whitespace by definition, so reporting length would leak content).
+    # Middle whitespace is still allowed - that is a passphrase choice.
+    if ($BitLockerPin.Length -ne $BitLockerPin.Trim().Length) {
+        throw "BitLockerPin has leading or trailing whitespace (tabs and NBSP count). TPM+PIN would unlock with a PIN the operator cannot type at the invisible first-boot prompt. Retype without edge whitespace."
+    }
     if (-not $UnattendFile -and -not $Interactive) {
         Write-Warn "BitLocker PIN set but no UnattendFile given. First-boot will pause for manual setup steps."
     }
+    # startnet.cmd emitted by build_boot_wim.ps1 runs under
+    # `setlocal enabledelayedexpansion` (required for the {DRIVE}
+    # substitution). Under delayed expansion, cmd.exe interprets `!`
+    # inside %DEPLOYARGS%'s value at !DEPLOYARGS! reference time and
+    # strips it — even inside double quotes. A -BitLockerPin "Sec!ret42"
+    # reaches PowerShell as -BitLockerPin "Secret42", BitLocker sets
+    # up with the wrong PIN, and the operator only discovers the
+    # mismatch at first post-deploy boot (long past the point where
+    # they can recover without the recovery key). Interactive mode
+    # never embeds the PIN into deploy.args, so this only matters for
+    # silent ISOs. See docs/DEPLOY_ARGS.md failure modes.
+    if (-not $Interactive -and $BitLockerPin.Contains('!')) {
+        throw @"
+-BitLockerPin contains '!' which would be silently mangled at WinPE boot.
+The emitted startnet.cmd runs under 'setlocal enabledelayedexpansion' (required
+for the {DRIVE} substitution). cmd.exe strips '!' from variable values before
+!DEPLOYARGS! expands, even inside double quotes, so the deploy would run with a
+PIN missing every '!' and BitLocker would lock at first reboot with a PIN the
+operator does not know.
+Choose a PIN without '!' for silent-mode ISO builds (or use -Interactive so the
+operator supplies the PIN at the TUI).
+"@
+    }
+}
+
+# Silent-only parameters dropped in -Interactive mode. The interactive
+# deploy.args line only sets -ImagePath and lets the TUI handle the rest,
+# so anything below is silently ignored by the deploy script at boot. The
+# UnattendFile case is worst: it still gets STAGED to configs\ on the ISO
+# (a few lines down), which looks like it worked, but the deploy script
+# never picks it up without an -UnattendFile flag in deploy.args — first
+# boot lands on manual OOBE. Warn loudly so the operator doesn't discover
+# the drop only after wiping a machine.
+if ($Interactive) {
+    $ignored = @()
+    if ($PSBoundParameters.ContainsKey('UnattendFile'))   { $ignored += '-UnattendFile' }
+    if ($PSBoundParameters.ContainsKey('TargetDisk'))     { $ignored += '-TargetDisk' }
+    if ($PSBoundParameters.ContainsKey('DataDiskNumber')) { $ignored += '-DataDiskNumber' }
+    if ($PSBoundParameters.ContainsKey('WipeDisks'))      { $ignored += '-WipeDisks' }
+    if ($PSBoundParameters.ContainsKey('BitLockerPin'))   { $ignored += '-BitLockerPin' }
+    if ($ignored.Count -gt 0) {
+        Write-Warn "-Interactive is set - these parameters are dropped from the generated deploy.args and will NOT apply at deploy time:"
+        foreach ($p in $ignored) { Write-Warn "    $p" }
+        Write-Warn "  Interactive mode only pre-sets -ImagePath so the TUI handles edition/disk/confirmations."
+        Write-Warn "  Drop -Interactive (with -ConfirmSilentDestructiveIso) to make these effective, or remove them."
+    }
+}
+
+# --- Volume-label / boot-integration warning ---
+# startnet.cmd (baked into boot.wim by build_boot_wim.ps1) scans mounted
+# volumes for the LITERAL label "IMAGES" to set %DEPLOY_IMAGE_DRIVE%.
+# That env var is what enables three downstream behaviors:
+#   1. deploy.args loading — a silent-mode ISO built without a matching
+#      label reverts to interactive TUI at boot (startnet.cmd falls
+#      through to a bare deploy launch), so -ConfirmSilentDestructiveIso
+#      does not actually produce a silent deploy.
+#   2. CCTK BIOS config apply — Invoke-CctkConfig skips silently when
+#      DEPLOY_IMAGE_DRIVE is unset.
+#   3. BitLocker recovery-key escrow — falls back to
+#      C:\Windows\Setup\BitLockerKeys (on the encrypted volume itself),
+#      which the operator must copy off before first boot or risk lockout.
+# A custom -VolumeLabel needs a matching custom startnet.cmd in boot.wim
+# to preserve any of the three. Warn once at build time so the surprise
+# lands here, not on the end-user's laptop.
+if ($VolumeLabel -ne 'IMAGES') {
+    Write-Warn "-VolumeLabel '$VolumeLabel' differs from the 'IMAGES' literal that startnet.cmd scans for."
+    Write-Warn "  DEPLOY_IMAGE_DRIVE will stay unset at boot, which means:"
+    Write-Warn "    * deploy.args will NOT be loaded (a silent ISO reverts to interactive TUI)"
+    Write-Warn "    * CCTK BIOS config apply will be skipped"
+    Write-Warn "    * BitLocker recovery keys will fall back to C:\Windows\Setup\BitLockerKeys"
+    Write-Warn "  Rebuild boot.wim with a matching startnet.cmd, or keep the default 'IMAGES'."
+}
+
+# Refuse -Clean against a drive or UNC share root. The destructive block
+# below runs Remove-Item $WorkDir -Recurse -Force; a typo like -WorkDir C:
+# combined with -Clean would attempt to wipe the entire drive. Caught
+# before any work, matching the deploy script's $env:SystemDrive guard
+# pattern on mountvol /d.
+if ($Clean -and ($WorkDir -match '^[A-Za-z]:[\\/]?$' -or $WorkDir -match '^\\\\[^\\]+\\[^\\]+\\?$')) {
+    throw "-WorkDir '$WorkDir' is a drive or UNC share root - refuse to -Clean (Remove-Item would wipe the entire drive/share)."
 }
 
 # Resolve output directory
@@ -272,10 +434,42 @@ $deployArgsPath = Join-Path $stagingDir 'deploy.args'
 if ($Interactive) {
     # Pre-locate the WIM dir so the TUI doesn't scan all drives,
     # but leave edition / disk / confirmations to the operator.
+    # -UnattendFile is passed through when staged: it's not an
+    # interactive-vs-silent knob (the deploy script stages it to
+    # C:\Windows\Panther after DISM apply regardless of TUI mode),
+    # and without the arg the staged copies\unattend.xml on the ISO
+    # would be silently unused - first boot would fall through to
+    # manual OOBE despite the operator building with -UnattendFile.
     $argsLine = "-ImagePath `"{DRIVE}\images`""
+    if ($unattendInIso) {
+        $argsLine += " -UnattendFile `"$unattendInIso`""
+    }
     Write-Step "Generating interactive deploy.args (TUI mode)"
 } else {
     # Fully silent: boot -> deploy -> done, no prompts
+
+    # Cross-parameter overlap checks. The deploy script's silent path aborts
+    # on these at runtime (unified_winpe_deploy.ps1 rejects same-disk
+    # -DataDiskNumber/-TargetDisk and same-disk overlap between -WipeDisks
+    # and either of them). Catch them here so the operator doesn't build,
+    # burn, and boot an ISO only to see it fail before the first apply.
+    $wipeList = @()
+    if ($WipeDisks) {
+        if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
+            throw "-WipeDisks must be comma-separated disk numbers (e.g. '1,2'). Got: '$WipeDisks'"
+        }
+        $wipeList = $WipeDisks -split '\s*,\s*' | ForEach-Object { [int]$_.Trim() }
+    }
+    if ($DataDiskNumber -ge 0 -and $DataDiskNumber -eq $TargetDisk) {
+        throw "-DataDiskNumber ($DataDiskNumber) cannot equal -TargetDisk ($TargetDisk). The deploy script aborts on this at runtime."
+    }
+    if ($wipeList -contains $TargetDisk) {
+        throw "-WipeDisks ($WipeDisks) contains -TargetDisk ($TargetDisk). Extra-wipe disks are cleaned in addition to the target, not the target itself."
+    }
+    if ($DataDiskNumber -ge 0 -and $wipeList -contains $DataDiskNumber) {
+        throw "-WipeDisks ($WipeDisks) contains -DataDiskNumber ($DataDiskNumber). Drop one - the deploy script rejects the overlap at runtime."
+    }
+
     $argsLine = "-WimFile `"{DRIVE}\images\$wimBaseName`" -TargetDisk $TargetDisk -Force -Silent"
 
     if ($unattendInIso) {
@@ -283,10 +477,6 @@ if ($Interactive) {
     }
 
     if ($WipeDisks) {
-        # Validate format before embedding
-        if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
-            throw "-WipeDisks must be comma-separated disk numbers (e.g. '1,2'). Got: '$WipeDisks'"
-        }
         $argsLine += " -WipeDisks `"$WipeDisks`""
     }
 
@@ -303,7 +493,13 @@ if ($Interactive) {
 
 Set-Content -Path $deployArgsPath -Value $argsLine -Encoding ASCII -Force
 Write-Ok "deploy.args written"
-Write-Host "  $argsLine" -ForegroundColor DarkGray
+# Redact -BitLockerPin from the console echo. The file on disk still has
+# the real PIN (the deploy script needs to consume it), but a PIN echoed
+# to stdout can land in scrollback, screencasts, or build-log capture.
+# Same principle as the startnet.cmd redaction enforced by masterize
+# check 25 (PR #42). The replace is a no-op when no PIN is present.
+$argsDisplay = $argsLine -replace '(-BitLockerPin\s+")[^"]*(")', '${1}<redacted>${2}'
+Write-Host "  $argsDisplay" -ForegroundColor DarkGray
 
 # --- Run oscdimg ---
 

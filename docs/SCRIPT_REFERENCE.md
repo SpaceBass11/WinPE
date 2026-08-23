@@ -39,26 +39,36 @@ confirmation unless combined with `-Force`. Use `diskpart` > `list disk` to find
 ```
 
 ### -Force [switch]
-Skips the typed `ERASE` / `WIPE ALL` confirmations when combined with
-`-TargetDisk` / `-WipeDisks` respectively. Without this flag, those flags
-pre-select but still require typed confirmation. **Never bypasses
-`DESTROY SYSTEM`** — the system-disk gate always requires the typed string.
+Skips the typed `ERASE` / `WIPE ALL` / `WIPE DATA` confirmations when
+combined with `-TargetDisk` / `-WipeDisks` / `-DataDiskNumber` respectively.
+Without this flag, those flags pre-select but still require typed
+confirmation. **Never bypasses `DESTROY SYSTEM`** — the system-disk gate
+always requires the typed string.
 
 ### -WipeDisks [string]
-Comma-separated disk numbers to also wipe (clean-only, no repartitioning)
-alongside the primary target. Validated against the
-`^\s*\d+(\s*,\s*\d+)*\s*$` pattern in silent mode. Requires `-Force` for
-unattended runs.
+**Silent-mode only.** Comma-separated disk numbers to also wipe
+(clean-only, no repartitioning) alongside the primary target.
+Validated against the `^\s*\d+(\s*,\s*\d+)*\s*$` pattern. Requires
+`-Force` (the interactive `WIPE ALL` typed confirmation cannot run
+unattended).
+
+In interactive mode this parameter is **ignored** — the extra-wipe
+menu prompts for disk numbers regardless of what was passed on the
+command line. To pre-select extra wipes for automation, use the
+silent-mode invocation below.
 
 ```powershell
-.\unified_winpe_deploy.ps1 -TargetDisk 0 -WipeDisks "1,2" -Force
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" `
+    -TargetDisk 0 -WipeDisks "1,2" -Force -Silent
 ```
 
 ### -MinImageSizeMB [int]
 Minimum file size (in MB) for a `.wim`/`.esd` file to be considered during
 auto-discovery. Default: `100`. Files smaller than this are skipped to
 avoid picking up boot artifacts that share the extension. Lower it if
-you're using small lab images.
+you're using small lab images. Validated at parameter binding with
+`ValidateRange(0, [int]::MaxValue)` — a negative value is rejected
+immediately instead of silently including every file on the drive.
 
 ```powershell
 .\unified_winpe_deploy.ps1 -MinImageSizeMB 25
@@ -83,8 +93,14 @@ Setup searches on first boot. Use this for:
 - **Domain join** (`JoinDomain`, `MachineObjectOU`, domain credentials in `specialize`)
 - **Autologon** (`AutoLogon` in `oobeSystem`)
 
-The file is validated (must exist) before any destructive disk work begins —
-the deploy aborts early if the path is wrong.
+The file is validated (must exist and parse as well-formed XML via
+`[xml](Get-Content ...)`) before any destructive disk work begins —
+the deploy aborts early if the path is wrong or the answer file is
+malformed. Windows Setup silently ignores a bad `unattend.xml` and
+falls through to manual OOBE, so catching it here saves a full
+re-deploy after the operator notices OOBE prompted on first boot.
+See [UNATTEND.md §6](UNATTEND.md#6-verify-it-parses) for the same
+recipe you can run manually.
 
 ```powershell
 .\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" `
@@ -93,6 +109,51 @@ the deploy aborts early if the path is wrong.
 
 ### -ListOnly [switch]
 Discovers and displays all available images non-interactively, then exits without deploying.
+
+### -DataDiskNumber [int]
+Disk number of an additional internal drive to wipe and format as an NTFS
+data volume (`D:`) in the same diskpart run that partitions the primary
+target. Default `-1` (off). When set, the disk is validated (must exist,
+must not be the target disk, must not be USB, must not be the running
+system disk) and a typed `WIPE DATA` confirmation is required unless
+`-Force` is set. See [BITLOCKER.md](BITLOCKER.md) for full behavior.
+
+```powershell
+.\unified_winpe_deploy.ps1 -TargetDisk 0 -DataDiskNumber 1 -Force
+```
+
+### -EnableBitLocker [switch]
+Stage `bitlocker-setup.ps1` + `SetupComplete.cmd` into
+`C:\Windows\Setup\Scripts\` so Windows enables BitLocker on first boot:
+TPM + Enhanced PIN on `C:`, and (if `-DataDiskNumber` was also given)
+recovery key + auto-unlock on `D:`. Requires `-BitLockerPin`. Recovery
+keys are escrowed to the IMAGES partition under
+`BitLockerKeys\<servicetag-or-timestamp>\` by default so they remain
+reachable if the encrypted volumes don't mount.
+
+### -BitLockerPin [string]
+Startup PIN for the TPM+PIN protector on `C:`. Required when
+`-EnableBitLocker` is set. Enhanced PIN policy is enabled, so 6-20
+characters of digits, letters, and symbols are accepted; the script
+enforces only the Windows length window — PIN content is the admin's
+call. In non-silent mode, omitting this parameter prompts at the WinPE
+console via `Read-Host`; silent mode requires the parameter (no prompt,
+to avoid deadlocking unattended deploys).
+
+```powershell
+.\unified_winpe_deploy.ps1 -WimFile "D:\images\Win11.wim" -TargetDisk 0 `
+    -DataDiskNumber 1 -EnableBitLocker -BitLockerPin 'ReplaceMe42!' -Force
+```
+
+### -BitLockerKeyPath [string]
+Override the default IMAGES-partition recovery-key escrow location. Accepts
+a UNC share (e.g. `\\fileserver\BitLockerKeys`) or a fixed-disk path on
+the deployed machine for centralized escrow. Default: the staged
+first-boot script looks up the IMAGES partition by volume label
+(`Get-Volume -FileSystemLabel 'IMAGES'`) and writes to
+`<letter>:\BitLockerKeys`. Falls back to
+`C:\Windows\Setup\BitLockerKeys` with a log warning if the USB isn't
+plugged in or the label doesn't match.
 
 ## Functions
 
@@ -130,12 +191,20 @@ Discovers and displays all available images non-interactively, then exits withou
 | `Show-DiskMenu` | Color-coded disk selection display |
 | `Select-TargetDisk` | Interactive disk picker with safety confirmations |
 | `Select-AdditionalWipeDisks` | Optional menu for extra disks to clean (streamlined single `WIPE ALL` confirmation) |
+| `Test-FinalWipeConfirmation` | Normalizes and validates the final target-disk confirmation input (accepts `ERASE` or the legacy `DELETE ALL DATA` synonym) |
 
 ### BIOS Configuration
 
 | Function | Purpose |
 |----------|---------|
 | `Invoke-CctkConfig` | Pre-apply Dell CCTK BIOS config (service tag → model → default precedence). See [CCTK.md](CCTK.md) |
+
+### BitLocker Staging
+
+| Function | Purpose |
+|----------|---------|
+| `Resolve-BitLockerKeyPath` | Resolves recovery-key escrow location (parameter override → IMAGES-partition default → `C:\Windows\Setup\BitLockerKeys` fallback). See [BITLOCKER.md](BITLOCKER.md) |
+| `Initialize-BitLockerSetup` | Writes `bitlocker-setup.ps1` + `SetupComplete.cmd` into `C:\Windows\Setup\Scripts\` so Windows enables BitLocker on first boot (TPM+PIN on C:, recovery key + auto-unlock on D: when staged) |
 
 ### Image Index Selection
 
@@ -166,12 +235,19 @@ Located at the top of the script in `$Script:Config`:
 ```powershell
 $Script:Config = @{
     MinimumMemoryGB    = 8          # Warn below this
-    ScriptVersion      = '4.6.0'   # Display version
+    ScriptVersion      = '4.7.1'    # Display version
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths        = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions    = @('*.wim', '*.esd')
     CctkPath           = 'X:\cctk\cctk.exe'   # In-image CCTK location (set by builder)
     CctkConfigDir      = 'cctk'               # Subdirectory on IMAGES drive for configs
+    # BitLocker / data-disk are OFF by default. -DataDiskNumber,
+    # -EnableBitLocker, -BitLockerPin, and -BitLockerKeyPath override
+    # these at runtime. See docs/BITLOCKER.md.
+    BitLockerPin       = $null
+    BitLockerKeyDir    = 'BitLockerKeys'      # Subdir on IMAGES drive for escrow
+    DataDiskNumber     = -1
+    EnableBitLocker    = $false
 }
 ```
 
@@ -208,7 +284,9 @@ Disk (GPT)
 
 ```
 Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
-           → -UnattendFile validation (fail fast if path doesn't exist)
+           → BitLocker parameter validation (fail fast on bad PIN length,
+             -EnableBitLocker without -BitLockerPin, etc.)
+           → -UnattendFile validation (fail fast if path doesn't exist / malformed XML)
            → Image selection → Edition selection
            → Memory check
            → CCTK pre-apply (if X:\cctk\cctk.exe present and config matched)
@@ -219,11 +297,16 @@ Admin check → WinPE detection (blocks non-WinPE unless "CONTINUE ANYWAY")
                               └── Final confirm → Type "ERASE"
            → Additional-wipe prompt (optional)
                               └── Selected disks → single "WIPE ALL" confirmation
+           → -DataDiskNumber prompt (optional)
+                              └── Type "WIPE DATA" (skipped by -Force)
            → Disk size validation
-           → Diskpart (frees C:/S: first; clean-only preamble for extras)
+           → Diskpart (frees C:/S: first; clean-only preamble for extras;
+             formats D: too if -DataDiskNumber set)
            → DISM (inline progress)
            → Post-deploy verification (C:\Windows, C:\Windows\System32)
            → Unattend staging (if -UnattendFile: copy to C:\Windows\Panther\unattend.xml)
+           → BitLocker staging (if -EnableBitLocker: write bitlocker-setup.ps1 +
+             SetupComplete.cmd to C:\Windows\Setup\Scripts\)
            → Boot config → Success
 ```
 
@@ -427,8 +510,14 @@ additional HKLM policy tweaks via the same offline-hive mechanism:
 Also stages `scripts/first-login.ps1` into the image at
 `C:\Windows\Setup\Scripts\first-login.ps1` so that an `unattend.xml`
 `FirstLogonCommands` entry can call it at first sign-in to apply
-per-user (HKCU) tweaks (file extensions on, suggested apps off,
-classic right-click menu, OneDrive uninstall, etc). See
+per-user UX tweaks (file extensions on, suggested apps off,
+classic right-click menu, OneDrive uninstall, etc). The script
+applies the tweak list in two passes — once to `HKCU:` for the
+currently logged-in user, and once to the Default User hive
+(`C:\Users\Default\NTUSER.DAT`), so future users created on the
+same machine inherit the same tweaks without needing to re-run.
+OneDrive uninstall and the `explorer.exe` restart are
+current-user-only. See
 [`configs/unattend.example.xml`](../configs/unattend.example.xml) for
 the template.
 
@@ -578,4 +667,176 @@ Fails early on:
 The pre-flight for `copype` runs before `prepare_wim.ps1` does, so
 you don't sit through a 20-minute image prep only to discover the
 boot rebuild can't proceed.
+
+---
+
+# build_iso.ps1
+
+Packages a prepared Windows WIM (output of `prepare_wim.ps1`) together
+with a WinPE media tree (output of `build_boot_wim.ps1`) into one
+self-contained bootable ISO. The ISO is what end users flash to a USB
+with Rufus per [`docs/END_USER_DEPLOY.md`](END_USER_DEPLOY.md) — no
+IT knowledge required beyond that.
+
+The ISO is labeled `IMAGES` so the embedded `startnet.cmd` finds it
+automatically at boot, and a `deploy.args` file is generated in the ISO
+root with paths written as `{DRIVE}\...` so `startnet.cmd` substitutes
+the real drive letter at boot time (see
+[`docs/DEPLOY_ARGS.md`](DEPLOY_ARGS.md)).
+
+Requires `oscdimg.exe` from the Windows ADK Deployment Tools. Run as
+Administrator.
+
+## Parameters
+
+### -WimFile [string] (Required)
+Path to the prepared Windows WIM or ESD to embed. Must be a single-index
+WIM for silent deployment — the deploy script's `-Silent` gate enforces
+this at runtime, so a multi-index WIM in a silent-destructive ISO would
+fail at first boot after the disk had already been wiped.
+
+### -OutputIso [string] (Required)
+Full path for the output ISO. Created or overwritten. Parent directory
+is created if missing.
+
+### -MediaDir [string]
+WinPE media directory built by `build_boot_wim.ps1`. Must contain
+`sources\boot.wim`, `boot\etfsboot.com`, and
+`efi\microsoft\boot\efisys.bin`. Default: `C:\WinPE_Build\media`.
+
+### -UnattendFile [string]
+Optional path to a `unattend.xml` answer file. When given, it is staged
+at `configs\unattend.xml` inside the ISO and referenced in the generated
+`deploy.args` so Windows Setup processes it on first boot. Well-formed
+XML is verified at ISO-build time — a malformed answer file is caught
+here, not silently ignored by Setup on the end user's hardware. See
+[`docs/UNATTEND.md`](UNATTEND.md).
+
+### -TargetDisk [int]
+Disk number the deploy script will target on the end-user machine.
+Default: `0`. Ignored when `-Interactive` is set.
+
+### -BitLockerPin [string]
+If set, the generated `deploy.args` enables BitLocker with this PIN on
+the deployed system. PIN content is the admin's call — no placeholder
+or content policy is enforced here; only Windows' 6-20 character window
+is checked at deploy time. **Security note:** the PIN is stored in
+plaintext in the ISO and on the resulting USB — treat the USB as the
+trust boundary and use a unique PIN per USB. See
+[`docs/BITLOCKER.md`](BITLOCKER.md).
+
+### -DataDiskNumber [int]
+Disk number of a secondary data drive to wipe and format as `D:` on the
+target. Default: `-1` (disabled). Requires `-BitLockerPin` to also
+enable BitLocker on the data disk. Ignored when `-Interactive` is set.
+
+### -WipeDisks [string]
+Comma-separated additional disk numbers to `clean` alongside the
+primary target disk. Passed through verbatim to `deploy.args` as
+`-WipeDisks`. Example: `"1,2"`. Ignored when `-Interactive` is set.
+
+### -Interactive [switch]
+When set, the generated `deploy.args` only pre-sets `-ImagePath` so the
+deploy script auto-locates the WIM but still prompts the operator for
+edition, target disk, and every safety confirmation. Useful for
+lab / testing USBs where the TUI is wanted.
+
+### -ConfirmSilentDestructiveIso [switch]
+**Required acknowledgement** when `-Interactive` is not set. Without
+`-Interactive`, the generated `deploy.args` is
+`-TargetDisk N -Force -Silent`, meaning the resulting ISO wipes
+whichever physical disk Windows enumerates as `N` on the end user's
+hardware with no operator confirmation. This switch confirms that is
+the intended outcome. Without it the script throws before any file
+copy — so nobody produces a silent-destructive ISO by running the
+builder with default flags.
+
+### -AdkPath [string]
+Override ADK install root. Default:
+`C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit`.
+
+### -Architecture [amd64|x86|arm64]
+Architecture of the ADK tools used to locate `oscdimg`. Default: `amd64`.
+
+### -VolumeLabel [string]
+ISO volume label. Default: `IMAGES`. Must match what `startnet.cmd`
+scans for — change only if you also rebuild `boot.wim` with a matching
+label, otherwise the deployed WinPE won't find the images partition
+at boot.
+
+### -WorkDir [string]
+Staging directory for ISO assembly. Created if missing. Default:
+`C:\WinPE_ISOBuild`.
+
+### -Clean [switch]
+Delete `WorkDir` before starting for a guaranteed-fresh build.
+
+## Safety Behavior
+
+- **Silent-destructive gate.** Without `-Interactive`, refuses to run
+  unless `-ConfirmSilentDestructiveIso` is passed. The generated ISO
+  would otherwise wipe a disk on every machine it boots on, with no
+  prompt — an easy mistake to make with default flags.
+- **WIM extension check.** `-WimFile` must have a `.wim` or `.esd`
+  extension and must exist, or the build fails before any file copy.
+- Missing WinPE media files (`sources\boot.wim`, `etfsboot.com`,
+  `efisys.bin`) fail the build immediately with a pointer at
+  `build_boot_wim.ps1`, not partway through `oscdimg`.
+- Missing `oscdimg.exe` fails with a pointer at the ADK Deployment
+  Tools installer path, so a missing ADK component doesn't surface as
+  a cryptic "not recognized" error.
+- The ISO is built via `oscdimg` with UEFI + BIOS boot records so it
+  works on both firmware types.
+
+## Examples
+
+```powershell
+# Minimal silent-destructive ISO (disk 0, no BitLocker, no unattend).
+# -ConfirmSilentDestructiveIso is required — the resulting ISO wipes
+# disk 0 on every machine it boots on with no prompt.
+.\scripts\build_iso.ps1 `
+    -WimFile   'I:\images\Win11_Pro_Custom.wim' `
+    -OutputIso 'D:\release\Win11_Deploy.iso' `
+    -ConfirmSilentDestructiveIso
+
+# With unattend (account creation, OOBE skip) and BitLocker PIN
+.\scripts\build_iso.ps1 `
+    -WimFile      'I:\images\Win11_Pro_Custom.wim' `
+    -OutputIso    'D:\release\Win11_Deploy.iso' `
+    -UnattendFile 'I:\configs\unattend.xml' `
+    -BitLockerPin 'Acme2025#7' `
+    -ConfirmSilentDestructiveIso
+
+# Interactive ISO: TUI prompts operator, WIM pre-located for them.
+# No -ConfirmSilentDestructiveIso needed — nothing runs silently.
+.\scripts\build_iso.ps1 `
+    -WimFile   'I:\images\Win11_Pro_Custom.wim' `
+    -OutputIso 'D:\release\Win11_Deploy_Interactive.iso' `
+    -Interactive
+```
+
+---
+
+# first-login.ps1
+
+Staged by `prepare_wim.ps1 -DisableExtraBloat` into
+`C:\Windows\Setup\Scripts\first-login.ps1` inside the target image, then
+executed by an `unattend.xml` `FirstLogonCommand` after Windows Setup
+completes. Removes Copilot and a handful of preinstalled Store apps that
+`prepare_wim.ps1` couldn't reach at image-prep time because they only
+materialize on first user logon.
+
+This script is not invoked directly by an operator — it's data to be
+carried into the image. It's listed here only so it doesn't look
+orphaned in the `scripts/` directory.
+
+- Removes Copilot (`Microsoft.Copilot` provisioned + installed packages,
+  `Recall`, and the Copilot Windows capability if present).
+- Removes a small set of consumer Store apps that survive
+  `-DisableExtraBloat` at image-prep time.
+- Bounds every uninstall wait so a hung remove cannot block OOBE
+  indefinitely.
+
+There are no parameters — the file is copied as-is into the image and
+run once per fresh install.
 

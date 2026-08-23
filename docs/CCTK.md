@@ -7,8 +7,9 @@
 > Dell Command | Configure directly from Dell's support site onto your
 > admin workstation and reference it by path via `-CctkSource` when
 > running `scripts/build_boot_wim.ps1`. `.gitignore` is set up to block
-> `/vendor/`, `/cctk-source/`, `cctk.exe`, and `hapint*.inf/.sys` as a
-> safety net.
+> `/vendor/`, `/cctk-source/`, `cctk.exe`, the DCH API DLLs
+> (`dchapi64.dll`, `dchbas64.dll`, `BIOSIntf.dll`), and the legacy
+> `hapint*.inf/.sys` HAPI driver as a safety net.
 
 The deploy tool can optionally apply BIOS configuration via Dell's
 [Client Configuration Toolkit (CCTK)](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure)
@@ -69,7 +70,11 @@ I:\  (IMAGES data partition)
 
 The deploy script picks **one** config, in this order:
 
-1. `<SERVICETAG>.ini` — reads `Win32_BIOS.SerialNumber`
+1. `<SERVICETAG>.ini` — reads `Win32_BIOS.SerialNumber`, strips non-alnum
+   (real Dell service tags are 7-char alphanumeric, so this is a no-op
+   for supported hardware; the strip guards against BIOS placeholders
+   like `To Be Filled By O.E.M.` or unusual whitebox serials being used
+   verbatim as a filename)
 2. `<MODEL>.ini` — reads `Win32_ComputerSystem.Model`, strips non-alnum
    (so "OptiPlex 7090" becomes `OptiPlex7090.ini`)
 3. `default.ini`
@@ -106,11 +111,12 @@ deploy on any non-zero exit.
 ### Changing Existing Passwords
 
 If the BIOS already has a setup or system password set, CCTK needs
-the current one to authenticate:
+the current one to authenticate. One `--valsetuppwd` (or
+`--valsyspwd`) per config authenticates the entire batch — you don't
+repeat it for each `--*pwd=` line:
 
 ```ini
 --setuppwd=NewSetup123!
---valsetuppwd=OldSetup123!
 --syspwd=NewSystem123!
 --valsetuppwd=OldSetup123!
 ```
@@ -155,8 +161,10 @@ the "plug in USB, boot, walk away" model.
 - **Windows auto-detects the new storage mode** at first boot (PnP
   loads stock AHCI/NVMe drivers). No driver injection needed.
 - **Service-tag lookup** uses `Win32_BIOS.SerialNumber`, which is the
-  same tag Dell prints on the chassis. Confirm with `wmic bios get
-  serialnumber` on a reference machine.
+  same tag Dell prints on the chassis. Confirm with
+  `(Get-WmiObject Win32_BIOS).SerialNumber` in a PowerShell prompt on a
+  reference machine (`wmic` was deprecated in Windows 10 21H1 and is not
+  available in WinPE regardless).
 
 ## Troubleshooting
 

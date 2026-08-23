@@ -8,29 +8,36 @@
     To speed up discovery, provide -ImagePath or -WimFile to skip drive scanning.
 .PARAMETER ImagePath
     Path to search for image files. Limits scanning to the specified directory
-    and avoids enumerating all attached drives.
+    and avoids enumerating all attached drives. Ignored when -WimFile is also
+    specified (single-file mode wins).
 .PARAMETER WimFile
     Path to a specific WIM or ESD image file. When specified, the image is used
-    directly without any drive scanning.
+    directly without any drive scanning, and -ImagePath is ignored.
 .PARAMETER TargetDisk
     Pre-select a disk number to deploy to. Still requires typed ERASE
     confirmation unless combined with -Force. Use 'diskpart > list disk' to
     find the right number. -1 (default) means "ask interactively".
 .PARAMETER WipeDisks
-    Comma-separated additional disk numbers to clean (no repartitioning)
-    alongside the primary target. Example: "1,2". Validated against the
-    pattern '^\s*\d+(\s*,\s*\d+)*\s*$' in silent mode. Requires -Force when
-    combined with -Silent.
+    Silent-mode only. Comma-separated additional disk numbers to clean
+    (no repartitioning) alongside the primary target. Example: "1,2".
+    Validated against the pattern '^\s*\d+(\s*,\s*\d+)*\s*$'. Requires
+    -Force (the interactive 'WIPE ALL' typed confirmation cannot run
+    unattended). In interactive mode this parameter is IGNORED - the
+    extra-wipe menu prompts for disk numbers regardless of what was
+    passed on the command line.
 .PARAMETER MinImageSizeMB
     Minimum image file size in MB during auto-discovery. Files smaller than
     this are skipped to avoid picking up boot/system artifacts that happen
     to share the .wim/.esd extension. Default: 100. Lower it if you're
-    using small lab images.
+    using small lab images. Must be zero or positive (ValidateRange 0..
+    [int]::MaxValue); a negative value is rejected at parameter binding
+    time instead of silently including every file.
 .PARAMETER Force
     Skip the typed "ERASE" confirmation when -TargetDisk is set. Also skips
-    the "WIPE ALL" confirmation when -WipeDisks is set. Does NOT bypass the
-    "DESTROY SYSTEM" confirmation when targeting the running system disk —
-    that always requires the typed string.
+    the "WIPE ALL" confirmation when -WipeDisks is set, and the "WIPE DATA"
+    confirmation when -DataDiskNumber is set. Does NOT bypass the "DESTROY
+    SYSTEM" confirmation when targeting the running system disk — that
+    always requires the typed string.
 .PARAMETER Silent
     Unattended mode for automation. For deployment runs (not -ListOnly), it
     requires -WimFile, -TargetDisk, and -Force, and a single-index image.
@@ -54,9 +61,10 @@
     Stage a SetupComplete.cmd script that enables BitLocker on first
     boot: TPM + Enhanced PIN on C:, recovery key + auto-unlock on D:
     (D: only if -DataDiskNumber was also given). Requires -BitLockerPin.
-    Recovery keys are escrowed to the IMAGES partition under
-    BitLockerKeys\<servicetag-or-timestamp>\ so they remain reachable
-    even if the encrypted volumes don't mount.
+    Recovery keys are escrowed to the IMAGES partition at
+    <IMAGES>\BitLockerKeys\ (one .BEK file per volume, GUID-named by
+    Add-BitLockerKeyProtector) so they remain reachable even if the
+    encrypted volumes don't mount. Override with -BitLockerKeyPath.
 .PARAMETER BitLockerPin
     Startup PIN for the TPM+PIN protector on C:. Required when
     -EnableBitLocker is set. Enhanced PIN policy is enabled, so 6-20
@@ -68,7 +76,11 @@
 .PARAMETER BitLockerKeyPath
     Override the default IMAGES-partition escrow path for recovery keys.
     Use a UNC share (e.g. \\fileserver\BitLockerKeys) or a fixed-disk
-    path on the deployed machine for centralized escrow.
+    path on the deployed machine (e.g. C:\BitLockerKeys) for centralized
+    escrow. The value is embedded verbatim into the staged first-boot
+    setup script and must be absolute (drive-qualified or UNC) - a
+    relative path would resolve against the first-boot CWD and silently
+    land somewhere unintended, so the script rejects it pre-flight.
 
     Default behavior: the staged first-boot script looks up the IMAGES
     partition by volume label (Get-Volume -FileSystemLabel 'IMAGES')
@@ -78,6 +90,17 @@
     USB is unplugged or the label doesn't match, escrow falls back
     to C:\Windows\Setup\BitLockerKeys with a log warning.
 .VERSION
+    4.8.0 - Consolidation release. Absorbs the backlog of unattended
+            maintenance changes into one reviewed branch. Highlights:
+            system disks excluded from the additional-wipe candidate
+            pool; deploy aborts when the WIM source disk is in the wipe
+            set; diskpart-script and BitLocker-staging writes now fail
+            loudly instead of silently; BitLocker PIN edge-whitespace
+            and non-absolute -BitLockerKeyPath rejected pre-flight;
+            builders refuse -UsbDrive equal to the system drive and
+            -Clean against a drive/UNC root; four new fixture suites
+            (CCTK selection, disk-size math, DISM exit codes, whitelist
+            loader) and a masterize check pinning -NoNewWindow.
     4.7.1 - BitLocker recovery-key escrow now resolves the IMAGES
             partition by volume label at first-boot time instead of
             baking the WinPE-time drive letter into the staged script.
@@ -111,6 +134,7 @@ param(
     [string]$WimFile,
     [int]$TargetDisk = -1,
     [string]$WipeDisks,
+    [ValidateRange(0, [int]::MaxValue)]
     [int]$MinImageSizeMB = 100,
     [string]$UnattendFile,
     [int]$DataDiskNumber = -1,
@@ -132,7 +156,7 @@ try {
 #region Configuration
 $Script:Config = @{
     MinimumMemoryGB = 8
-    ScriptVersion = '4.7.1'
+    ScriptVersion = '4.8.0'
     DiskpartScriptName = 'deploy_diskpart.txt'
     SearchPaths = @('images', 'wim', 'deploy', 'windows', 'os')
     ImageExtensions = @('*.wim', '*.esd')
@@ -243,6 +267,30 @@ function Show-MessageBox {
         return 'OK'
     }
 }
+
+function Save-DeployLogToTarget {
+    # Copy the WinPE deploy log from the RAM disk (X:\Windows\Temp) to
+    # C:\Windows\Panther\WinPE-Deploy\ so it survives the shutdown/reboot into
+    # the deployed Windows. Silent no-op when the log file is unset or C:\Windows
+    # doesn't exist yet (deploy failed before DISM apply). All errors are
+    # swallowed - preserving the log must never block a successful deploy or
+    # add noise to a fatal exit.
+    if (-not $Script:SystemPaths.LogFile) { return }
+    if (-not (Test-Path -LiteralPath $Script:SystemPaths.LogFile -PathType Leaf)) { return }
+    if (-not (Test-Path -LiteralPath 'C:\Windows' -PathType Container)) { return }
+
+    try {
+        $logTargetDir = 'C:\Windows\Panther\WinPE-Deploy'
+        if (-not (Test-Path -LiteralPath $logTargetDir)) {
+            New-Item -ItemType Directory -Path $logTargetDir -Force -ErrorAction Stop | Out-Null
+        }
+        $dest = Join-Path $logTargetDir (Split-Path -Leaf $Script:SystemPaths.LogFile)
+        Copy-Item -LiteralPath $Script:SystemPaths.LogFile -Destination $dest -Force -ErrorAction Stop
+        Write-Log "Deploy log preserved to target: $dest" -Level Success
+    } catch {
+        Write-Log "Could not preserve deploy log to C:\Windows\Panther\WinPE-Deploy\: $($_.Exception.Message)" -Level Warning
+    }
+}
 #endregion
 
 #region System Discovery
@@ -298,11 +346,17 @@ function Find-ImageFiles {
     # If specific WIM file provided, use it
     if ($WimFile) {
         if ((Test-Path $WimFile -PathType Leaf) -and ([IO.Path]::GetExtension($WimFile).ToLowerInvariant() -in @('.wim', '.esd'))) {
-            Write-Log "Using specified WIM file: $WimFile" -Level Success
-            $item = Get-Item $WimFile
+            # Resolve to absolute path before storing. A relative -WimFile
+            # (e.g. 'images/Win11.wim') would later make Split-Path -Qualifier
+            # in Start-Deployment return an empty string, silently disabling
+            # the WIM-source-drive protection in New-DiskpartScript - and
+            # would feed a relative path to DISM /apply-image after diskpart
+            # may have changed which drive letters are mounted.
+            $item = Get-Item -LiteralPath $WimFile
+            Write-Log "Using specified WIM file: $($item.FullName)" -Level Success
             return @(@{
-                Path = $WimFile
-                Name = Split-Path -Leaf $WimFile
+                Path = $item.FullName
+                Name = $item.Name
                 Size = $item.Length
                 Type = 'Specified'
                 LastModified = $item.LastWriteTime
@@ -324,16 +378,30 @@ function Find-ImageFiles {
         if (Test-Path $envDrive) {
             Write-Log "Using image drive from launcher: $envDrive" -Level Info
             $ImagePath = $envDrive
+        } else {
+            # Surface the silent fall-through: a stale env var (USB unplugged
+            # between startnet.cmd and the script, label mismatch on remount,
+            # etc.) would otherwise leave the operator wondering why the
+            # full-drive scan kicked in instead of the IMAGES fast path.
+            Write-Log "DEPLOY_IMAGE_DRIVE='$($env:DEPLOY_IMAGE_DRIVE)' is set but path not accessible - falling back to drive scan" -Level Warning
         }
     }
 
     # If specific image path provided, search there
     if ($ImagePath) {
-        if (Test-Path $ImagePath) {
-            return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
+        if (-not (Test-Path $ImagePath)) {
+            Write-Log "Specified image path not found: $ImagePath" -Level Error
+            return @()
         }
-        Write-Log "Specified image path not found: $ImagePath" -Level Error
-        return @()
+        # -ImagePath must be a directory to scan. A file path here is a
+        # parameter mix-up (should have been -WimFile) and would silently
+        # either match only the file itself or return zero results; fail
+        # loud so the operator fixes the invocation.
+        if (Test-Path $ImagePath -PathType Leaf) {
+            Write-Log "-ImagePath must be a directory to scan (got a file: $ImagePath). Use -WimFile for a single image file." -Level Error
+            return @()
+        }
+        return Search-DirectoryForImages -Path $ImagePath -Source "Specified path"
     }
 
     # Auto-discovery across all non-system drives (specify -ImagePath or -WimFile to skip scanning)
@@ -422,15 +490,13 @@ function Search-DirectoryForImages {
     return $images
 }
 
-function Show-ImageList {
+# Shared header + per-image rows + footer used by both -ListOnly and the
+# interactive image picker. Kept as one helper so the two paths can't drift
+# out of sync (a stale field or misaligned column would show up in one menu
+# and not the other, which is exactly the kind of TUI inconsistency an
+# operator notices last).
+function Write-ImageListingTable {
     param([array]$Images)
-
-    if ($Images.Count -eq 0) {
-        Write-Log "No Windows image files found!" -Level Error
-        Write-Log "Searched for: $($Script:Config.ImageExtensions -join ', ')" -Level Info
-        Write-Log "In directories: $($Script:Config.SearchPaths -join ', ')" -Level Info
-        return
-    }
 
     Write-Host ""
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
@@ -454,6 +520,19 @@ function Show-ImageList {
     Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
 }
 
+function Show-ImageList {
+    param([array]$Images)
+
+    if ($Images.Count -eq 0) {
+        Write-Log "No Windows image files found!" -Level Error
+        Write-Log "Searched for: $($Script:Config.ImageExtensions -join ', ')" -Level Info
+        Write-Log "In directories: $($Script:Config.SearchPaths -join ', ')" -Level Info
+        return
+    }
+
+    Write-ImageListingTable -Images $Images
+}
+
 function Show-ImageSelection {
     param([array]$Images)
 
@@ -465,26 +544,7 @@ function Show-ImageSelection {
         return $null
     }
 
-    Write-Host ""
-    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
-    Write-Host "AVAILABLE WINDOWS IMAGE FILES".PadLeft(50) -ForegroundColor $Script:Colors.Header
-    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
-
-    for ($i = 0; $i -lt $Images.Count; $i++) {
-        $image = $Images[$i]
-        $sizeGB = [Math]::Round($image.Size / 1GB, 2)
-        $modified = $image.LastModified.ToString('yyyy-MM-dd HH:mm')
-
-        Write-Host ""
-        Write-Host "[$($i + 1)] $($image.Name)" -ForegroundColor $Script:Colors.Success
-        Write-Host "     Size: $sizeGB GB" -ForegroundColor White
-        Write-Host "     Modified: $modified" -ForegroundColor White
-        Write-Host "     Location: $($image.Type)" -ForegroundColor $Script:Colors.Info
-        Write-Host "     Path: $($image.Path)" -ForegroundColor Gray
-    }
-
-    Write-Host ""
-    Write-Host ("="*80) -ForegroundColor $Script:Colors.Header
+    Write-ImageListingTable -Images $Images
 
     # Auto-select if only one image
     if ($Images.Count -eq 1) {
@@ -567,7 +627,17 @@ function Test-SystemMemory {
 
         return $true
     } catch {
-        Write-Log "Could not determine system memory - continuing anyway" -Level Warning
+        Write-Log "Could not determine system memory: $($_.Exception.Message)" -Level Warning
+        # Silent mode is unattended: proceeding with unknown memory state means a
+        # low-memory host may reach DISM and OOM mid-apply, after the target disk
+        # has already been wiped. Hard-fail here so unattended runs surface the
+        # WMI failure loudly instead of turning it into a half-deployed disk.
+        # This matches the "abort on ambiguity" pattern used by Test-WinPEEnvironment.
+        if ($Silent) {
+            Write-Log "Aborting - cannot verify memory in silent mode" -Level Error
+            return $false
+        }
+        Write-Log "Continuing anyway (interactive mode)" -Level Warning
         return $true
     }
 }
@@ -594,6 +664,20 @@ function Get-SystemDisks {
         }
         foreach ($skippedDisk in $nonTargetableMedia) {
             Write-Log "Skipping non-targetable media disk $($skippedDisk.Index): $($skippedDisk.Model) ($($skippedDisk.MediaType))" -Level Info
+        }
+        # Log zero-size disks for the same reason as USB / non-targetable media:
+        # an empty card-reader slot or an offline HBA lun otherwise disappears
+        # silently from the disk menu with no hint why. Filter matches the
+        # eligibility Where-Object below so the two stay in sync.
+        $zeroSizeDisks = $allWmiDisks | Where-Object {
+            $_.InterfaceType -ne 'USB' -and
+            $_.MediaType -notlike "*removable*" -and
+            $_.MediaType -notlike "*cd*" -and
+            $_.Model -notlike "*cd*" -and
+            ([double]$_.Size -le 0)
+        }
+        foreach ($skippedDisk in $zeroSizeDisks) {
+            Write-Log "Skipping zero-size disk $($skippedDisk.Index): $($skippedDisk.Model) (empty slot, offline, or unreadable)" -Level Info
         }
         $wmiDisks = $allWmiDisks | Where-Object {
             $_.InterfaceType -ne 'USB' -and
@@ -671,6 +755,35 @@ function Get-SystemDisks {
         Write-Log "Error scanning disks: $($_.Exception.Message)" -Level Error
         return @()
     }
+}
+
+function Get-DiskNumberForDriveLetter {
+    # Map a drive letter ('D:', 'D:\', or bare 'D') to its hosting physical
+    # disk number via WMI associators. Returns $null when the letter doesn't
+    # resolve to a Win32_DiskDrive - e.g. WinPE's X: RAM disk, network
+    # mappings, dynamic/spanned volumes, or a letter that simply isn't
+    # mounted. PSv5.1-safe; no Storage module dependency.
+    param(
+        [Parameter(Mandatory)]
+        [string]$DriveLetter
+    )
+
+    $L = ($DriveLetter -replace '[^A-Za-z]', '').ToUpperInvariant()
+    if ($L.Length -lt 1) { return $null }
+    $L = $L.Substring(0, 1)
+
+    try {
+        $parts = Get-WmiObject -Query "ASSOCIATORS OF {Win32_LogicalDisk.DeviceID='${L}:'} WHERE AssocClass=Win32_LogicalDiskToPartition" -ErrorAction Stop
+        foreach ($part in $parts) {
+            $drives = Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='$($part.DeviceID)'} WHERE AssocClass=Win32_DiskDriveToDiskPartition" -ErrorAction SilentlyContinue
+            foreach ($d in $drives) {
+                if ($null -ne $d.Index) { return [int]$d.Index }
+            }
+        }
+    } catch {
+        return $null
+    }
+    return $null
 }
 
 function Show-DiskMenu {
@@ -829,6 +942,14 @@ function Get-WimImageInfo {
         $output = & dism.exe /Get-WimInfo /WimFile:"$WimPath" /English 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Log "DISM /Get-WimInfo failed (exit code $LASTEXITCODE) - WIM file may be corrupted or inaccessible" -Level Warning
+            Write-Log "  WIM: $WimPath" -Level Info
+            if ($output) {
+                Write-Log "  DISM output:" -Level Info
+                foreach ($line in ($output -split "`r?`n")) {
+                    $trimmed = "$line".Trim()
+                    if ($trimmed) { Write-Log "    $trimmed" -Level Info }
+                }
+            }
             return @()
         }
         $indexes = @()
@@ -1015,8 +1136,34 @@ $dataDiskCommands
 exit
 "@
 
+    # Concise plan summary before the raw script dump. The raw diskpart
+    # commands log below is verbose (10+ lines mixing selects, cleans,
+    # creates, formats), which makes it hard for the operator to visually
+    # confirm the derived plan matches what they typed at the confirmation
+    # prompts. This block echoes the derived plan as a single scannable
+    # block so a mismatch (e.g. wrong extra-wipe disk number embedded)
+    # jumps out before Invoke-Diskpart runs the destructive commands.
+    Write-Log "Diskpart plan:" -Level Info
+    Write-Log "  Target disk $DiskNumber : clean + GPT + EFI(300MB,S:) + MSR(16MB) + NTFS(C:)" -Level Info
+    if ($ExtraWipeDisks -and $ExtraWipeDisks.Count -gt 0) {
+        foreach ($extra in $ExtraWipeDisks) {
+            Write-Log "  Extra-wipe disk $($extra.Number) ($($extra.Model)) : clean only (no repartition)" -Level Info
+        }
+    } else {
+        Write-Log "  Extra-wipe disks: none" -Level Info
+    }
+    if ($Script:Config.DataDiskNumber -ge 0) {
+        Write-Log "  Data disk $($Script:Config.DataDiskNumber) : clean + GPT + NTFS(D:, label=Data)" -Level Info
+    }
+
     try {
-        Set-Content -Path $Script:SystemPaths.DiskpartScript -Value $commands -Force
+        # -ErrorAction Stop turns non-terminating Set-Content failures
+        # (access-denied, disk-full on X:, path invalid) into catchable
+        # exceptions. Without it, a silent partial write could leave a
+        # truncated diskpart script - Invoke-Diskpart would then execute
+        # a prefix like `select disk 0; clean` (destructive) without ever
+        # reaching `create partition`, wiping the target but not deploying.
+        Set-Content -Path $Script:SystemPaths.DiskpartScript -Value $commands -Force -ErrorAction Stop
         Write-Log "Diskpart script created at $($Script:SystemPaths.DiskpartScript):" -Level Success
         foreach ($line in ($commands -split "`n")) {
             $trimmed = $line.Trim()
@@ -1025,6 +1172,8 @@ exit
         return $true
     } catch {
         Write-Log "Failed to create diskpart script: $($_.Exception.Message)" -Level Error
+        Write-Log "  Aborting before any destructive disk operation. Target disk is untouched." -Level Info
+        Write-Log "  Common causes: X: (WinPE RAM disk) full, temp dir not writable, path invalid." -Level Info
         return $false
     }
 }
@@ -1145,7 +1294,11 @@ function Apply-WindowsImage {
         # The full lookup table lives in docs/TROUBLESHOOTING.md; this block
         # surfaces the most common one-liners inline so the operator doesn't
         # have to scroll past the trace or open another doc.
-        $dismLog = 'X:\Windows\Logs\DISM\dism.log'
+        # Resolve via $env:WinDir so the path is correct in both WinPE
+        # (X:\Windows\Logs\DISM\dism.log) and the CONTINUE ANYWAY non-WinPE
+        # escape hatch (C:\Windows\Logs\DISM\dism.log) - previously hardcoded
+        # to X: which was misleading outside WinPE.
+        $dismLog = "$env:WinDir\Logs\DISM\dism.log"
         switch ($process.ExitCode) {
             1 {
                 # ERROR_INVALID_FUNCTION. Almost always means the WIM has damaged
@@ -1230,7 +1383,8 @@ function Set-BootConfiguration {
         # look at the EFI bit here: bcdboot copies bootmgfw.efi from this exact
         # path onto S: - if it's missing, bcdboot fails before touching S:.
         $bootmgfwEfi = 'C:\Windows\Boot\EFI\bootmgfw.efi'
-        if (Test-Path $bootmgfwEfi) {
+        $bootmgfwPresent = Test-Path $bootmgfwEfi
+        if ($bootmgfwPresent) {
             Write-Log "  $bootmgfwEfi present" -Level Info
         } else {
             Write-Log "  $bootmgfwEfi NOT found - applied image is missing the UEFI boot manager (non-bootable WIM or wrong arch)" -Level Warning
@@ -1242,6 +1396,7 @@ function Set-BootConfiguration {
         # BCD/EFI tree fits in a few MB, so anything under ~30 MB free is a
         # red flag.
         $sVol = Get-PSDrive -Name 'S' -ErrorAction SilentlyContinue
+        $sFreeMB = $null
         if ($sVol) {
             $sFreeMB = [math]::Round($sVol.Free / 1MB, 1)
             Write-Log "  S: mounted, free: $sFreeMB MB" -Level Info
@@ -1252,11 +1407,42 @@ function Set-BootConfiguration {
             Write-Log "  S: NOT mounted - re-assign letter S to the EFI partition via diskpart and retry" -Level Warning
         }
 
-        Write-Log "Common causes:" -Level Info
-        Write-Log "  1. EFI partition is not letter S: or was reformatted as non-FAT32" -Level Info
-        Write-Log "  2. Applied image has no UEFI boot manager (bootmgfw.efi) - re-check the WIM source or arch" -Level Info
-        Write-Log "  3. Firmware is in Legacy/CSM mode - this script targets pure UEFI (/f UEFI)" -Level Info
-        Write-Log "  4. See bcdboot output above for the exact failure point" -Level Info
+        # Operator-facing recovery guidance. BCDBoot's exit-code surface is
+        # thinner than DISM's (most failures come out as exit 1 with the real
+        # cause on stderr), so for exit 1 we lean on the diagnostic evidence
+        # above to name the single most likely cause instead of dumping a
+        # generic menu. A couple of documented Win32 errors that bcdboot
+        # passes through (5 access denied, 87 invalid parameter) get their
+        # own arms so they don't get lost inside the exit-1 verdict.
+        switch ($process.ExitCode) {
+            5 {
+                Write-Log "Exit code 5 ('Access denied') - bcdboot could not write to S: or open a source file under C:\Windows\Boot\EFI." -Level Warning
+                Write-Log "  Confirm S: is mounted read-write (see 'S: mounted' line above) and no other process has the BCD store locked." -Level Info
+            }
+            87 {
+                Write-Log "Exit code 87 ('Invalid parameter') - bcdboot rejected its arguments." -Level Warning
+                Write-Log "  Script passes 'C:\Windows /s S: /f UEFI'; this should never fail on a healthy target. Capture the console output for triage - likely a script bug or a WIM that fails bcdboot's boot-manager validation." -Level Info
+            }
+            default {
+                Write-Log "Most likely cause based on diagnostics above:" -Level Warning
+                if (-not $bootmgfwPresent) {
+                    Write-Log "  Missing bootmgfw.efi on the applied image - the WIM is non-bootable (capture-only) or the wrong architecture." -Level Warning
+                    Write-Log "  Recovery: re-check the WIM source (must be Windows install media, not capture-only) and confirm arch matches the firmware." -Level Info
+                } elseif (-not $sVol) {
+                    Write-Log "  S: lost its drive letter between diskpart and bcdboot (rare timing race, or a competing volume mount)." -Level Warning
+                    Write-Log "  Recovery: re-run the deploy, or manually re-assign S in diskpart and retry: bcdboot C:\Windows /s S: /f UEFI" -Level Info
+                } elseif ($sFreeMB -ne $null -and $sFreeMB -lt 30) {
+                    Write-Log "  S: (EFI partition) is too small or too full for the BCD/EFI tree - the deploy script provisions 300 MB, so confirm the EFI partition wasn't reformatted smaller." -Level Warning
+                } else {
+                    Write-Log "  bootmgfw.efi and S: both look healthy - the failure is most likely one of:" -Level Warning
+                    Write-Log "    - Firmware in Legacy/CSM mode (this script targets pure UEFI via /f UEFI)" -Level Info
+                    Write-Log "    - Architecture mismatch (x64 WIM on ARM firmware, or vice-versa)" -Level Info
+                    Write-Log "    - BCD template on the applied WIM is corrupt (try a different edition or re-download the source)" -Level Info
+                    Write-Log "  See bcdboot stderr above for the exact failure point." -Level Info
+                }
+                Write-Log "See docs/TROUBLESHOOTING.md ('BCDBoot fails') for the full symptom-to-cause table." -Level Info
+            }
+        }
         return $false
     } catch {
         Write-Log "Boot configuration error: $($_.Exception.Message)" -Level Error
@@ -1273,10 +1459,16 @@ function Invoke-CctkConfig {
     # single USB can drive a multi-machine fleet without rebuilding the image.
     #
     # Selection precedence for the config file:
-    #   1. <SERVICETAG>.ini (per-machine, matches Win32_BIOS.SerialNumber)
-    #   2. <MODEL>.ini      (per-model, alnum-normalized Win32_ComputerSystem.Model)
+    #   1. <SERVICETAG>.ini (per-machine, Win32_BIOS.SerialNumber, alnum-normalized)
+    #   2. <MODEL>.ini      (per-model, Win32_ComputerSystem.Model, alnum-normalized)
     #   3. default.ini      (catch-all)
     #   4. none             -> skip CCTK entirely and continue to deploy
+    #
+    # Both identifiers are stripped to A-Z / a-z / 0-9 so a BIOS value
+    # containing path separators, '..', or embedded whitespace can't
+    # escape $cctkDir via Join-Path (which does not reject '..'). Real
+    # Dell service tags are 7-char alphanumeric so this is a no-op for
+    # supported hardware.
     #
     # Any non-zero exit from cctk.exe aborts the deploy - running DISM on a
     # half-configured BIOS is worse than failing loud.
@@ -1300,12 +1492,14 @@ function Invoke-CctkConfig {
         return $true
     }
 
-    # Resolve per-machine identifiers
+    # Resolve per-machine identifiers. Strip both to alnum so a BIOS value
+    # containing path separators or '..' can't traverse out of $cctkDir via
+    # Join-Path (see selection-precedence note above).
     $serviceTag = $null
     $model = $null
     try {
-        $serviceTag = (Get-WmiObject -Class Win32_BIOS -ErrorAction Stop).SerialNumber
-        if ($serviceTag) { $serviceTag = $serviceTag.Trim() }
+        $rawServiceTag = (Get-WmiObject -Class Win32_BIOS -ErrorAction Stop).SerialNumber
+        if ($rawServiceTag) { $serviceTag = ($rawServiceTag -replace '[^A-Za-z0-9]', '').Trim() }
     } catch {
         Write-Log "Could not read BIOS serial/service tag: $($_.Exception.Message)" -Level Warning
     }
@@ -1361,10 +1555,35 @@ function Invoke-CctkConfig {
 
     if ($cctkExit -ne 0) {
         Write-Log "CCTK returned exit code $cctkExit - aborting deploy" -Level Error
-        Write-Log "  Common causes:" -Level Info
-        Write-Log "    - Invalid setting name in $configPath" -Level Info
-        Write-Log "    - Setup/system password mismatch (add --valsetuppwd=<current> to the config)" -Level Info
-        Write-Log "    - DCC binary or DCH API DLLs missing from boot.wim (rebuild with -CctkSource pointing at the full DCC X86_64 directory)" -Level Info
+
+        # Operator-facing recovery guidance for known CCTK exit codes.
+        # Full table lives in docs/TROUBLESHOOTING.md ('CCTK: CCTK returned
+        # exit code N') and docs/CCTK.md. This mirrors the DISM apply-image
+        # exit-code switch in Apply-WindowsImage so operators get the same
+        # depth of guidance whether the failure is CCTK or DISM.
+        switch ($cctkExit) {
+            116 {
+                Write-Log "Exit code 116 ('BIOS communication error') usually means the DCH API layer could not talk to the firmware." -Level Warning
+                Write-Log "  1. Verify Dell Command | Configure is version 4.0 or later (pre-4.0 HAPI-based DCC is not supported)." -Level Info
+                Write-Log "  2. Verify -CctkSource pointed at the full DCC X86_64 directory (must include dchapi64.dll, dchbas64.dll, BIOSIntf.dll)." -Level Info
+                Write-Log "  3. If CCTK still fails on a newer boot.wim, the firmware may not support DCC 4.0+ on this model." -Level Info
+            }
+            149 {
+                Write-Log "Exit code 149 ('Password mismatch') means CCTK could not authenticate against the existing BIOS setup/system password." -Level Warning
+                Write-Log "  Add --valsetuppwd=<current> (and --valsyspwd=<current> if the system password is also set) to $configPath so CCTK can authenticate before changing anything." -Level Info
+            }
+            197 {
+                Write-Log "Exit code 197 ('Setting not supported on this model') means one of the options in $configPath does not apply to this hardware." -Level Warning
+                Write-Log "  Cross-check the settings in $configPath against 'cctk --help' on a reference machine of this model, and consider a per-MODEL.ini override." -Level Info
+            }
+            default {
+                Write-Log "  Common causes:" -Level Info
+                Write-Log "    - Invalid setting name in $configPath" -Level Info
+                Write-Log "    - Setup/system password mismatch (add --valsetuppwd=<current> to the config)" -Level Info
+                Write-Log "    - DCC binary or DCH API DLLs missing from boot.wim (rebuild with -CctkSource pointing at the full DCC X86_64 directory)" -Level Info
+                Write-Log "See docs/TROUBLESHOOTING.md ('CCTK: CCTK returned exit code N') for the full exit-code table." -Level Info
+            }
+        }
         return $false
     }
 
@@ -1381,14 +1600,28 @@ function Select-AdditionalWipeDisks {
     )
 
     # Candidates: every enumerated disk other than the primary target.
-    # Get-SystemDisks already excludes USB and removable media.
-    $candidates = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number })
+    # Get-SystemDisks already excludes USB and removable media; also drop
+    # any disk flagged IsSystemDisk so a single 'WIPE ALL' confirmation
+    # can never clean the running system disk without the DESTROY SYSTEM
+    # typed confirmation that Select-TargetDisk gates. In WinPE the flag
+    # is always $false (Get-SystemDisks short-circuits when $env:SystemDrive
+    # is X:), so this is defense-in-depth for non-WinPE runs.
+    $systemDisks = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number -and $_.IsSystemDisk })
+    foreach ($sysd in $systemDisks) {
+        Write-Log "Excluding disk $($sysd.Number) ($($sysd.Model)) from additional-wipe candidates - system disk" -Level Info
+    }
+    $candidates = @($AllDisks | Where-Object { $_.Number -ne $TargetDisk.Number -and -not $_.IsSystemDisk })
     if ($candidates.Count -eq 0) { return @() }
 
     # Silent path: resolve -WipeDisks without prompting
     if ($Silent) {
         if (-not $WipeDisks) { return @() }
         $nums = @($WipeDisks -split ',' | ForEach-Object { [int]($_.Trim()) })
+        $systemRequested = $systemDisks | Where-Object { $_.Number -in $nums } | ForEach-Object Number
+        if ($systemRequested) {
+            Write-Log "Requested extra wipe disks $($systemRequested -join ',') are system disks - refusing (use -TargetDisk with DESTROY SYSTEM to wipe the system disk)" -Level Error
+            return $null
+        }
         $picked = @($candidates | Where-Object { $_.Number -in $nums })
         $missing = $nums | Where-Object { $_ -notin ($picked | ForEach-Object Number) }
         if ($missing) {
@@ -1432,6 +1665,12 @@ function Select-AdditionalWipeDisks {
         $num = [int]$tok
         $match = $candidates | Where-Object { $_.Number -eq $num } | Select-Object -First 1
         if (-not $match) {
+            # Distinguish "system disk excluded" from other rejections so the
+            # operator knows why - use -TargetDisk with DESTROY SYSTEM to wipe it.
+            if ($systemDisks | Where-Object { $_.Number -eq $num }) {
+                Write-Log "Disk $num is a system disk - excluded (re-run with -TargetDisk $num to wipe it with DESTROY SYSTEM confirmation)" -Level Warning
+                continue
+            }
             Write-Log "Disk $num is not a valid additional-wipe target (either the primary target, USB, or unknown) - skipping" -Level Warning
             continue
         }
@@ -1522,9 +1761,6 @@ function Initialize-BitLockerSetup {
     Write-Log "Staging BitLocker setup script for first boot..." -Level Info
 
     $scriptsDir = 'C:\Windows\Setup\Scripts'
-    if (-not (Test-Path $scriptsDir)) {
-        New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
-    }
 
     # Escape the PIN for embedding in a here-string (single-quoted PS string — only ' needs doubling)
     $escapedPin = $Script:Config.BitLockerPin -replace "'", "''"
@@ -1563,74 +1799,90 @@ function Write-BL { param([string]`$m) `$ts = Get-Date -Format 'HH:mm:ss'; "`$ts
 
 Write-BL 'BitLocker setup starting'
 
-# Enhanced PIN requires this policy key (allows non-numeric characters in startup PIN)
-`$fvePath = 'HKLM:\SOFTWARE\Policies\Microsoft\FVE'
-if (-not (Test-Path `$fvePath)) { New-Item -Path `$fvePath -Force | Out-Null }
-Set-ItemProperty -Path `$fvePath -Name 'UseEnhancedPin' -Value 1 -Type DWord -Force
-
-$recoveryDirBlock
-if (-not (Test-Path `$recoveryDir)) {
-    try { New-Item -ItemType Directory -Path `$recoveryDir -Force | Out-Null }
-    catch { Write-BL "WARN: could not create `$recoveryDir : `$(`$_.Exception.Message)" }
-}
-
-`$pin = ConvertTo-SecureString '$escapedPin' -AsPlainText -Force
-
-# C: — TPM + Enhanced PIN primary protector
+# Wrap the body so the staging scripts (which carry the plaintext PIN)
+# always self-delete in the finally, even if Enable-BitLocker throws.
+# Without this, a TPM/firmware fault on C: would leave bitlocker-setup.ps1
+# on the encrypted volume with the PIN intact - any local user on first
+# login could read it.
+`$succeeded = `$false
 try {
-    Enable-BitLocker -MountPoint 'C:' -EncryptionMethod XtsAes256 -TpmAndPinProtector -Pin `$pin -ErrorAction Stop | Out-Null
-    Write-BL 'C: TPM+PIN protector set'
-} catch {
-    Write-BL "ERROR enabling C: BitLocker: `$(`$_.Exception.Message)"
-    exit 1
-}
+    # Enhanced PIN requires this policy key (allows non-numeric characters in startup PIN)
+    `$fvePath = 'HKLM:\SOFTWARE\Policies\Microsoft\FVE'
+    if (-not (Test-Path `$fvePath)) { New-Item -Path `$fvePath -Force | Out-Null }
+    Set-ItemProperty -Path `$fvePath -Name 'UseEnhancedPin' -Value 1 -Type DWord -Force
 
-# C: — recovery key backup protector (escrowed off-volume)
-try {
-    Add-BitLockerKeyProtector -MountPoint 'C:' -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
-    Write-BL "C: recovery key saved to `$recoveryDir"
-} catch {
-    Write-BL "WARNING: C: recovery key protector failed: `$(`$_.Exception.Message)"
-}
+    $recoveryDirBlock
+    if (-not (Test-Path `$recoveryDir)) {
+        try { New-Item -ItemType Directory -Path `$recoveryDir -Force | Out-Null }
+        catch { Write-BL "WARN: could not create `$recoveryDir : `$(`$_.Exception.Message)" }
+    }
+
+    `$pin = ConvertTo-SecureString '$escapedPin' -AsPlainText -Force
+
+    # C: — TPM + Enhanced PIN primary protector
+    try {
+        Enable-BitLocker -MountPoint 'C:' -EncryptionMethod XtsAes256 -TpmAndPinProtector -Pin `$pin -ErrorAction Stop | Out-Null
+        Write-BL 'C: TPM+PIN protector set'
+    } catch {
+        Write-BL "ERROR enabling C: BitLocker: `$(`$_.Exception.Message)"
+        throw
+    }
+
+    # C: — recovery key backup protector (escrowed off-volume)
+    try {
+        Add-BitLockerKeyProtector -MountPoint 'C:' -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
+        Write-BL "C: recovery key saved to `$recoveryDir"
+    } catch {
+        Write-BL "WARNING: C: recovery key protector failed: `$(`$_.Exception.Message)"
+    }
 "@
 
     if ($stageDataDisk) {
         $bitlockerScript += @"
 
 
-# D: — recovery key protector
-try {
-    Enable-BitLocker -MountPoint 'D:' -EncryptionMethod XtsAes256 -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
-    Write-BL "D: recovery key saved to `$recoveryDir"
-} catch {
-    Write-BL "ERROR enabling D: BitLocker: `$(`$_.Exception.Message)"
-}
+    # D: — recovery key protector
+    try {
+        Enable-BitLocker -MountPoint 'D:' -EncryptionMethod XtsAes256 -RecoveryKeyProtector -RecoveryKeyPath `$recoveryDir -ErrorAction Stop | Out-Null
+        Write-BL "D: recovery key saved to `$recoveryDir"
+    } catch {
+        Write-BL "ERROR enabling D: BitLocker: `$(`$_.Exception.Message)"
+    }
 
-# D: — auto-unlock tied to C:
-try {
-    Enable-BitLockerAutoUnlock -MountPoint 'D:' -ErrorAction Stop | Out-Null
-    Write-BL 'D: auto-unlock enabled'
-} catch {
-    Write-BL "WARNING: D: auto-unlock failed: `$(`$_.Exception.Message)"
-}
+    # D: — auto-unlock tied to C:
+    try {
+        Enable-BitLockerAutoUnlock -MountPoint 'D:' -ErrorAction Stop | Out-Null
+        Write-BL 'D: auto-unlock enabled'
+    } catch {
+        Write-BL "WARNING: D: auto-unlock failed: `$(`$_.Exception.Message)"
+    }
 "@
     }
 
     $bitlockerScript += @"
 
 
-# Delete this script and the staged SetupComplete.cmd so the plaintext PIN
-# doesn't linger on disk after the encryption that consumed it.
-try {
-    Remove-Item -Path 'C:\Windows\Setup\Scripts\bitlocker-setup.ps1' -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path 'C:\Windows\Setup\Scripts\SetupComplete.cmd'   -Force -ErrorAction SilentlyContinue
-    Write-BL 'Self-deleted staging scripts'
-} catch {
-    Write-BL "WARNING: could not self-delete staging scripts: `$(`$_.Exception.Message)"
-}
+    `$succeeded = `$true
+} finally {
+    # Always delete the PIN-bearing staging scripts, even when an
+    # Enable-BitLocker call above threw. The bitlocker-setup.log keeps
+    # the error trace for diagnosis - the script content itself isn't
+    # needed there.
+    try {
+        Remove-Item -Path 'C:\Windows\Setup\Scripts\bitlocker-setup.ps1' -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path 'C:\Windows\Setup\Scripts\SetupComplete.cmd'   -Force -ErrorAction SilentlyContinue
+        Write-BL 'Self-deleted staging scripts'
+    } catch {
+        Write-BL "WARNING: could not self-delete staging scripts: `$(`$_.Exception.Message)"
+    }
 
-Write-BL 'BitLocker setup complete - rebooting'
-shutdown.exe /r /t 15 /c 'BitLocker configured. Rebooting to finalise...'
+    if (`$succeeded) {
+        Write-BL 'BitLocker setup complete - rebooting'
+        shutdown.exe /r /t 15 /c 'BitLocker configured. Rebooting to finalise...'
+    } else {
+        Write-BL 'BitLocker setup FAILED - PIN-bearing scripts removed for safety. See log for the failure.'
+    }
+}
 "@
 
     $setupCompleteCmd = @"
@@ -1638,14 +1890,28 @@ shutdown.exe /r /t 15 /c 'BitLocker configured. Rebooting to finalise...'
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Windows\Setup\Scripts\bitlocker-setup.ps1" >> "C:\Windows\Setup\Scripts\setupcomplete.log" 2>&1
 "@
 
+    # Guarded together: New-Item and Set-Content share one try/catch so a
+    # directory-creation failure at $scriptsDir surfaces the same "Failed to
+    # stage BitLocker setup" error as a Set-Content failure. Without
+    # -ErrorAction Stop these are non-terminating errors that a bare try/catch
+    # does NOT catch, so a silent New-Item miss followed by a silent Set-Content
+    # miss would fall through to "return $true" and stage no first-boot script,
+    # then the first boot into Windows would come up unencrypted with no signal
+    # that BitLocker staging silently failed.
     try {
-        Set-Content -Path "$scriptsDir\bitlocker-setup.ps1" -Value $bitlockerScript -Encoding UTF8 -Force
-        Set-Content -Path "$scriptsDir\SetupComplete.cmd"   -Value $setupCompleteCmd -Encoding ASCII -Force
+        if (-not (Test-Path $scriptsDir)) {
+            New-Item -ItemType Directory -Path $scriptsDir -Force -ErrorAction Stop | Out-Null
+        }
+        Set-Content -Path "$scriptsDir\bitlocker-setup.ps1" -Value $bitlockerScript -Encoding UTF8 -Force -ErrorAction Stop
+        Set-Content -Path "$scriptsDir\SetupComplete.cmd"   -Value $setupCompleteCmd -Encoding ASCII -Force -ErrorAction Stop
         Write-Log "BitLocker setup staged: $scriptsDir\bitlocker-setup.ps1" -Level Success
         Write-Log "SetupComplete.cmd staged: $scriptsDir\SetupComplete.cmd" -Level Success
         return $true
     } catch {
         Write-Log "Failed to stage BitLocker setup: $($_.Exception.Message)" -Level Error
+        Write-Log "  First boot will come up UNENCRYPTED - no BitLocker will be applied." -Level Warning
+        Write-Log "  To recover: boot back into WinPE and re-run with -EnableBitLocker, or manually" -Level Info
+        Write-Log "  place bitlocker-setup.ps1 + SetupComplete.cmd under $scriptsDir on the target." -Level Info
         return $false
     }
 }
@@ -1693,8 +1959,56 @@ function Start-Deployment {
         Write-Log "BitLockerPin must be 6-20 characters (Enhanced PIN policy)" -Level Error
         return $false
     }
+    # Reject leading/trailing whitespace before we bake the PIN into
+    # bitlocker-setup.ps1. TPM+PIN treats the space as part of the PIN, so
+    # a stray leading/trailing space brings the disk up encrypted with a
+    # PIN the operator cannot type at the first-boot prompt (spaces are
+    # invisible in that BIOS-drawn text field). Common culprits: editor
+    # whitespace in deploy.args, a leading space typed at the WinPE
+    # Read-Host prompt, or copy-paste that introduced a NBSP. We reject
+    # rather than trim so the operator sees the input needs fixing.
+    if ($Script:Config.EnableBitLocker -and
+        $Script:Config.BitLockerPin.Length -ne $Script:Config.BitLockerPin.Trim().Length) {
+        Write-Log "BitLockerPin has leading or trailing whitespace - reject to avoid unlocking with a PIN the operator cannot type at TPM prompt" -Level Error
+        Write-Log "  Check deploy.args for editor whitespace around the -BitLockerPin value, or retype at the WinPE prompt." -Level Info
+        return $false
+    }
     if (-not $Script:Config.EnableBitLocker -and $Script:Config.BitLockerPin) {
         Write-Log "-BitLockerPin provided without -EnableBitLocker - PIN ignored" -Level Warning
+    }
+    if (-not $Script:Config.EnableBitLocker -and $BitLockerKeyPath) {
+        Write-Log "-BitLockerKeyPath provided without -EnableBitLocker - escrow path ignored" -Level Warning
+    }
+
+    # Validate -BitLockerKeyPath format. The value is embedded verbatim into
+    # the staged bitlocker-setup.ps1 that runs on the deployed machine at
+    # first boot, where it has to resolve unambiguously without depending on
+    # CWD. Accept drive-qualified (e.g. C:\BitLockerKeys) or UNC (e.g.
+    # \\fileserver\BitLockerKeys) paths only; reject relative paths and
+    # drive-relative forms like 'C:' or 'C:keys' that would silently land
+    # somewhere the operator did not intend.
+    if ($Script:Config.EnableBitLocker -and $BitLockerKeyPath -and
+        $BitLockerKeyPath -notmatch '^([A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])') {
+        Write-Log "-BitLockerKeyPath must be an absolute path: drive-qualified (e.g. C:\BitLockerKeys) or UNC (e.g. \\fileserver\BitLockerKeys)" -Level Error
+        Write-Log "  Got: '$BitLockerKeyPath'" -Level Error
+        Write-Log "  The value is embedded into the first-boot setup script and must resolve without relying on CWD" -Level Info
+        return $false
+    }
+    # -WipeDisks only feeds Select-AdditionalWipeDisks's silent branch. In
+    # interactive mode the operator types disk numbers fresh at the prompt
+    # and the parameter is silently discarded - warn loudly so an operator
+    # who forgot -Silent doesn't believe their extra-wipe set queued up.
+    if ($WipeDisks -and -not $Silent) {
+        Write-Log "-WipeDisks provided without -Silent - parameter has no effect in interactive mode (use the additional-wipe prompt instead)" -Level Warning
+    }
+
+    # -WimFile is the single-file override; -ImagePath is a directory-scan
+    # override. Both together means the caller mixed the two modes. Find-ImageFiles
+    # short-circuits on -WimFile and never looks at -ImagePath, so warn loudly:
+    # this is a common deploy.args editing mistake and the silent drop makes
+    # "why isn't my ImagePath being used?" hard to debug.
+    if ($WimFile -and $ImagePath) {
+        Write-Log "-WimFile and -ImagePath both specified - -WimFile wins, -ImagePath is ignored" -Level Warning
     }
 
     # Silent mode is intended for unattended runs and must not trigger prompts
@@ -1707,19 +2021,20 @@ function Start-Deployment {
             Write-Log "Silent mode requires -TargetDisk to avoid interactive disk selection" -Level Error
             return $false
         }
+        # Silent + data-disk wipe must be explicit. The interactive 'WIPE DATA'
+        # prompt cannot run silently, so a typo'd disk number would otherwise
+        # silently wipe the wrong disk. Checked before the generic -Force gate
+        # below so the operator sees the specific reason.
+        if ($Script:Config.DataDiskNumber -ge 0 -and -not $Force) {
+            Write-Log "Silent mode with -DataDiskNumber requires -Force (typed 'WIPE DATA' prompt cannot run silently)" -Level Error
+            return $false
+        }
         if (-not $Force) {
             Write-Log "Silent mode requires -Force to avoid interactive final confirmation" -Level Error
             return $false
         }
         if ($WipeDisks -and $WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
             Write-Log "-WipeDisks must be comma-separated disk numbers (e.g. '1,2') - got '$WipeDisks'" -Level Error
-            return $false
-        }
-        # Silent + data-disk wipe must be explicit. The interactive 'WIPE DATA'
-        # prompt cannot run silently, so a typo'd disk number would otherwise
-        # silently wipe the wrong disk.
-        if ($Script:Config.DataDiskNumber -ge 0 -and -not $Force) {
-            Write-Log "Silent mode with -DataDiskNumber requires -Force (typed 'WIPE DATA' prompt cannot run silently)" -Level Error
             return $false
         }
     }
@@ -1740,9 +2055,15 @@ function Start-Deployment {
             Write-Log "UnattendFile is not well-formed XML: $UnattendFile" -Level Error
             Write-Log "  Parse error: $($_.Exception.Message)" -Level Error
             Write-Log "  Windows Setup silently ignores a malformed unattend.xml and falls through to manual OOBE." -Level Error
-            Write-Log "  Sanity-check manually: [xml](Get-Content '$UnattendFile')  (see docs/UNATTEND.md section 6)" -Level Info
+            Write-Log "  Sanity-check manually: [xml](Get-Content -Path '$UnattendFile' -Raw)  (see docs/UNATTEND.md section 6)" -Level Info
             return $false
         }
+        # Normalize to absolute path so the post-DISM Copy-Item (line ~1937) is
+        # robust to CWD changes between here and then. Mirrors the same pattern
+        # the companion scripts (build_iso.ps1, prepare_wim.ps1, build_boot_wim.ps1)
+        # already apply to their input paths, and PR #124's -WimFile fix in
+        # Find-ImageFiles.
+        $UnattendFile = (Resolve-Path $UnattendFile).Path
         Write-Log "Unattend file: $UnattendFile" -Level Info
     }
 
@@ -1873,6 +2194,33 @@ function Start-Deployment {
     # Partition disk (plus any requested additional disk cleans). Pass the
     # WIM source drive so the letter-free pass won't unmount it mid-deploy.
     $sourceDrive = if ($selectedImage.Path) { Split-Path -Qualifier $selectedImage.Path } else { $null }
+
+    # Belt-and-braces: the letter-level protection in New-DiskpartScript stops
+    # mountvol /d from unmounting the WIM source, but diskpart 'clean' on the
+    # underlying physical disk would still wipe the WIM source partition table
+    # before DISM gets to read the file. USB-hosted WIMs (the common case) are
+    # filtered out of Get-SystemDisks entirely, so this guard only fires when
+    # the operator staged a WIM on an internal disk that's also being
+    # targeted, named as -DataDiskNumber, or listed in -WipeDisks. Aborting
+    # here avoids leaving a half-partitioned, unbootable target.
+    $sourceDiskNum = if ($sourceDrive) { Get-DiskNumberForDriveLetter -DriveLetter $sourceDrive } else { $null }
+    if ($null -ne $sourceDiskNum) {
+        if ($sourceDiskNum -eq $targetDisk.Number) {
+            Write-Log "Target disk $($targetDisk.Number) hosts the WIM source drive $sourceDrive - aborting" -Level Error
+            Write-Log "  diskpart would wipe the WIM source before DISM could read it." -Level Error
+            Write-Log "  Move the WIM to a different drive (USB or another internal disk) and re-run." -Level Error
+            return $false
+        }
+        if ($Script:Config.DataDiskNumber -ge 0 -and $sourceDiskNum -eq $Script:Config.DataDiskNumber) {
+            Write-Log "-DataDiskNumber $($Script:Config.DataDiskNumber) hosts the WIM source drive $sourceDrive - aborting" -Level Error
+            return $false
+        }
+        if ($extraWipeDisks | Where-Object { $_.Number -eq $sourceDiskNum }) {
+            Write-Log "-WipeDisks contains disk $sourceDiskNum which hosts the WIM source drive $sourceDrive - aborting" -Level Error
+            return $false
+        }
+    }
+
     if (-not (New-DiskpartScript -DiskNumber $targetDisk.Number -ExtraWipeDisks $extraWipeDisks -ProtectedSourceDrive $sourceDrive)) { return $false }
     if (-not (Invoke-Diskpart)) { return $false }
 
@@ -1930,12 +2278,25 @@ function Start-Deployment {
 
     # Drop unattend.xml so Windows Setup picks it up on first boot
     if ($UnattendFile) {
-        $pantherDir = 'C:\Windows\Panther'
-        if (-not (Test-Path $pantherDir)) {
-            New-Item -ItemType Directory -Path $pantherDir -Force | Out-Null
+        $pantherDir  = 'C:\Windows\Panther'
+        $unattendDst = Join-Path $pantherDir 'unattend.xml'
+        try {
+            if (-not (Test-Path $pantherDir)) {
+                New-Item -ItemType Directory -Path $pantherDir -Force -ErrorAction Stop | Out-Null
+            }
+            Copy-Item -Path $UnattendFile -Destination $unattendDst -Force -ErrorAction Stop
+            Write-Log "Unattend file staged: $unattendDst" -Level Success
+        } catch {
+            # Windows is already applied and BCDBoot will still make the system
+            # bootable — but without unattend.xml, first boot lands in manual
+            # OOBE instead of the customised flow. Log loudly and continue so
+            # the operator gets a bootable system to recover from, rather than
+            # a half-configured one.
+            Write-Log "Failed to stage unattend file to ${unattendDst}: $($_.Exception.Message)" -Level Error
+            Write-Log "  First boot will land in manual OOBE. To recover:" -Level Warning
+            Write-Log "    1. Complete OOBE manually on the target, OR" -Level Info
+            Write-Log "    2. Boot back into WinPE and copy '$UnattendFile' to '$unattendDst' before first boot" -Level Info
         }
-        Copy-Item -Path $UnattendFile -Destination "$pantherDir\unattend.xml" -Force
-        Write-Log "Unattend file staged: $pantherDir\unattend.xml" -Level Success
     }
 
     # Stage BitLocker setup script (runs on first Windows boot via SetupComplete.cmd)
@@ -1958,6 +2319,11 @@ function Start-Deployment {
     Write-Banner "DEPLOYMENT COMPLETED SUCCESSFULLY"
     Write-Log "Windows image has been deployed and is ready for first boot" -Level Success
 
+    # Preserve deploy log on target - X:\Windows\Temp is a RAM disk and
+    # vanishes on reboot; the operator loses forensic value the moment
+    # they pick "shutdown" below.
+    Save-DeployLogToTarget
+
     if (-not $Silent) {
         $result = Show-MessageBox -Message "Deployment completed successfully!`n`nShutdown the system now?" -Title "Success" -Buttons "YesNo" -Icon "Information"
         if ($result -eq 'Yes') {
@@ -1979,13 +2345,35 @@ try {
         if ($Script:SystemPaths.LogFile) {
             Write-Log "Full log: $($Script:SystemPaths.LogFile)" -Level Info
         }
+        # If DISM already applied the image before the failure, preserve the
+        # log on the target so it survives a reboot (no-op otherwise).
+        Save-DeployLogToTarget
         exit 1
     }
 } catch {
     Write-Log "Critical error: $($_.Exception.Message)" -Level Error
+    # Emit the script line/position and call stack so an unexpected exception
+    # (null-ref, bad property access, etc.) can be triaged without guessing at
+    # ~2000 lines. Nearly every risky operation inside Start-Deployment already
+    # returns $false via its own try/catch, so what reaches this outer catch is
+    # almost always a programming defect where the message alone is not enough.
+    if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
+        foreach ($line in ($_.InvocationInfo.PositionMessage -split "`n")) {
+            $trimmed = $line.Trim()
+            if ($trimmed) { Write-Log "  $trimmed" -Level Error }
+        }
+    }
+    if ($_.ScriptStackTrace) {
+        Write-Log "Script stack trace:" -Level Error
+        foreach ($line in ($_.ScriptStackTrace -split "`n")) {
+            $trimmed = $line.Trim()
+            if ($trimmed) { Write-Log "  $trimmed" -Level Error }
+        }
+    }
     if ($Script:SystemPaths.LogFile) {
         Write-Log "Full log: $($Script:SystemPaths.LogFile)" -Level Info
     }
+    Save-DeployLogToTarget
     if (-not $Silent) {
         Read-Host "Press Enter to exit"
     }

@@ -83,7 +83,9 @@ the whole USB and destroys the dual-partition layout this tool relies on.
 ### Manual alternative (if you can't run the builder)
 
 If you must build manually, the `startnet.cmd` should match this pattern
-(the volume-label lookup lets the deploy script skip a full scan):
+(the volume-label lookup lets the deploy script skip a full scan; the
+`deploy.args` block enables per-USB parameter overrides without
+rebuilding `boot.wim` — see [DEPLOY_ARGS.md](DEPLOY_ARGS.md)):
 
 ```cmd
 @echo off
@@ -103,8 +105,35 @@ goto :launch
 :found
 echo Found image drive: %DEPLOY_IMAGE_DRIVE%
 :launch
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1
+:: Optional per-USB args file. One line of PowerShell parameters; lets
+:: operators retarget a USB without rebuilding boot.wim. See docs/DEPLOY_ARGS.md.
+set "DEPLOYARGS="
+if defined DEPLOY_IMAGE_DRIVE (
+    if exist "%DEPLOY_IMAGE_DRIVE%\deploy.args" (
+        set /p DEPLOYARGS=<"%DEPLOY_IMAGE_DRIVE%\deploy.args"
+        echo Loaded deploy args from %DEPLOY_IMAGE_DRIVE%\deploy.args
+        echo   Parameters loaded. Secrets, if present, are not displayed.
+    )
+)
+:: Replace {DRIVE} placeholder with the actual image-drive letter.
+:: build_iso.ps1 uses this so deploy.args paths work regardless of
+:: which drive letter WinPE assigns the USB.
+if defined DEPLOY_IMAGE_DRIVE (
+    if defined DEPLOYARGS (
+        set "DEPLOYARGS=!DEPLOYARGS:{DRIVE}=%DEPLOY_IMAGE_DRIVE%!"
+    )
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File X:\scripts\unified_winpe_deploy.ps1 !DEPLOYARGS!
 ```
+
+This is the minimum viable bootloader: it locates the IMAGES partition
+and launches the deploy script with no arguments (fully interactive TUI).
+It does **not** read a per-USB `deploy.args` file or substitute the
+`{DRIVE}` placeholder — the builder's real `startnet.cmd` adds both.
+If you need silent/unattended deploys or paths that stay portable across
+USB drive letters, extend this snippet with the `set /p DEPLOYARGS=...`
+and `{DRIVE}` substitution blocks documented in
+[docs/DEPLOY_ARGS.md](DEPLOY_ARGS.md#how-it-works).
 
 And the offline registry tweak (inside the mounted `boot.wim`):
 
