@@ -3,7 +3,9 @@
 
 # Skip anchors — GitHub renders Markdown headings into anchors but
 # lychee would have to fetch the full rendered HTML to verify them.
-include_fragments = false
+# lychee 0.24 replaced the old bool with an enum (none / anchor-only /
+# text-only / full); "none" is the equivalent of the pre-0.24 `false`.
+include_fragments = "none"
 
 # Treat GitHub rate-limit responses (429) as success rather than error.
 # Note: `accept` replaces the default 200-299 success range, so it must

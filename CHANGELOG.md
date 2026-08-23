@@ -8,6 +8,18 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`.lychee.toml` `include_fragments` value updated for lychee 0.24+.**
+  `lycheeverse/lychee-action@v2` now pulls lychee 0.24.2, which
+  changed `include_fragments` from a boolean to a string enum
+  (`none` / `anchor-only` / `text-only` / `full`). The prior
+  `include_fragments = false` no longer parses ("wanted string or
+  table"), and the `Markdown link check` CI job aborts before
+  crawling a single link on every push. Replaced with the
+  equivalent `"none"` value. Behaviorally identical to the old
+  intent (skip anchor/fragment verification, which would require
+  fetching rendered GitHub HTML).
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter
