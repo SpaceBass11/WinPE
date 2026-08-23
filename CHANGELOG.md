@@ -8,6 +8,20 @@ tagged GitHub releases are published.
 
 ## Unreleased
 
+### Fixed
+- **`build_iso.ps1 -Interactive -UnattendFile` now honors the answer
+  file at first boot.** The `.PARAMETER UnattendFile` docstring
+  promises that when the parameter is set the answer file is both
+  staged into the ISO (`configs\<name>.xml`) and referenced in the
+  generated `deploy.args`. The silent branch did both; the
+  `-Interactive` branch staged the file but silently dropped
+  `-UnattendFile` from `deploy.args`, so Windows Setup fell through
+  to manual OOBE on first boot despite the operator having pre-staged
+  an answer file. Moved the `-UnattendFile` append out of the silent-
+  only branch so both modes now emit it whenever the file was staged.
+  Silent regression path (with/without unattend, extra params) still
+  produces byte-identical `deploy.args` for the pre-fix inputs.
+
 ### Changed
 - **`Get-SystemDisks` classifier now has fixture-test coverage.**
   New `tests/test_disk_enumeration.ps1` exercises the disk-filter

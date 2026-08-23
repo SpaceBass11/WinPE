@@ -5,6 +5,110 @@ doesn't keep re-investigating the same areas. Newest entries on top.
 
 ---
 
+## 2026-08-23 — `build_iso.ps1 -Interactive -UnattendFile` doc-vs-code fix
+
+**Investigated:** the six shipped PowerShell scripts in the deploy
+pipeline, focusing on `scripts/build_iso.ps1` — the newest
+production script (added in PR #35), and the one the routine log has
+touched least. Compared each of its `.PARAMETER` docstrings against
+the code that consumes them, on the assumption that this is where
+doc-vs-code drift is most likely to hide undetected.
+
+**Found:** the `.PARAMETER UnattendFile` docstring (lines 32-35 of
+`scripts/build_iso.ps1`) says the answer file "is staged at
+configs\unattend.xml inside the ISO **and referenced in the generated
+deploy.args** so Windows Setup processes it on first boot." The
+`-UnattendFile` append lived inside the silent (else) branch of the
+`if ($Interactive) { ... } else { ... }` block that built `$argsLine`,
+so:
+
+- `build_iso.ps1 -Interactive -UnattendFile foo.xml` staged
+  `configs\foo.xml` into the ISO and printed "Unattend file staged"
+  — then emitted `deploy.args` as `-ImagePath "{DRIVE}\images"` with
+  no `-UnattendFile` reference. First boot silently fell through to
+  manual OOBE despite the pre-staged answer file.
+- `build_iso.ps1 -UnattendFile foo.xml` (silent) worked correctly —
+  emitted `-WimFile ... -TargetDisk N -Force -Silent -UnattendFile
+  "{DRIVE}\configs\foo.xml"`. This is why the gap survived: the
+  documented "silent + unattend" happy path was fine, and the
+  interactive variant is likely used less in practice (lab/test
+  builds where OOBE is not the point).
+
+Only the interactive branch was affected; the other silent-only
+params (`-DataDiskNumber`, `-WipeDisks`, `-TargetDisk`,
+`-BitLockerPin`) are explicitly documented as "Only used when
+-Interactive is not set" in their `.PARAMETER` blocks — no drift on
+those.
+
+**Changed:**
+
+- `scripts/build_iso.ps1` — moved the `if ($unattendInIso) {
+  $argsLine += " -UnattendFile ..." }` append out of the silent (else)
+  branch, into a common block after the `if/else`. Comment explains
+  why unattend is not a runtime-interactive decision — it is a static
+  file that should always be referenced when staged, regardless of
+  interactive vs silent. No changes to any other args-line
+  composition (WipeDisks/DataDiskNumber/BitLockerPin stay silent-only,
+  matching their `.PARAMETER` docstrings).
+- `CHANGELOG.md` — `## Unreleased / ### Fixed` bullet describing the
+  gap and the fix.
+
+**Verification:**
+
+- `pwsh` installed via the CLAUDE.md tarball recipe (v7.4.6).
+- `pwsh -NoProfile -File ./tests/test_parse.ps1` → 48 passed / 0
+  failed after edit (baseline was 48 pre-edit — this is a semantic
+  fix, no new tests added).
+- Behavioral verification via a scratchpad replay of the exact
+  args-generation block against five synthetic inputs (interactive
+  +/- unattend, silent +/- unattend, silent + all optional params +
+  unattend). 15 assertions all pass. The silent + unattend regression
+  path emits a byte-identical `deploy.args` string to the pre-fix
+  code (`-WimFile ... -TargetDisk 0 -Force -Silent -UnattendFile
+  "{DRIVE}\configs\answers.xml"`), so this is a strict superset of
+  prior behavior — no path that used to emit `-UnattendFile` stops
+  emitting it, and no path that omitted it in the interactive branch
+  now silently changes some other semantic.
+- Did not run `tests/validation-gates.Tests.ps1` (Pester, CI-only per
+  CLAUDE.md; network policy blocks `Install-Module Pester` here).
+  The Pester suite covers `unified_winpe_deploy.ps1` validation
+  gates, not `build_iso.ps1` — no assertions in it touch the modified
+  code.
+
+**Risks:**
+
+- Minimal. The change is one-line semantic (move `-UnattendFile`
+  append out of the else branch). Silent-mode `deploy.args` is
+  byte-identical to before for all combinations of the other
+  arguments. Interactive-mode `deploy.args` now correctly appends
+  `-UnattendFile "..."` whenever the file was staged.
+- No changes to destructive code paths (diskpart, DISM, BCDBoot).
+  No new parameters, no new dependencies, no default behavior change
+  for users who did not pass `-UnattendFile`.
+
+**Next recommended improvement:**
+
+- `-BitLockerPin` has softer drift in its `.PARAMETER` block ("If
+  set, the generated deploy.args enables BitLocker with this PIN")
+  with no explicit "silent only" caveat, but the code drops it in
+  interactive mode. Fixing this is a design call rather than a bug
+  fix — interactive mode already prompts for the PIN at the WinPE
+  console (PR #48), so an operator running `-Interactive
+  -BitLockerPin ...` today gets prompted twice-ish (build-time input,
+  then again at deploy). Either update the docstring to say
+  "silent only", or thread the PIN through — but pick one and be
+  explicit. Deferred here; the interactive-BitLocker path is niche.
+- `Show-ImageList` / `Show-ImageSelection` refactor still deferred
+  (~30 lines of shared listing-render code; load-bearing TUI UX).
+- Consider a fixture test for the `build_iso.ps1` args-generation
+  block itself, using the scratchpad replay pattern I used here. It
+  would guard against future re-introduction of this class of drift
+  (parameter documented as applied in both modes but silently dropped
+  in one). Low priority — the scratchpad script is preserved under
+  `.claude/reviews/` in the referenced session if needed.
+
+---
+
 ## 2026-05-24 — `tests/test_parse.ps1` coverage of `build_iso.ps1` + `first-login.ps1`
 
 **Investigated:** open + closed PRs (#33-#45 all merged; nothing open),

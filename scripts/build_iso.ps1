@@ -278,10 +278,6 @@ if ($Interactive) {
     # Fully silent: boot -> deploy -> done, no prompts
     $argsLine = "-WimFile `"{DRIVE}\images\$wimBaseName`" -TargetDisk $TargetDisk -Force -Silent"
 
-    if ($unattendInIso) {
-        $argsLine += " -UnattendFile `"$unattendInIso`""
-    }
-
     if ($WipeDisks) {
         # Validate format before embedding
         if ($WipeDisks -notmatch '^\s*\d+(\s*,\s*\d+)*\s*$') {
@@ -299,6 +295,16 @@ if ($Interactive) {
     }
 
     Write-Step "Generating silent deploy.args"
+}
+
+# UnattendFile applies in both modes: interactive picks disk/edition at TUI,
+# but the answer file is static and should always be referenced when staged.
+# The .PARAMETER UnattendFile docstring at the top of this script promises
+# this behavior; without this common append, the interactive branch stages
+# configs\<name>.xml into the ISO but never passes -UnattendFile to the
+# deploy script, and Windows Setup silently falls through to manual OOBE.
+if ($unattendInIso) {
+    $argsLine += " -UnattendFile `"$unattendInIso`""
 }
 
 Set-Content -Path $deployArgsPath -Value $argsLine -Encoding ASCII -Force
