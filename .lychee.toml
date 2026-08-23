@@ -1,12 +1,16 @@
 # Lychee link-checker configuration
 # Used by the `link-check` job in .github/workflows/ci.yml
 
-# Anchors/fragments are NOT checked. That is lychee's default, so there is
-# deliberately no key here: `include_fragments` is the opt-in CLI flag
-# (--include-fragments) and lychee >= 0.24 rejects it as a config-file key
-# with "TOML parse error ... wanted string or table", which fails the
-# link-check job at config-load time before a single link is examined.
-# Leave this as a comment; do not re-add the key.
+# Skip anchors — GitHub renders Markdown headings into anchors but
+# lychee would have to fetch the full rendered HTML to verify them.
+#
+# lychee 0.24 changed this from a boolean to a string enum. Valid values
+# are `none`, `anchor-only`, `text-only`, `full`; `"none"` is the
+# equivalent of the pre-0.24 `false`. The old `include_fragments = false`
+# now fails config load outright ("TOML parse error ... wanted string or
+# table"), which aborts the link-check job before it examines a single
+# link — keep this a quoted enum value, never a bare boolean.
+include_fragments = "none"
 
 # Treat GitHub rate-limit responses (429) as success rather than error.
 # Note: `accept` replaces the default 200-299 success range, so it must
